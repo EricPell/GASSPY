@@ -1,0 +1,141 @@
+#!/usr/bin/python
+
+import os
+import sys
+
+sys.path.append(os.getcwd())
+
+from myconfig import *
+
+import yt
+import numpy as np
+
+def live_line(str):
+    sys.stdout.write('\r')
+    sys.stdout.flush()
+    sys.stdout.write(str)
+    
+ds = yt.load(inFile)
+dd = ds.all_data()
+
+outFile = open("tmp"+".cloudyparameters",'w')
+
+unique_param_dict={}
+
+deltaZ = 7.715e20
+deltaZ = 3.8e21
+zmask = (abs(dd['z'])< deltaZ)
+
+Tmin = 3.5
+Tmask = (dd['temp'] > Tmin)
+
+mask = zmask*Tmask
+
+dxxyz = ["dx","x","y","z"]
+gasfields = ["dens","temp","iha ","ihp ","ih2 ","ico ","icp "]
+
+radfields = ["flge","fluv","flih","fli2"]
+
+cloudyfields = ["dx","dens","temp"] + radfields
+
+outstr = "cell_i"
+for field in dxxyz:
+    outstr +="\t%*s"%(9,field)
+for field in gasfields+radfields:
+    outstr +="\t%*s"%(4,field)
+
+outFile.write(outstr)
+outFile.write("\n")
+
+Ncells = len( dd['dens'][mask])
+
+# Extract masked cells into arrays
+simdata={}
+for field in dxxyz:
+    simdata[field] = dd[field][mask].value
+
+for field in gasfields:
+    if field == "dens":
+        mH = 1.67e-24 # Mass of the hydrogen atom
+        simdata[field] = np.log10(dd[field][mask].value/mH)
+    else:
+        simdata[field] = np.log10(dd[field][mask].value)
+        
+for field in radfields:    
+    if field == "flge":
+        simdata[field] = np.log10(dd[field][mask].value)
+    else:
+        if radfields_are_log == True:
+            simdata[field] = dd[field][mask].value-2.0*np.log10(dd['dx'][mask].value)
+        else:
+            simdata[field] = np.log10(dd[field][mask].value)-2.0*np.log10(dd['dx'][mask].value)
+        tolowmask = simdata[field] < -5.0
+        simdata[field][tolowmask] = -99.0
+#Loop over every cell in the masked region
+for cell_i in range(Ncells):
+    #initialize the data values array
+    data=[]
+
+    dx = simdata["dx"][cell_i]
+    
+    cloudyparm = "%0.3f\t"%(np.log10(dx))
+
+    #extract dxxyz positions
+    for field in dxxyz:
+        data.append("%0.3e"%(simdata[field][cell_i]))
+
+    #extract gas properties field
+    for field in gasfields:
+        value = "%0.1f"%(simdata[field][cell_i])
+        if value == "-inf" or value == "inf":
+            value = "%0.1f"%(np.log10(1e-99))
+        try:
+            cloudyfields.index(field)
+            cloudyparm +="%s\t"%(value)
+        except:
+            "field not a cloudy param"
+        # Append the field numerical value to data
+        data.append(value)
+
+    #extract intensity radiation fields
+
+    for field in radfields:
+        logflux = simdata[field][cell_i]
+        if logflux > -4:
+            value = "%0.1f"%(logflux)
+        else:
+            value = "-99.0"
+        if value == "-inf" or value == "inf":
+            value = "%0.1f"%(np.log10(1e-99))
+            # Append the field numerical value to data
+        data.append(value)
+        cloudyparm +="%s\t"%(value)
+    
+    # Write cell data to output file
+    if data[-3:-1]+[data[-1]] != ["-99.0","-99.0","-99.0"]:
+        try:
+            unique_param_dict[cloudyparm]+=1
+        except:
+            unique_param_dict[cloudyparm] =1
+    outFile.write("\t".join( [ "%*i" % (6,cell_i) ] + data ) + "\n")
+
+    #Print progress to stdout
+    # Only print every 1% cells.
+    if float(cell_i)/(float(Ncells)/100.) == cell_i/(Ncells/100) :
+        message = "Extracting cell %i:%i (%i percent complete)"%(cell_i,Ncells-cell_i,(int(100.*float(cell_i)/float(Ncells))))
+        live_line(message)
+
+#Cloes output file
+outFile.close()
+
+sys.stdout.write("\n")
+live_line("Finished %i cells"%(Ncells)+"\n")
+
+outFile = open("tmp"+".unique_parameters",'w')
+outFile.write("\t".join(["UniqID"]+cloudyfields)+"\tN\n")
+
+uniqueID = 0
+for key in sorted(unique_param_dict.keys()):
+    outFile.write("%i"%uniqueID+"\t"+key+"%i"%unique_param_dict[key]+"\n")
+    uniqueID += 1
+outFile.close()
