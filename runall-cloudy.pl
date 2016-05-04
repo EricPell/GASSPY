@@ -87,13 +87,13 @@ else{
 		    
 		    # actually execute the code
 		    system "nice -n 5 ${CLOUDY_PATH}/${CLOUDY_EXE} < $input  > $out&";
-		    {sleep(1);}			
+		    {sleep(0.25);}			
 		}
 		
 		$i++;
 		
 	    }
-	    else {sleep(5);}
+	    else {sleep(1);}
 	}
     }
     
