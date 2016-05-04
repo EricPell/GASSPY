@@ -1,11 +1,5 @@
-Zmin = "default"
-Zmax = "default"
-
-Xmin = "default"
-Xmax = "default"
-
-Ymin = "default"
-Ymax = "default"
-
-Tmin = "default"
-Tmax = "default"
+mask_parameters_dict={
+    "x":"default",\
+    "y":"default",\
+    "z":"default",\
+    "temp":"default"}

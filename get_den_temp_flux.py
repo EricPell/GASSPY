@@ -5,6 +5,9 @@ import sys
 
 sys.path.append(os.getcwd())
 
+
+from defaults import *
+
 from myconfig import *
 
 import yt
@@ -22,14 +25,27 @@ outFile = open("tmp"+".cloudyparameters",'w')
 
 unique_param_dict={}
 
-deltaZ = 7.715e20
-deltaZ = 3.8e21
-zmask = (abs(dd['z'])< deltaZ)
+""" Set masks based on mask parameters read in by the defaults library, or by myconfig"""
+def mask_data(mask_parameters):
+    masks = {}
+    n_mask=0
+    for key in sorted(mask_parameters.keys()):
+        if mask_parameters[key] != "default":
+            n_mask+=1
+            masks[key+"min"] = dd[key] > min(mask_parameters[key])
+            masks[key+"max"] = dd[key] < max(mask_parameters[key])
+            
+            if n_mask != 1:
+                mask = mask*masks[key+"min"]*masks[key+"max"]
+            else:
+                mask = masks[key+"min"]*masks[key+"max"]
+                
+    if(n_mask == 0):
+        print "data is not masked"
+        mask = dd["density"] > 0
+    return(mask) # http://www.imdb.com/title/tt0110475/
 
-Tmin = 3.5
-Tmask = (dd['temp'] > Tmin)
-
-mask = zmask*Tmask
+mask = mask_data(mask_parameters_dict)
 
 dxxyz = ["dx","x","y","z"]
 gasfields = ["dens","temp","iha ","ihp ","ih2 ","ico ","icp "]
@@ -65,11 +81,8 @@ for field in radfields:
     if field == "flge":
         simdata[field] = np.log10(dd[field][mask].value)
     else:
-        if radfields_are_log == True:
-            simdata[field] = dd[field][mask].value-2.0*np.log10(dd['dx'][mask].value)
-        else:
-            simdata[field] = np.log10(dd[field][mask].value)-2.0*np.log10(dd['dx'][mask].value)
-        tolowmask = simdata[field] < -5.0
+        simdata[field] = dd[field][mask].value-2.0*np.log10(dd['dx'][mask].value)
+        tolowmask = simdata[field] < 0.0
         simdata[field][tolowmask] = -99.0
 #Loop over every cell in the masked region
 for cell_i in range(Ncells):
