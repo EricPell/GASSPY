@@ -41,7 +41,7 @@ def set_phi_uv(outfile,phi_uv):
 def set_phi_ih(outfile,phi_ih):
     if(phi_ih != "-99.0"):
         outfile.write(flih_shape)
-        outfile.write("phi(h) = %s linear, range 1.0 to 1.117 Ryd\n"%(phi_ih))
+        outfile.write("phi(h) = %s, range 1.0 to 1.117 Ryd\n"%(phi_ih))
 
 def set_phi_i2(outfile,phi_i2):
     if(phi_i2 != "-99.0"):
