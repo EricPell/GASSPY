@@ -1,4 +1,6 @@
 #!/usr/bin/python
+lastmoddate = "24.05.2016.EWP"
+
 import os
 import sys
 sys.path.append(os.getcwd())
