@@ -28,14 +28,14 @@ and dividing by dx*dy. Output: unique physical parameters needed to
 generate CLOUDY grid in "make-cloudy-input.py".
 
 The following files are support files and are indirectly called by the
-programs above.
+programs above. A user should usually not modify these data files.
 
-silcc_flash_postprocess_singlezone.ini
+silcc_flash_postprocess_singlezone.ini - CLOUDY init file used to set global commands for post processing a SILCC simulation.
 
-flge_shape.py
+flge_shape.py - Shape of non-ionizing, photoelectric heating light.
 
-fli2_shape.py
+fluv_shape.py - Shape of non-ionizing, UV light responsible for H2 destruction.
 
-flih_shape.py
+flih_shape.py - Shape of H-ionizing radiation from 13.6 to 15.2eV
 
-fluv_shape.py
+fli2_shape.py - Shape of ionizing spectrum above 15.2eV
