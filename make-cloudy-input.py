@@ -59,7 +59,7 @@ def set_phi_i2(outfile,phi_i2):
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
 
-def create_cloudy_input_file(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2, cloudy_init_file="silcc_flash_postprocess_singlezone.ini"):
+def create_cloudy_input_file(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2, cloudy_init_file="silcc_flash_postprocess.ini"):
     """ crate prefix for models and open Cloudy input file for writing"""
     cloudy_input_file = set_output_and_save_prefix(UniqID, hden, depth, T, I_ge, phi_uv, phi_ih, phi_i2)
     
