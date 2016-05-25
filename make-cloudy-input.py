@@ -7,13 +7,13 @@ sys.path.append(os.getcwd())
 
 # Import configuration file from this
 import myconfig
-
-
+try:
+    CLOUDY_INIT_FILE = myconfig.CLOUDY_INIT_FILE
+except:
+    CLOUDY_INIT_FILE = defaults.CLOUDY_INIT_FILE
+    
 # Import string containing each continuum shape.
-from flge_shape import *
-from fluv_shape import *
-from flih_shape import *
-from fli2_shape import *
+import cont_shape # Import continuum shapes
 
 def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2):
     # pass this a dictionary of parameters and values. Loop over and create prefix. Use dictionary elsewhere.
@@ -24,6 +24,7 @@ def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi
 
 def check_for_IF(depth,hden,phi_ih,phi_i2):
     alpha = 4e-13 # H recombinations per second cm-6
+    ion_depth = 
     if(depth * hden**2 * alpha >= (10**(float(phi_ih)) + 10**(float(phi_i2)) )):
         return True
     else:
@@ -44,26 +45,26 @@ def set_T(outfile,T):
 
 def set_I_ge(outfile,I_ge):
     if(I_ge != "-99.0"):
-        outfile.write(flge_shape)
+        outfile.write(cont_shape.flge)
         outfile.write("intensity %s, range 0.41 to 0.823 Ryd\n"%(I_ge))
 
 def set_phi_uv(outfile,phi_uv):
     if(phi_uv != "-99.0"):
-        outfile.write(fluv_shape)
+        outfile.write(cont_shape.fluv)
         outfile.write("phi(h) = %s, range 0.823 to 1.0 Ryd\n"%(phi_uv))
 
 def set_phi_ih(outfile,phi_ih):
     if(phi_ih != "-99.0"):
-        outfile.write(flih_shape)
+        outfile.write(cont_shape.flih)
         outfile.write("phi(h) = %s, range 1.0 to 1.117 Ryd\n"%(phi_ih))
 
 def set_phi_i2(outfile,phi_i2):
     if(phi_i2 != "-99.0"):
-        outfile.write(fli2_shape)
+        outfile.write(cont_shape.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
 
-def create_cloudy_input_file(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2, cloudy_init_file="silcc_flash_postprocess.ini"):
+def create_cloudy_input_file(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2, cloudy_init_file=CLOUDY_INIT_FILE):
     """ crate prefix for models and open Cloudy input file for writing"""
     cloudy_input_file = set_output_and_save_prefix(UniqID, hden, depth, T, I_ge, phi_uv, phi_ih, phi_i2)
     

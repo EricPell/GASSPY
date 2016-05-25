@@ -1,24 +1,32 @@
 #!/usr/bin/python
 lastmoddate = "24.05.2016.EWP"
 
-import os
-import sys
+""" Append launch directory to python path for importing config files """
+    import os
+    import sys
+    sys.path.append(os.getcwd())
 
-sys.path.append(os.getcwd())
+""" Import default and model specific settings """ 
+ import defaults
+ import myconfig
+ try:
+ mask_parameters_dict = myconfig.mask_parameters_dict
+except:
+    mask_parameters_dict = defaults.mask_parameters_dict
+    
+
+""" Load dependencies """
+ import yt or die("Module yt failed to load")
+ import numpy as np or die("numpy failed to load as np")
 
 
-from defaults import *
-
-from myconfig import *
-
-import yt
-import numpy as np
-
+""" Define function to write messages to stdout """
 def live_line(str):
     sys.stdout.write('\r')
     sys.stdout.flush()
     sys.stdout.write(str)
-    
+
+ 
 ds = yt.load(inFile)
 dd = ds.all_data()
 
