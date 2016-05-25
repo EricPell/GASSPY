@@ -2,22 +2,22 @@
 lastmoddate = "24.05.2016.EWP"
 
 """ Append launch directory to python path for importing config files """
-    import os
-    import sys
-    sys.path.append(os.getcwd())
+import os
+import sys
+sys.path.append(os.getcwd())
 
 """ Import default and model specific settings """ 
- import defaults
- import myconfig
- try:
- mask_parameters_dict = myconfig.mask_parameters_dict
+import defaults
+import myconfig
+try:
+    mask_parameters_dict = myconfig.mask_parameters_dict
 except:
     mask_parameters_dict = defaults.mask_parameters_dict
     
 
 """ Load dependencies """
- import yt or die("Module yt failed to load")
- import numpy as np or die("numpy failed to load as np")
+import yt or die("Module yt failed to load")
+import numpy as np or die("numpy failed to load as np")
 
 
 """ Define function to write messages to stdout """
