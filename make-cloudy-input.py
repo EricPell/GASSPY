@@ -24,8 +24,8 @@ def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi
 
 def check_for_IF(depth,hden,phi_ih,phi_i2):
     alpha = 4e-13 # H recombinations per second cm-6
-    ion_depth = 
-    if(depth * hden**2 * alpha >= (10**(float(phi_ih)) + 10**(float(phi_i2)) )):
+    ion_depth = (10**(float(phi_ih)) + 10**(float(phi_i2)) )/(alpha * hden**2)
+    if( (ion_depth =< depth) and (ion_depth > 0.01*depth):
         return True
     else:
         return False
@@ -34,14 +34,22 @@ def set_cloudy_init_file(outfile, init_file):
     outfile.write("init \"%s\"\n"%(init_file))
                   
 def set_depth(outfile,depth):
-    outfile.write("stop depth %s\n"%(depth))
-    
+    outfile.write("stop depth %s\n"%(depth))    
 
 def set_hden(outfile, hden):
     outfile.write("hden %s\n"%(hden))
 
-def set_T(outfile,T):
-    outfile.write("constant temperature %s\n"%(T))
+def set_nend(outfile,isIF):
+    if isIF == True:
+        """ Do not set constant temperature if IF exists """
+        outfile.write("set nend 1000\n")        
+    if isIF == False:
+        """ Set constant temperature if IF does not exist """
+        outfile.write("set nend 1\n")        
+
+def set_T(outfile,T,isIF):
+    if(isIF == False):
+        outfile.write("constant temperature %s\n"%(T))
 
 def set_I_ge(outfile,I_ge):
     if(I_ge != "-99.0"):
@@ -63,19 +71,20 @@ def set_phi_i2(outfile,phi_i2):
         outfile.write(cont_shape.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
-
 def create_cloudy_input_file(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2, cloudy_init_file=CLOUDY_INIT_FILE):
     """ crate prefix for models and open Cloudy input file for writing"""
     cloudy_input_file = set_output_and_save_prefix(UniqID, hden, depth, T, I_ge, phi_uv, phi_ih, phi_i2)
+
+    isIF = check_for_IF(depth,hden,phi_ih,phi_i2)
     
     """ Set common init file """
     set_cloudy_init_file(cloudy_input_file, cloudy_init_file)
 
     """ Write individual cloudy parameters to input file """
     set_depth(cloudy_input_file, depth)
-    set_nend()
     set_hden(cloudy_input_file, hden)
-    set_T(cloudy_input_file, T)
+    set_nend(cloudy_input_file, isIF)
+    set_T(cloudy_input_file, T, isIF)
     set_I_ge(cloudy_input_file, I_ge)
     set_phi_uv(cloudy_input_file, phi_uv)
     set_phi_ih(cloudy_input_file, phi_ih)
