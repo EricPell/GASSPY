@@ -16,8 +16,8 @@ except:
     
 
 """ Load dependencies """
-import yt or die("Module yt failed to load")
-import numpy as np or die("numpy failed to load as np")
+import yt
+import numpy as np
 
 
 """ Define function to write messages to stdout """
