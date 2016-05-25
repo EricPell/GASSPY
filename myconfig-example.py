@@ -7,3 +7,5 @@ mask_parameters_dict={
     "y":[-250*3.08e18, 50*3.08e18],\
     "z":[-50.*3.08e18, 250*3.08e18],\
     "temp":[1e3,1e5]}
+
+CLOUDY_INIT_FILE = "silcc_flash_postprocess.ini"

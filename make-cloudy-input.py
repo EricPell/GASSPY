@@ -1,9 +1,13 @@
 #!/usr/bin/python
-lastmoddate = "24.05.2016.EWP"
+lastmoddate = "25.05.2016.EWP"
 
 import os
 import sys
 sys.path.append(os.getcwd())
+
+# Import configuration file from this
+import myconfig
+
 
 # Import string containing each continuum shape.
 from flge_shape import *
