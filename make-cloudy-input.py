@@ -23,9 +23,9 @@ def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi
     return(outfile)
 
 def check_for_IF(depth,hden,phi_ih,phi_i2):
-    alpha = 4e-13 # H recombinations per second cm-6
-    ion_depth = (10**(float(phi_ih)) + 10**(float(phi_i2)) )/(alpha * hden**2)
-    if( (ion_depth =< depth) and (ion_depth > 0.01*depth):
+    alpha = 4.0e-13 # H recombinations per second cm-6
+    ion_depth = (10**(float(phi_ih)) + 10**(float(phi_i2)))/(alpha * 10**(float(hden))**2 )
+    if( (ion_depth <= 10**float(depth)) and (ion_depth > 1e13) ):
         return True
     else:
         return False

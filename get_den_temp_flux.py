@@ -27,7 +27,7 @@ def live_line(str):
     sys.stdout.write(str)
 
  
-ds = yt.load(inFile)
+ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
 
 outFile = open("tmp"+".cloudyparameters",'w')
