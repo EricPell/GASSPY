@@ -16,7 +16,18 @@ for $file (@FILES){
     open(IN, "<", $file);
     chomp(@data = <IN>);
     if($data[0] eq $header){
-	push(@full_data,join("\t",($ID,$data[1])));
+	
+	# Here we push the entire emissivity data, which is found on rows 1 and greater. In the case
+	# one zone models this is simply the second entry in data.
+
+	# Calculate average of emissivity file
+	@AverageData = &avgEmissivty(\@data);
+
+	# Join ID number and emissivity into a string.
+	my $string = join("\t",($ID,@AverageData));
+
+	# Push model string into full suite of data
+	push(@full_data,$string);
     }
     elsif($data[0] ne $header){exit "Header miss-match\n";}
     close(IN);
@@ -40,3 +51,8 @@ for $outline (@full_data){
 }
 close(OUT)
 
+
+sub avgEmissivty{
+    my @array = @{$_[0]};
+    
+}

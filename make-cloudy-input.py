@@ -1,9 +1,11 @@
 #!/usr/bin/python
-lastmoddate = "25.05.2016.EWP"
+lastmoddate = "18.07.2016.EWP"
 
 import os
 import sys
 sys.path.append(os.getcwd())
+
+MaxNumberModels = int(1e7)
 
 # Import configuration file from this
 import myconfig
@@ -101,6 +103,9 @@ parameter_data = input.readlines()
 #if(parameter_data[0] != "UniqID  dx      dens    temp    flge    fluv    flih    fli2    N\n"):
     # sys.exit("Header file did not match expected format")
 #else:
-for i in range(1,len(parameter_data)):
+
+if(len(parameter_data) < MaxNumberModels):
+    for i in range(1,len(parameter_data)):
         [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
         create_cloudy_input_file(UniqID, depth, hden, temp, flge, fluv, flih, fli2)
+        
