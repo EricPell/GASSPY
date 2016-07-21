@@ -21,7 +21,7 @@ models to multiple CPUs/cores.
 
 Step 5) get_em.py - Match Flash cell{x,y,z} with it's emssivities.
 
-Step 6) combine-ems.pp - Combine all of the cloudy emssivity files into a
+Step 6) combine-ems.pl - Combine all of the cloudy emssivity files into a
 single table. This output is used in get_flux.py
 
 Step 7) get_flux.py - Do a simple projection along a cardinal axis to
@@ -33,12 +33,11 @@ generate CLOUDY grid in "make-cloudy-input.py".
 The following files are support files and are indirectly called by the
 programs above. A user should usually not modify these data files.
 
-silcc_flash_postprocess_singlezone.ini - CLOUDY init file used to set global commands for post processing a SILCC simulation.
+silcc_flash_postprocess.ini - CLOUDY init file used to set global 
+commands for post processing a SILCC simulation. This no longer sets nend=1
 
-flge_shape.py - Shape of non-ionizing, photoelectric heating light.
-
-fluv_shape.py - Shape of non-ionizing, UV light responsible for H2 destruction.
-
-flih_shape.py - Shape of H-ionizing radiation from 13.6 to 15.2eV
-
-fli2_shape.py - Shape of ionizing spectrum above 15.2eV
+cont_shape.py - Replaces individual flxx_shape.py files:
+    flge_shape.py - Shape of non-ionizing, photoelectric heating light.
+    fluv_shape.py - Shape of non-ionizing, UV light responsible for H2 destruction.
+    flih_shape.py - Shape of H-ionizing radiation from 13.6 to 15.2eV
+    fli2_shape.py - Shape of ionizing spectrum above 15.2eV
