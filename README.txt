@@ -21,7 +21,10 @@ models to multiple CPUs/cores.
 
 Step 5) get_em.py - Match Flash cell{x,y,z} with it's emssivities.
 
-Step 6) get_flux.py - Do a simple projection along a cardinal axis to
+Step 6) combine-ems.pp - Combine all of the cloudy emssivity files into a
+single table. This output is used in get_flux.py
+
+Step 7) get_flux.py - Do a simple projection along a cardinal axis to
 create maps of line fluxes. This routine works by calculating the
 total luminosity in a column within an evenly spaced grid of dx-dy,
 and dividing by dx*dy. Output: unique physical parameters needed to
