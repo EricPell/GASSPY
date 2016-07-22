@@ -2,8 +2,8 @@ README.txt - Readme file containing information on directory contents
 as well as running the code(s)
 
 contributors.txt - List of current and past contributors: 
-    Eric Pellegrini
-    Thomas Peters
+    Eric Pellegrini - current
+    Thomas Peters - current
 
 defaults.py - sets default geometric and temperature mask. This is
 overridden if specified in the local config file saved with the flash
