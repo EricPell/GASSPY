@@ -2,7 +2,7 @@ README.txt - Readme file containing information on directory contents
 as well as running the code(s)
 
 contributors.txt - List of current and past contributors: 
-    Eric Pellegrini - current
+    Eric Pellegrini - current - pimary author
     Thomas Peters - current
 
 defaults.py - sets default geometric and temperature mask. This is
