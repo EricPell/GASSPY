@@ -4,6 +4,7 @@ as well as running the code(s)
 contributors.txt - List of current and past contributors: 
     Eric Pellegrini - current - pimary author
     Thomas Peters - current
+    Daniel Rahner - current
 
 defaults.py - sets default geometric and temperature mask. This is
 overridden if specified in the local config file saved with the flash
