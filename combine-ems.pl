@@ -55,7 +55,7 @@ close(OUT)
 
 sub avgEmissivty{
     # dereference array containing emissivity data
-    my @array_rows = @{$_[0]};
+    my $array_ref = $_[0];
 
     # Initialize depth at the face of the cloud
     $r_old = 0.0;
