@@ -59,6 +59,8 @@ sub avgEmissivty{
     my $array_ref = $_[0];
     my @array_rows = @$array_ref;
 
+    die "number of array rows is",scalar @array_rows,"\n";
+
     # Initialize depth at the face of the cloud
     $r_old = 0.0;
 
