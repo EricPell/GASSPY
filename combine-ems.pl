@@ -59,7 +59,8 @@ sub avgEmissivty{
     my $array_ref = $_[0];
     my @array_rows = @$array_ref;
 
-    die "number of array rows is",scalar @array_rows,"\n";
+    print @array_rows,"\n"; #debug
+    die "number of array rows is ",scalar @array_rows,"\n"; #debug
 
     # Initialize depth at the face of the cloud
     $r_old = 0.0;
@@ -73,8 +74,8 @@ sub avgEmissivty{
     @SumProduct_dr_emissivity = (0) x scalar @header_array;
     @AverageEmissivity = (0) x scalar @header_array;
 
-    $number_of_rows = scalar @array_rows -1;
-    print STDERR "rows 1 to ${number_of_rows}\n";
+    $number_of_rows = scalar @array_rows -1; #debug
+    print STDERR "rows 1 to ${number_of_rows}\n"; #debug
 
     for (my $row = 1; $row <= @array_rows -1; $row++){
         
