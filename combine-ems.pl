@@ -92,7 +92,7 @@ sub avgEmissivty{
         $row++;
     } while($row <= @array_rows -1);
 
-    for (my $col = 1; $col <= @SumProduct_dr_emissivity; $i++){
+    for (my $col = 1; $col <= @SumProduct_dr_emissivity-1; $i++){
         $AverageEmissivity[$col] = $SumProduct_dr_emissivity[$col] / $Sum_dr;
     }
     return(join("\t",@AverageEmissivity))
