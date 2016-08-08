@@ -13,6 +13,7 @@ close(IN);
 $header = $data[0];
 
 for $file (@FILES){
+    print STDERR "Processing $file\n";
     $ID = substr($file,length($prefix),(length($file)-(length(".ems")+length($prefix)) ));
     open(IN, "<", $file);
     chomp(@data = <IN>);
