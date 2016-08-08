@@ -50,7 +50,7 @@ print OUT join("\t",@spacer_array)."\n";
 for $outline (@full_data){
     print OUT $outline."\n";
 }
-close(OUT)
+close(OUT);
 
 
 sub avgEmissivty{
