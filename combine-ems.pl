@@ -65,12 +65,14 @@ sub avgEmissivty{
     # Loop over each row
     
     #Read number of header entries, split by tab
-    my @array = split("\t",$array_rows[0]);
+    my @heade_array = split("\t",$array_rows[0]);
 
     # Initialize SumProduct and AverageEmissivity arrays
-    @SumProduct_dr_emissivity = (0) x scalar @array;
-    @AverageEmissivity = (0) x scalar @array;
+    @SumProduct_dr_emissivity = (0) x scalar @header_array;
+    @AverageEmissivity = (0) x scalar @header_array;
 
+    print STDERR "rows 1 to ".@array_rows -1;
+    print STDERR "\n";
     for (my $row = 1; $row <= @array_rows -1; $row++){
         
         @array_columns = split("\t",$array_rows[$row]);
