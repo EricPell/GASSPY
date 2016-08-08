@@ -71,6 +71,9 @@ sub avgEmissivty{
     @SumProduct_dr_emissivity = (0) x scalar @header_array;
     @AverageEmissivity = (0) x scalar @header_array;
 
+    print STDERR @SumProduct_dr_emissivity,"\n"; #debug
+    print STDERR @AverageEmissivity,"\n"; #debug
+
     $number_of_rows = scalar @array_rows -1; #debug
     print STDERR "rows 1 to ${number_of_rows}\n"; #debug
 
