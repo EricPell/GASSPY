@@ -1,7 +1,11 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -w
 # OneDrive/Research/ISM-models/SILCC/bin/optimal_post_processing
 
-$prefix = $ARGV[0];
+$debug=0;
+
+$prefix = "silcc-";
+$prefix = $ARGV[0] if(scalar @ARGV >= 1);
+
 @FILES = glob($prefix."*.ems");
 
 $first = $FILES[0];
@@ -13,7 +17,7 @@ close(IN);
 $header = $data[0];
 
 for $file (@FILES){
-    print STDERR "Processing $file\n";
+    print STDERR "Processing $file\r";
     $ID = substr($file,length($prefix),(length($file)-(length(".ems")+length($prefix)) ));
     open(IN, "<", $file);
     chomp(@data = <IN>);
@@ -26,7 +30,7 @@ for $file (@FILES){
 	$AverageData = &avgEmissivty(\@data);
 
 	# Join ID number and emissivity into a string.
-	my $string = join("\t",($ID,@AverageData));
+	my $string = join("\t",($ID,$AverageData));
 
 	# Push model string into full suite of data
 	push(@full_data,$string);
@@ -60,7 +64,7 @@ sub avgEmissivty{
     my @array_rows = @$array_ref;
 
     # Initialize depth at the face of the cloud
-    $r_old = 0.0;
+    my $r_old = 0.0;
 
     # Loop over each row
     
@@ -71,17 +75,17 @@ sub avgEmissivty{
     @SumProduct_dr_emissivity = (0) x scalar @header_array;
     @AverageEmissivity = (0) x scalar @header_array;
 
-    print STDERR @SumProduct_dr_emissivity,"\n"; #debug
-    print STDERR @AverageEmissivity,"\n"; #debug
+    print STDERR @SumProduct_dr_emissivity,"\n" if($debug); #debug
+    print STDERR @AverageEmissivity,"\n" if($debug); #debug
 
-    $number_of_rows = scalar @array_rows -1; #debug
-    print STDERR "rows 1 to ${number_of_rows}\n"; #debug
+    $number_of_rows = scalar @array_rows -1 if($debug); #debug
+    print STDERR "rows 1 to ${number_of_rows}\n" if($debug); #debug
 
     $row = 1;
-    do { #for (my $row = 1; $row <= @array_rows -1; $row++){
-        
-        @array_columns = split("\t",$array_rows[$row]);
 
+    do { #for (my $row = 1; $row <= @array_rows -1; $row++){
+
+        @array_columns = split("\t",$array_rows[$row]);
 
         $r_old = $r_new;
         $r_new = $array_columns[0];
@@ -95,7 +99,7 @@ sub avgEmissivty{
         $row++;
     } while($row <= @array_rows -1);
 
-    for (my $col = 1; $col <= @SumProduct_dr_emissivity-1; $i++){
+    for (my $col = 1; $col <= @SumProduct_dr_emissivity-1; $col++){
         $AverageEmissivity[$col] = $SumProduct_dr_emissivity[$col] / $Sum_dr;
     }
     return(join("\t",@AverageEmissivity))
