@@ -7,7 +7,13 @@ import sys
 
 sys.path.append(os.getcwd())
 
-from myconfig import * # read in mask parameters
+""" Import default and model specific settings """ 
+import defaults
+import myconfig
+try:
+    mask_parameters_dict = myconfig.mask_parameters_dict
+except:
+    mask_parameters_dict = defaults.mask_parameters_dict
 
 ds = yt.load(inFile)
 dd = ds.all_data()
@@ -19,7 +25,7 @@ def mask_data(mask_parameters):
     masks = {}
     n_mask=0
     for key in sorted(mask_parameters.keys()):
-        if mask_parameters[key] != "default":
+        if (mask_parameters[key] != "default"):
             n_mask+=1
             masks[key+"min"] = dd[key] > min(mask_parameters[key])
             masks[key+"max"] = dd[key] < max(mask_parameters[key])
