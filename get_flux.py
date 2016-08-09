@@ -15,7 +15,7 @@ try:
 except:
     mask_parameters_dict = defaults.mask_parameters_dict
 
-ds = yt.load(inFile)
+ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
 
 em_table = Table.read('silcc-combined-ems.tbl',format='ascii')
