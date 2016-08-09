@@ -26,6 +26,7 @@ def mask_data(mask_parameters):
     n_mask=0
     for key in sorted(mask_parameters.keys()):
         if (mask_parameters[key] != "default"):
+            print "Mask paramters are"+key+mask_parameters[key]
             n_mask+=1
             masks[key+"min"] = dd[key] > min(mask_parameters[key])
             masks[key+"max"] = dd[key] < max(mask_parameters[key])
