@@ -44,13 +44,13 @@ open(OUT, ">", $prefix."combined-ems.tbl");
 @header_array = split("\t",$header);
 $header_array[0]="depth";
 unshift(@header_array,"ID");
-@spacer_array = @header_array;
+#@spacer_array = @header_array;
 
-for ($i=0; $i<=  scalar @header_array -1; $i++){    
-    $spacer_array[$i] =  "-"x(length($header_array[$i]));
-}
+#for ($i=0; $i<=  scalar @header_array -1; $i++){    
+#    $spacer_array[$i] =  "-"x(length($header_array[$i]));
+#}
 print OUT join("\t",@header_array)."\n";
-print OUT join("\t",@spacer_array)."\n";
+#print OUT join("\t",@spacer_array)."\n";
 
 for $outline (@full_data){
     print OUT $outline."\n";
