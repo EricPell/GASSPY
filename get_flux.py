@@ -26,7 +26,7 @@ def mask_data(mask_parameters):
     n_mask=0
     for key in sorted(mask_parameters.keys()):
         if (mask_parameters[key] != "default"):
-            print "Mask paramters are"+key+mask_parameters[key]
+            print "Mask paramters are "+key+mask_parameters[key]
             n_mask+=1
             masks[key+"min"] = dd[key] > min(mask_parameters[key])
             masks[key+"max"] = dd[key] < max(mask_parameters[key])
@@ -35,7 +35,8 @@ def mask_data(mask_parameters):
                 mask = mask*masks[key+"min"]*masks[key+"max"]
             else:
                 mask = masks[key+"min"]*masks[key+"max"]
-                
+        else:
+            mask_parameters_dict[key]=[min(dd[key]),max(dd[key])]
     if(n_mask == 0):
         print "data is not masked"
         mask = dd["density"] > 0
