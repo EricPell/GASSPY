@@ -78,29 +78,50 @@ sub avgEmissivty{
     print STDERR @SumProduct_dr_emissivity,"\n" if($debug); #debug
     print STDERR @AverageEmissivity,"\n" if($debug); #debug
 
-    $number_of_rows = scalar @array_rows -1 if($debug); #debug
+    $number_of_rows = scalar @array_rows - 1;
     print STDERR "rows 1 to ${number_of_rows}\n" if($debug); #debug
 
-    $row = 1;
+    if($number_of_rows == 1){
+	@AverageEmissivity = split("\t",$array_rows[1]);
+    }
+    elsif ($number_of_rows >= 1){
+	$row = 1;
+	
+	do { #for (my $row = 1; $row <= @array_rows -1; $row++){
 
-    do { #for (my $row = 1; $row <= @array_rows -1; $row++){
-
-        @array_columns = split("\t",$array_rows[$row]);
-
-        $r_old = $r_new;
-        $r_new = $array_columns[0];
-        $dr = $r_new - $r_old;
-
-        $Sum_dr = $r_new; # the variable r is the depth into the cloud. It is the total r, so it represents the sum of all drs.
-
-        for(my $col = 1; $col <= @array_columns -1;$col++){
-            $SumProduct_dr_emissivity[$col] += $dr * $array_columns[$col];
-        }
-        $row++;
-    } while($row <= @array_rows -1);
-
-    for (my $col = 1; $col <= @SumProduct_dr_emissivity-1; $col++){
-        $AverageEmissivity[$col] = $SumProduct_dr_emissivity[$col] / $Sum_dr;
+	    @array_columns = split("\t",$array_rows[$row]);
+	    
+	    $r_old = $r_new;
+	    $r_new = $array_columns[0];
+	    $dr = abs($r_new - $r_old);
+	    
+	    $Sum_dr = $r_new; # the variable r is the depth into the cloud. It is the total r, so it represents the sum of all drs.
+	    
+	    for(my $col = 1; $col <= @array_columns -1;$col++){
+		$SumProduct_dr_emissivity[$col] += abs($dr) * 10**($array_columns[$col]+30.);
+	    }
+	    $row++;
+	} while($row <= @array_rows -1);
+	
+	for (my $col = 1; $col <= @SumProduct_dr_emissivity-1; $col++){
+	    $meanEmissivity = $SumProduct_dr_emissivity[$col] / $Sum_dr;
+	    $AverageEmissivity[$col] = &log10($meanEmissivity,5)-30.;
+	    
+	}
+	$AverageEmissivity[0] = $Sum_dr;
     }
     return(join("\t",@AverageEmissivity))
+}
+
+sub log10{
+    if($_[0] == 0.0){return(-99.9);}
+    if (scalar @_ == 1){
+	my $number = shift;
+	return(log($number)/log(10.));
+    }
+    elsif(scalar @_ == 2){
+	my($number,$decimals) = @_;
+	return sprintf("%0.${decimals}f", log($number)/log(10.))
+    }
+    else{die "you fed 3 parameters to subroutine log10, I expected 1 or 2.";}
 }
