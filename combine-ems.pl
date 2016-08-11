@@ -105,7 +105,7 @@ sub avgEmissivty{
 	
 	for (my $col = 1; $col <= @SumProduct_dr_emissivity-1; $col++){
 	    $meanEmissivity = $SumProduct_dr_emissivity[$col] / $Sum_dr;
-	    $AverageEmissivity[$col] = &log10($meanEmissivity,5)-30.;
+	    $AverageEmissivity[$col] = sprintf("%0.4f",(&log10($meanEmissivity,5)-30.));
 	    
 	}
 	$AverageEmissivity[0] = $Sum_dr;
