@@ -7,6 +7,8 @@ import sys
 
 sys.path.append(os.getcwd())
 
+open("fluxes.data",'w') as outfile
+
 """ Import default and model specific settings """ 
 import defaults
 import myconfig
@@ -135,7 +137,7 @@ def projection_scale(xmin,xmax,ymin,ymax,min_frb_N):
 
 dl  = projection_scale(xmin,xmax,ymin,ymax,min_frb_N)
 
-print "\t".join(["x","y"]+line_labels)
+outfile.write("\t".join(["x","y"]+line_labels))
 
 # print "xmin = %e"%xmin
 # print "xmax = %e"%xmax
@@ -144,6 +146,7 @@ print "\t".join(["x","y"]+line_labels)
 # print "min_frb_N = %e"%min_frb_N
 # print "dl = %e"%dl
 ixmax = int((xmax-xmin)/dl)
+iymax = int((ymax-ymin)/dl)
 #print "ix_max = %i"%ixmax
 
 for ix in range(0,ixmax):
@@ -151,7 +154,7 @@ for ix in range(0,ixmax):
     xmask = abs(simdata["x"] - x) < dl
     luminosity[x]={}
     volume[x] = {}
-    for iy in range(0,int((ymax-ymin)/dl)):
+    for iy in range(0,iymax):
         y = ymin + dl*iy
         sys.stderr.write('%i %i\n'%(ix,iy))
         ymask = abs(simdata['y'] - y) < dl
@@ -183,7 +186,8 @@ for ix in range(0,ixmax):
         for line_label in line_labels:
             flux = 10**(np.log10(luminosity[x][y][line_label]) - 2*np.log10(dl))
             outstr =  "\t".join([outstr, "%0.1e"%(flux)])
-        print outstr
+        outfile.write(outstr)
     #print "\n"
+outfile.close()
 
     
