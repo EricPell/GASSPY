@@ -153,6 +153,7 @@ for ix in range(0,ixmax):
     volume[x] = {}
     for iy in range(0,int((ymax-ymin)/dl)):
         y = ymin + dl*iy
+        sys.stderr.write('%i %i\n'%(ix,iy))
         ymask = abs(simdata['y'] - y) < dl
         luminosity[x][y] = {}
         for line_label in line_labels:
