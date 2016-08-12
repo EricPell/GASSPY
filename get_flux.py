@@ -15,16 +15,22 @@ try:
 except:
     mask_parameters_dict = defaults.mask_parameters_dict
 
+# raw_input("Now load ds from file")
+
 ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
 
+# raw_input("Now load combined ems table from file")
 em_table = Table.read('silcc-combined-ems.tbl',format='ascii')
 em_table.sort("ID")
 
 def mask_data(mask_parameters):
+    # raw_input("Mask creation routine was called")
     masks = {}
     n_mask=0
     for key in sorted(mask_parameters.keys()):
+        debugstring = "Current mask key/value is ",key,mask_parameters[key]
+        # raw_input(debugstring)
         if (mask_parameters[key] != "default"):
             n_mask+=1
             masks[key+"min"] = dd[key] > min(mask_parameters[key])
@@ -34,13 +40,15 @@ def mask_data(mask_parameters):
                 mask = mask*masks[key+"min"]*masks[key+"max"]
             else:
                 mask = masks[key+"min"]*masks[key+"max"]
-        else:
-            mask_parameters_dict[key]=[min(dd[key]),max(dd[key])]
+        elif (key in {"x","y","z"}):
+            mask_parameters_dict[key] = [ds.domain_left_edge[{"x":0,"y":1,"z":2}[key]].value,
+                                         ds.domain_right_edge[{"x":0,"y":1,"z":2}[key]].value]
     if(n_mask == 0):
         print "data is not masked"
         mask = dd["density"] > 0
     return(mask) # http://www.imdb.com/title/tt0110475/
 
+# raw_input("Now Create masks")
 mask = mask_data(mask_parameters_dict)
 
 Ncells = len(dd['dens'][mask])
@@ -53,12 +61,16 @@ radfields = ["flge","fluv","flih","fli2"]
 cloudyfields = ["dx","dens","temp"] + radfields
 
 # Extract masked cells into arrays
+# raw_input("Now Mask each field")
 simdata={}
 for field in dxxyz:
+    # raw_input(field)
     simdata[field] = dd[field][mask].value
 
+# raw_input("Now Take log10 of dx array")
 simdata['dx'] = np.log10(dd['dx'][mask].value)
 
+# raw_input("Now take log 10 of all other arrays")
 for field in gasfields:
     if field == "dens":
         mH = 1.67e-24 # Mass of the hydrogen atom
@@ -74,9 +86,10 @@ for field in radfields:
         tolowmask = simdata[field] < 0.0
         simdata[field][tolowmask] = -99.0
 
-
+# raw_input("Now ready unique parameters table")
 unique_table = Table.read('silcc.unique_parameters',format='ascii')
 
+# raw_input("Now loop over each entry in unique_table and create a dictionary")
 unique_dict = {}
 for row in range(len(unique_table)):
     (UniqID, dx, dens, temp, flge, fluv, flih, fli2,N) = unique_table[row]
@@ -118,12 +131,22 @@ min_frb_N = 10
 
 """ Set length of projection bin on the sky """
 def projection_scale(xmin,xmax,ymin,ymax,min_frb_N):
-    (min( ((xmax-xmin)/min_frb_N),((ymax-ymin)/min_frb_N) ))
+    return (min( ((xmax-xmin)/min_frb_N),((ymax-ymin)/min_frb_N) ))
 
 dl  = projection_scale(xmin,xmax,ymin,ymax,min_frb_N)
 
 print "\t".join(["x","y"]+line_labels)
-for ix in range(0,int((xmax-xmin)/dl)):
+
+# print "xmin = %e"%xmin
+# print "xmax = %e"%xmax
+# print "ymin = %e"%ymin
+# print "ymax = %e"%ymax
+# print "min_frb_N = %e"%min_frb_N
+# print "dl = %e"%dl
+ixmax = int((xmax-xmin)/dl)
+#print "ix_max = %i"%ixmax
+
+for ix in range(0,ixmax):
     x = xmin + dl*ix
     xmask = abs(simdata["x"] - x) < dl
     luminosity[x]={}
