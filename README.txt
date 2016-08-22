@@ -2,7 +2,7 @@ README.txt - Readme file containing information on directory contents
 as well as running the code(s)
 
 contributors.txt - List of current and past contributors: 
-    Eric Pellegrini - current - pimary author
+    Eric Pellegrini - current - primary author
     Thomas Peters - current
     Daniel Rahner - current
 
