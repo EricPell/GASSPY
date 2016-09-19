@@ -46,7 +46,7 @@ silcc_flash_postprocess.ini - CLOUDY init file used to set global
 commands for post processing a SILCC simulation. This no longer sets nend=1
 
 cont_shape.py - Replaces individual flxx_shape.py files:
-    flge_shape.py - Shape of non-ionizing, photoelectric heating light.
-    fluv_shape.py - Shape of non-ionizing, UV light responsible for H2 destruction.
-    flih_shape.py - Shape of H-ionizing radiation from 13.6 to 15.2eV
-    fli2_shape.py - Shape of ionizing spectrum above 15.2eV
+    flge_shape.py - Shape of non-ionizing, photoelectric heating light. (units)
+    fluv_shape.py - Shape of non-ionizing, UV light responsible for H2 destruction. (units)
+    flih_shape.py - Shape of H-ionizing radiation from 13.6 to 15.2eV (units)
+    fli2_shape.py - Shape of ionizing spectrum above 15.2eV (units)
