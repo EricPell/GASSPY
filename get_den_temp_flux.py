@@ -58,8 +58,11 @@ mask = mask_data(mask_parameters_dict)
 
 dxxyz = ["dx","x","y","z"]
 gasfields = ["dens","temp","iha ","ihp ","ih2 ","ico ","icp "]
+# gas mass density, temperature, fraction of atomic H (iha), ionized (ihp) and molecular (ih2),
+# and various gas fractions.
 
 radfields = ["flge","fluv","flih","fli2"]
+# Radiation fields: Should possibly be defined based on code type, i.e. FLASH, RAMSES
 
 cloudyfields = ["dx","dens","temp"] + radfields
 
