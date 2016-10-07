@@ -5,6 +5,8 @@ import os
 import sys
 sys.path.append(os.getcwd())
 
+from myconfig import * # read in mask parameters
+
 MaxNumberModels = int(1e7)
 
 # Import configuration file from this
