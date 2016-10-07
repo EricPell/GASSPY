@@ -59,7 +59,7 @@ if (defined($ARGV[0])){
 }
 else{
 	#Searching ./cloudy-output/ for model files
-	$suff="./cloudy-output/*.in";
+	$stuff="./cloudy-output/*.in";
 }
     
 # this loops over all the *.in files in the current directory
