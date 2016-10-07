@@ -5,6 +5,15 @@ import os
 import sys
 sys.path.append(os.getcwd())
 
+###############################################################
+# Set default parameters that can be overwritten by my config #
+###############################################################
+# Sets CLOUDY_modelIF to True
+CLOUDY_modelIF = True
+###############################################################
+#                                                             #
+###############################################################
+
 from myconfig import * # read in mask parameters
 
 MaxNumberModels = int(1e7)
@@ -80,8 +89,11 @@ def create_cloudy_input_file(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i
     """ crate prefix for models and open Cloudy input file for writing"""
     cloudy_input_file = set_output_and_save_prefix(UniqID, hden, depth, T, I_ge, phi_uv, phi_ih, phi_i2)
 
-    isIF = check_for_IF(depth,hden,phi_ih,phi_i2)
-    
+    # CLOUDY_modelIF is set to True by default. Can be changed in parameter file to false, which will prevent isIF from executing
+    if(CLOUDY_modelIF):
+        isIF = check_for_IF(depth,hden,phi_ih,phi_i2)
+
+
     """ Set common init file """
     set_cloudy_init_file(cloudy_input_file, cloudy_init_file)
 
