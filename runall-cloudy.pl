@@ -1,6 +1,7 @@
 #!/usr/bin/perl -w
 use Getopt::Long;
 use File::Find::Rule;
+
 GetOptions ("j=i" => \$j,#number of processors 
 	    "mask=s" => \$mask_file);
 
@@ -66,6 +67,7 @@ else{
 
 {
 	@input_files = File::Find::Rule->in("$stuff");
+    #@input_files = glob("$suff");
     $i = 0;
     
     if (defined($j)) {
