@@ -9,3 +9,4 @@ mask_parameters_dict={
     "temp":[1e3,1e5]}
 
 CLOUDY_INIT_FILE = "silcc_flash_postprocess.ini"
+CLOUDY_modelIF   = False
