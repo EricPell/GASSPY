@@ -1,5 +1,6 @@
 #!/usr/bin/perl -w
 use Getopt::Long;
+use File::Find::Rule;
 GetOptions ("j=i" => \$j,#number of processors 
 	    "mask=s" => \$mask_file);
 
