@@ -55,7 +55,7 @@ else{
 
 
 if (defined($ARGV[0])){
-    $suff=$ARGV[0];
+    $stuff=$ARGV[0];
 }
 else{
 	#Searching ./cloudy-output/ for model files
