@@ -92,6 +92,8 @@ def create_cloudy_input_file(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i
     # CLOUDY_modelIF is set to True by default. Can be changed in parameter file to false, which will prevent isIF from executing
     if(CLOUDY_modelIF):
         isIF = check_for_IF(depth,hden,phi_ih,phi_i2)
+    else:
+        isIF = False
 
 
     """ Set common init file """
