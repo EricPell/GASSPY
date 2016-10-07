@@ -7,3 +7,6 @@ mask_parameters_dict={
     "temp":"default"}
 
 CLOUDY_INIT_FILE = "default_postprocess.ini"
+
+# Specifies variable CLOUDY_modelIF for make-cloudy-input.py -> sets models to single zone
+CLOUDY_modelIF   = False
