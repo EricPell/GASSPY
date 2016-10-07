@@ -64,7 +64,7 @@ else{
 # and runs the code to produce *.out files
 
 {
-    @input_files = glob("$suff");
+	@input_files = File::Find::Rule->in("$stuff");
     $i = 0;
     
     if (defined($j)) {
