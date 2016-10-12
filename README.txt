@@ -50,3 +50,12 @@ cont_shape.py - Replaces individual flxx_shape.py files:
     fluv_shape.py - Shape of non-ionizing, UV light responsible for H2 destruction. (units)
     flih_shape.py - Shape of H-ionizing radiation from 13.6 to 15.2eV (units)
     fli2_shape.py - Shape of ionizing spectrum above 15.2eV (units)
+
+get_continuum.py:
+
+get_line_profiles.py:
+
+TO DO:
+1. Create test case of recreating an existing cloudy model by zone by zone. 
+2. Re use existing models. If nothing else, just read in existing database, check for existence of model, if not, append.
+2.1 Resorting is always an option later if it's necessary.
