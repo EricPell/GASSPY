@@ -26,7 +26,7 @@ except:
     CLOUDY_INIT_FILE = defaults.CLOUDY_INIT_FILE
     
 # Import string containing each continuum shape.
-import cont_shape # Import continuum shapes
+import fervent_bands # Import continuum shapes
 
 def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2):
     # pass this a dictionary of parameters and values. Loop over and create prefix. Use dictionary elsewhere.
@@ -67,22 +67,22 @@ def set_T(outfile,T,isIF):
 
 def set_I_ge(outfile,I_ge):
     if(I_ge != "-99.0"):
-        outfile.write(cont_shape.flge)
+        outfile.write(fervent_bands.flge)
         outfile.write("intensity %s, range 0.41 to 0.823 Ryd\n"%(I_ge))
 
 def set_phi_uv(outfile,phi_uv):
     if(phi_uv != "-99.0"):
-        outfile.write(cont_shape.fluv)
+        outfile.write(fervent_bands.fluv)
         outfile.write("phi(h) = %s, range 0.823 to 1.0 Ryd\n"%(phi_uv))
 
 def set_phi_ih(outfile,phi_ih):
     if(phi_ih != "-99.0"):
-        outfile.write(cont_shape.flih)
+        outfile.write(fervent_bands.flih)
         outfile.write("phi(h) = %s, range 1.0 to 1.117 Ryd\n"%(phi_ih))
 
 def set_phi_i2(outfile,phi_i2):
     if(phi_i2 != "-99.0"):
-        outfile.write(cont_shape.fli2)
+        outfile.write(fervent_bands.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
 def create_cloudy_input_file(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2, cloudy_init_file=CLOUDY_INIT_FILE):
@@ -124,5 +124,5 @@ parameter_data = input.readlines()
 if(len(parameter_data) < MaxNumberModels):
     for i in range(1,len(parameter_data)):
         [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
-        create_cloudy_input_file(UniqID, depth, hden, temp, flge, fluv, flih, fli2)
+        create_cloudy_input_file(UniqID, depth, hden, temp, (flge, fluv, flih, fli2))
         
