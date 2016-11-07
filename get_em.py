@@ -93,8 +93,14 @@ for row in range(len(unique_table)):
 line_label = "O  3  5007A"
 
 def emissivity(line_label,dx,dens,temp,flge,fluv,flih,fli2):
-    id = unique_dict["%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, flge, fluv, flih, fli2]
-    return(em_table[id][line_label])
+    try:
+        id = unique_dict["%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, flge, fluv, flih, fli2]
+    except:
+        raise Exception("ID not contained in dictionary")
+    try:
+        return(em_table[id][line_label])
+    except:
+        return(float("NAN"))
 
 def get_rad_field(field,cell_i):
     logflux = simdata[field][cell_i]
