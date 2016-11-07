@@ -16,13 +16,13 @@ dd = ds.all_data()
 try:
     em_table = Table.read(myconfig.opiate_library,format='ascii')
 except:
-    raise Exception("A problem occured defining or reading the OPIATE library")
+    raise Exception("A problem loading the OPIATE library")
 em_table.sort("ID")
 
 try:
     unique_table = Table.read(myconfig.opiate_lookup,format='ascii')
 except:
-    raise Exception("Problem reading unique parameters lookup table")
+    raise Exception("Problem loading parameters lookup table")
 
 
 def mask_data(mask_parameters):
