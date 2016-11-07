@@ -96,7 +96,8 @@ def emissivity(line_label,dx,dens,temp,flge,fluv,flih,fli2):
     try:
         id = unique_dict["%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, flge, fluv, flih, fli2]
     except:
-        raise Exception("ID not contained in dictionary")
+        print "%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, flge, fluv, flih, fli2
+        raise Exception("ID not contained in dictionary values")
     try:
         return(em_table[id][line_label])
     except:
