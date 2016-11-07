@@ -85,6 +85,7 @@ for row in range(len(unique_table)):
 
     try:
         unique_dict["%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, "%0.1f"%flge, "%0.1f"%fluv, "%0.1f"%flih, "%0.1f"%fli2]= unique_table[row]['UniqID']
+    except:
         raise Exception("No matching model for UniqueID %s"%UniqID)
 
 #step one, look up ID (which is the row)
