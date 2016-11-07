@@ -13,6 +13,7 @@ ds = yt.load(inFile)
 dd = ds.all_data()
 
 try:
+    print "OPIATE library %s"%myconfig.opiate_library
     em_table = Table.read(myconfig.opiate_library,format='ascii')
 except:
     raise Exception("A problem occured defining or reading the OPIATE library")
