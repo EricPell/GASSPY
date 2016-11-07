@@ -24,10 +24,16 @@ dd = ds.all_data()
 
 # raw_input("Now load combined ems table from file")
 try:
-    em_table = Table.read(myconfig.OPIATELibrary,format='ascii')
+    em_table = Table.read(myconfig.opiate_library,format='ascii')
 except:
     raise Exception("A problem occured defining or reading the OPIATE library")
 em_table.sort("ID")
+
+# raw_input("Now ready unique parameters table")
+try:
+    unique_table = Table.read(myconfig.opiate_lookup,format='ascii')
+except:
+    raise Exception("Problem reading unique parameters lookup table")
 
 def mask_data(mask_parameters):
     # raw_input("Mask creation routine was called")
@@ -90,9 +96,6 @@ for field in radfields:
         simdata[field] = dd[field][mask].value-2.0*np.log10(dd['dx'][mask].value)
         tolowmask = simdata[field] < 0.0
         simdata[field][tolowmask] = -99.0
-
-# raw_input("Now ready unique parameters table")
-unique_table = Table.read('silcc.unique_parameters',format='ascii')
 
 # raw_input("Now loop over each entry in unique_table and create a dictionary")
 unique_dict = {}

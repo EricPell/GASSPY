@@ -13,10 +13,16 @@ ds = yt.load(inFile)
 dd = ds.all_data()
 
 try:
-    em_table = Table.read(myconfig.OPIATELibrary,format='ascii')
+    em_table = Table.read(myconfig.opiate_library,format='ascii')
 except:
     raise Exception("A problem occured defining or reading the OPIATE library")
 em_table.sort("ID")
+
+try:
+    unique_table = Table.read(myconfig.opiate_lookup,format='ascii')
+except:
+    raise Exception("Problem reading unique parameters lookup table")
+
 
 def mask_data(mask_parameters):
     masks = {}
@@ -70,13 +76,16 @@ for field in radfields:
         tolowmask = simdata[field] < 0.0
         simdata[field][tolowmask] = -99.0
 
-
-unique_table = Table.read('silcc.unique_parameters',format='ascii')
-
 unique_dict = {}
 for row in range(len(unique_table)):
-    (UniqID, dx, dens, temp, flge, fluv, flih, fli2,N) = unique_table[row]
-    unique_dict["%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, "%0.1f"%flge, "%0.1f"%fluv, "%0.1f"%flih, "%0.1f"%fli2]= unique_table[row]['UniqID']
+    try:
+        (UniqID, dx, dens, temp, flge, fluv, flih, fli2,N) = unique_table[row]
+    except:
+        raise Exception("No matching ID for dx,den,temp and radiation parameter space")
+
+    try:
+        unique_dict["%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, "%0.1f"%flge, "%0.1f"%fluv, "%0.1f"%flih, "%0.1f"%fli2]= unique_table[row]['UniqID']
+        raise Exception("No matching model for UniqueID %s"%UniqID)
 
 #step one, look up ID (which is the row)
 line_label = "O  3  5007A"
