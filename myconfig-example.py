@@ -11,4 +11,6 @@ mask_parameters_dict={
 opiate_library = 'silcc-combined-ems.tbl'
 opiate_lookup  = 'silcc.unique_parameters'
 
+line_lables = ["O  3  5007A", "H  1  6563A", "S  2  6720A"]
+
 CLOUDY_INIT_FILE = "silcc_flash_postprocess.ini"
