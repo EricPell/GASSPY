@@ -112,12 +112,12 @@ def emissivity(line_label,dx,dens,temp,flge,fluv,flih,fli2):
     except:
         #ID not contained in model. Could look for nearby models, or just return 0.0
         id = -1
-        return(0.0)
+        return(-99.9)
     try:
         return(em_table[id][line_label])
     except:
         raise Exception("Known ID did not return data from library")
-        
+
 def get_rad_field(field,cell_i,mask=[]):
     if(len(mask) == 0):
         logflux = simdata[field][cell_i]
