@@ -7,12 +7,11 @@ import sys
 
 sys.path.append(os.getcwd())
 
-from myconfig import * # read in mask parameters
+import myconfig # read in mask parameters
 print "OPIATE library %s"%myconfig.opiate_library
 
-ds = yt.load(inFile)
+ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
-
 
 try:
     em_table = Table.read(myconfig.opiate_library,format='ascii')
@@ -45,7 +44,7 @@ def mask_data(mask_parameters):
         mask = dd["density"] > 0
     return(mask) # http://www.imdb.com/title/tt0110475/
 
-mask = mask_data(mask_parameters_dict)
+mask = mask_data(myconfig.mask_parameters_dict)
 
 Ncells = len(dd['dens'][mask])
 
