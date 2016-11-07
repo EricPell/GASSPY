@@ -107,9 +107,17 @@ for row in range(len(unique_table)):
 line_labels = ["O  3  5007A", "H  1  6563A", "S  2  6720A"]
 
 def emissivity(line_label,dx,dens,temp,flge,fluv,flih,fli2):
-    id = unique_dict["%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, flge, fluv, flih, fli2]
-    return(em_table[id][line_label])
-
+    try:
+        id = unique_dict["%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, flge, fluv, flih, fli2]
+    except:
+        #ID not contained in model. Could look for nearby models, or just return 0.0
+        id = -1
+        return(0.0)
+    try:
+        return(em_table[id][line_label])
+    except:
+        raise Exception("Known ID did not return data from library")
+        
 def get_rad_field(field,cell_i,mask=[]):
     if(len(mask) == 0):
         logflux = simdata[field][cell_i]
