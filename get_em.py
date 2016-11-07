@@ -12,7 +12,10 @@ from myconfig import * # read in mask parameters
 ds = yt.load(inFile)
 dd = ds.all_data()
 
-em_table = Table.read('silcc-combined-ems.tbl',format='ascii')
+try:
+    em_table = Table.read(myconfig.OPIATELibrary,format='ascii')
+except:
+    raise Exception("A problem occured defining or reading the OPIATE library")
 em_table.sort("ID")
 
 def mask_data(mask_parameters):
