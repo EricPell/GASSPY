@@ -8,7 +8,6 @@ import sys
 sys.path.append(os.getcwd())
 
 import myconfig # read in mask parameters
-print "OPIATE library %s"%myconfig.opiate_library
 
 ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
@@ -96,13 +95,14 @@ def emissivity(line_label,dx,dens,temp,flge,fluv,flih,fli2):
     try:
         id = unique_dict["%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, flge, fluv, flih, fli2]
     except:
-        print "%0.3f"%dx, "%0.1f"%dens, "%0.1f"%temp, flge, fluv, flih, fli2
-        raise Exception("ID not contained in dictionary values")
+        #ID not contained in model. Could look for nearby models, or just return 0.0
+        id = -1
+        return(0.0)
     try:
         return(em_table[id][line_label])
     except:
-        return(float("NAN"))
-
+        raise Exception("Known ID did not return data from library")
+    
 def get_rad_field(field,cell_i):
     logflux = simdata[field][cell_i]
     if logflux > -4:
