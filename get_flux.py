@@ -105,7 +105,7 @@ for row in range(len(unique_table)):
 
 #step one, look up ID (which is the row)
 try:
-    line_labels = myconfig.line_lables
+    line_labels = myconfig.line_labels
 except:
     line_labels = defaults.line_labels
 
