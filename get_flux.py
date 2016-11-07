@@ -23,7 +23,10 @@ ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
 
 # raw_input("Now load combined ems table from file")
-em_table = Table.read('silcc-combined-ems.tbl',format='ascii')
+try:
+    em_table = Table.read(OPIATELibrary,format='ascii')
+except:
+    raise Exception("A problem occured defining or reading the OPIATE library")
 em_table.sort("ID")
 
 def mask_data(mask_parameters):

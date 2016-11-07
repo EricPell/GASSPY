@@ -8,4 +8,6 @@ mask_parameters_dict={
     "z":[-50.*3.08e18, 250*3.08e18],\
     "temp":[1e3,1e5]}
 
+OPIATELibrary = 'silcc-combined-ems.tbl'
+
 CLOUDY_INIT_FILE = "silcc_flash_postprocess.ini"
