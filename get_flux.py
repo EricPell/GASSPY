@@ -24,7 +24,7 @@ dd = ds.all_data()
 
 # raw_input("Now load combined ems table from file")
 try:
-    em_table = Table.read(OPIATELibrary,format='ascii')
+    em_table = Table.read(myconfig.OPIATELibrary,format='ascii')
 except:
     raise Exception("A problem occured defining or reading the OPIATE library")
 em_table.sort("ID")
