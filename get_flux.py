@@ -7,7 +7,7 @@ import sys
 
 sys.path.append(os.getcwd())
 
-open("fluxes.data",'w') as outfile
+outfile = open("fluxes.data",'w') 
 
 """ Import default and model specific settings """ 
 import defaults
