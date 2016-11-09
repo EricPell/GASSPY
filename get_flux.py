@@ -204,6 +204,7 @@ for ix in range(0,ixmax):
             flux = 10**(np.log10(luminosity[x][y][line_label]) - 2*np.log10(dl))
             outstr =  "\t".join([outstr, "%0.1e"%(flux)])
         outfile.write(outstr)
+        outfile.write("\n")
     #print "\n"
 outfile.close()
 
