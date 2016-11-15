@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import yt
+from yt.config import ytcfg;ytcfg["yt","__withinreason"]="True"
 import numpy as np
 from astropy.table import Table
 import os

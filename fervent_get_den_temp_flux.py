@@ -16,7 +16,7 @@ except:
     
 
 """ Load dependencies """
-import yt
+from yt.config import ytcfg;ytcfg["yt","__withinreason"]="True"
 import numpy as np
 
 
