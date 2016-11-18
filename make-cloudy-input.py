@@ -85,7 +85,8 @@ def set_phi_i2(outfile,phi_i2):
         outfile.write(fervent_bands.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
-def create_cloudy_input_file(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2, cloudy_init_file=CLOUDY_INIT_FILE):
+def create_cloudy_input_file(UniqID, depth, hden, T, flux_array, cloudy_init_file=CLOUDY_INIT_FILE):
+    (I_ge, phi_uv, phi_ih, phi_i2) = flux_array
     """ crate prefix for models and open Cloudy input file for writing"""
     cloudy_input_file = set_output_and_save_prefix(UniqID, hden, depth, T, I_ge, phi_uv, phi_ih, phi_i2)
 
@@ -124,5 +125,5 @@ parameter_data = input.readlines()
 if(len(parameter_data) < MaxNumberModels):
     for i in range(1,len(parameter_data)):
         [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
-        create_cloudy_input_file(UniqID, depth, hden, temp, (flge, fluv, flih, fli2))
+        create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
         
