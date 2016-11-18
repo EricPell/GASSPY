@@ -16,8 +16,15 @@ except:
     
 
 """ Load dependencies """
-import yt
+import matplotlib
+
+# Force matplotlib to not use any Xwindows backend.
+matplotlib.use('Agg')
+
+#import yt
 from yt.config import ytcfg;ytcfg["yt","__withinreason"]="True"
+
+import yt
 
 import numpy as np
 
