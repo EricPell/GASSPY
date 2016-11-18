@@ -1,10 +1,14 @@
 #!/usr/bin/python
 
-import yt
-from yt.config import ytcfg;ytcfg["yt","__withinreason"]="True"
+""" Load dependencies """
 import matplotlib
 # Force matplotlib to not use any Xwindows backend.
 matplotlib.use('Agg')
+
+#import yt
+from yt.config import ytcfg;ytcfg["yt","__withinreason"]="True"
+
+import yt
 
 import numpy as np
 from astropy.table import Table
