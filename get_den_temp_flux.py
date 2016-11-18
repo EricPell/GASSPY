@@ -16,6 +16,7 @@ except:
     
 
 """ Load dependencies """
+import yt
 from yt.config import ytcfg;ytcfg["yt","__withinreason"]="True"
 import matplotlib
 # Force matplotlib to not use any Xwindows backend.
