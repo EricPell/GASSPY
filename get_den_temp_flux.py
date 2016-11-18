@@ -35,7 +35,8 @@ def live_line(str):
 ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
 
-outFile = open("tmp"+".cloudyparameters",'w')
+if(myconfig.debug == True):
+    outFile = open("tmp"+".cloudyparameters",'w')
 
 unique_param_dict={}
 
@@ -77,8 +78,9 @@ for field in dxxyz:
 for field in gasfields+radfields:
     outstr +="\t%*s"%(4,field)
 
-outFile.write(outstr)
-outFile.write("\n")
+if(myconfig.debug == True):
+    outFile.write(outstr)
+    outFile.write("\n")
 
 Ncells = len( dd['dens'][mask])
 
@@ -141,13 +143,15 @@ for cell_i in range(Ncells):
         data.append(value)
         cloudyparm +="%s\t"%(value)
     
+    
     # Write cell data to output file
     if data[-3:-1]+[data[-1]] != ["-99.0","-99.0","-99.0"]:
         try:
             unique_param_dict[cloudyparm]+=1
         except:
             unique_param_dict[cloudyparm] =1
-    outFile.write("\t".join( [ "%*i" % (6,cell_i) ] + data ) + "\n")
+    if(myconfig.debug == True):
+        outFile.write("\t".join( [ "%*i" % (6,cell_i) ] + data ) + "\n")
 
     #Print progress to stdout
     # Only print every 1% cells.
@@ -155,13 +159,14 @@ for cell_i in range(Ncells):
         message = "Extracting cell %i:%i (%i percent complete)"%(cell_i,Ncells-cell_i,(int(100.*float(cell_i)/float(Ncells))))
         live_line(message)
 
-#Cloes output file
-outFile.close()
+if(myconfig.debug == True):
+    #Cloes output file
+    outFile.close()
 
 sys.stdout.write("\n")
 live_line("Finished %i cells"%(Ncells)+"\n")
 
-outFile = open("tmp"+".unique_parameters",'w')
+outFile = open(myconfig.opiate_lookup,'w')
 outFile.write("\t".join(["UniqID"]+cloudyfields)+"\tN\n")
 
 uniqueID = 0
