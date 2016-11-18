@@ -29,6 +29,11 @@ except:
 import fervent_bands # Import continuum shapes
 
 def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2):
+    try:
+        os.stat("./cloudy-output")
+    except:
+        os.mkdir("./cloudy-output")
+        
     # pass this a dictionary of parameters and values. Loop over and create prefix. Use dictionary elsewhere.
     prefix = "./cloudy-output/silcc-%s"%UniqID  #_dx_%s_hden_%s_T_%s_flge_%s_fluv_%s_flih_%s_fli2_%s"%(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2)
     outfile = open(prefix+".in",'w')
