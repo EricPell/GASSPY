@@ -114,7 +114,7 @@ def create_cloudy_input_file(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i
 
 
 """ Begin main part of code """
-input = open("tmp.unique_parameters",'r')
+input = open(myconfig.opiate_lookup,'r')
 parameter_data = input.readlines()
 
 #if(parameter_data[0] != "UniqID  dx      dens    temp    flge    fluv    flih    fli2    N\n"):
