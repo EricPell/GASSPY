@@ -28,6 +28,14 @@ except:
 # Import string containing each continuum shape.
 import fervent_bands # Import continuum shapes
 
+try:
+    if myconfig.ForceDepth == True:
+        isIF = True
+except:
+    "force depth no set"            
+        
+
+
 def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2):
     try:
         os.stat("./cloudy-output")
@@ -60,12 +68,6 @@ def set_hden(outfile, hden):
 
 def set_nend(outfile,isIF):
     
-    try:
-        if myconfig.ForceDepth == True:
-            isIF = True
-    except:
-        "force depth no set"            
-        
     if isIF == True:
         """ Do not set constant temperature if IF exists """
         outfile.write("set nend 1000\n")        
