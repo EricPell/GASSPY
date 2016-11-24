@@ -61,7 +61,7 @@ def set_hden(outfile, hden):
 def set_nend(outfile,isIF):
     
     try:
-        if myConfig.ForceDepth == True:
+        if myconfig.ForceDepth == True:
             isIF = True
     except:
         "force depth no set"            
