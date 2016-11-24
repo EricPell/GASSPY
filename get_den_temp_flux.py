@@ -105,7 +105,7 @@ for field in radfields:
     else:
         simdata[field] = dd[field][mask].value-2.0*np.log10(dd['dx'][mask].value)
         tolowmask = simdata[field] < 0.0
-        simdata[field][tolowmask] = -99.0
+        simdata[field][tolowmask] = -99.00
 #Loop over every cell in the masked region
 for cell_i in range(Ncells):
     #initialize the data values array
@@ -121,9 +121,9 @@ for cell_i in range(Ncells):
 
     #extract gas properties field
     for field in gasfields:
-        value = "%0.1f"%(simdata[field][cell_i])
+        value = "%0.01f"%(simdata[field][cell_i])
         if value == "-inf" or value == "inf":
-            value = "%0.1f"%(np.log10(1e-99))
+            value = "%0.01f"%(np.log10(1e-99))
         try:
             cloudyfields.index(field)
             cloudyparm +="%s\t"%(value)
@@ -137,18 +137,18 @@ for cell_i in range(Ncells):
     for field in radfields:
         logflux = simdata[field][cell_i]
         if logflux > -4:
-            value = "%0.1f"%(logflux)
+            value = "%0.01f"%(logflux)
         else:
             value = "-99.0"
         if value == "-inf" or value == "inf":
-            value = "%0.1f"%(np.log10(1e-99))
+            value = "%0.01f"%(np.log10(1e-99))
             # Append the field numerical value to data
         data.append(value)
         cloudyparm +="%s\t"%(value)
     
     
     # Write cell data to output file
-    if data[-3:-1]+[data[-1]] != ["-99.0","-99.0","-99.0"]:
+    if data[-3:-1]+[data[-1]] != ["-99.00","-99.00","-99.00"]:
         try:
             unique_param_dict[cloudyparm]+=1
         except:
