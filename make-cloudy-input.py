@@ -59,6 +59,13 @@ def set_hden(outfile, hden):
     outfile.write("hden %s\n"%(hden))
 
 def set_nend(outfile,isIF):
+    
+    try:
+        if myConfig.ForceDepth == True:
+            isIF = True
+    except:
+        "force depth no set"            
+        
     if isIF == True:
         """ Do not set constant temperature if IF exists """
         outfile.write("set nend 1000\n")        
