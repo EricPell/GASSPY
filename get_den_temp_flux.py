@@ -59,7 +59,7 @@ def mask_data(mask_parameters):
                 mask = masks[key+"min"]*masks[key+"max"]
                 
     if(n_mask == 0):
-        print "data is not masked"
+        print ("data is not masked")
         mask = dd["density"] > 0
     return(mask) # http://www.imdb.com/title/tt0110475/
 
