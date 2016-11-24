@@ -24,16 +24,18 @@ try:
     CLOUDY_INIT_FILE = myconfig.CLOUDY_INIT_FILE
 except:
     CLOUDY_INIT_FILE = defaults.CLOUDY_INIT_FILE
-    
-# Import string containing each continuum shape.
-import fervent_bands # Import continuum shapes
 
 try:
     if myconfig.ForceDepth == True:
-        isIF = True
+        ForceDepth = True
+    else:
+        ForceDepth = False
 except:
-    "force depth no set"            
-        
+    ForceDepth = False            
+
+
+# Import string containing each continuum shape.
+import fervent_bands # Import continuum shapes        
 
 
 def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2):
@@ -52,7 +54,9 @@ def check_for_IF(depth,hden,phi_ih,phi_i2):
     alpha = 4.0e-13 # H recombinations per second cm-6
     ion_depth = (10**(float(phi_ih)) + 10**(float(phi_i2)))/(alpha * 10**(float(hden))**2 )
     # Change hardcoded 1e13 to mean free path of ionizing photon in H0.
-    if( (ion_depth <= 10**float(depth)) and (ion_depth > 1e13) ):
+    if ForceDepth == True:
+        return True
+    elif ion_depth <= 10**float(depth) and ion_depth > 1e13:
         return True
     else:
         return False
