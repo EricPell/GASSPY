@@ -121,9 +121,9 @@ for cell_i in range(Ncells):
 
     #extract gas properties field
     for field in gasfields:
-        value = "%0.01f"%(simdata[field][cell_i])
+        value = "%0.2f"%(simdata[field][cell_i])
         if value == "-inf" or value == "inf":
-            value = "%0.01f"%(np.log10(1e-99))
+            value = "%0.2f"%(np.log10(1e-99))
         try:
             cloudyfields.index(field)
             cloudyparm +="%s\t"%(value)
@@ -137,11 +137,11 @@ for cell_i in range(Ncells):
     for field in radfields:
         logflux = simdata[field][cell_i]
         if logflux > -4:
-            value = "%0.01f"%(logflux)
+            value = "%0.2f"%(logflux)
         else:
-            value = "-99.0"
+            value = "-99.00"
         if value == "-inf" or value == "inf":
-            value = "%0.01f"%(np.log10(1e-99))
+            value = "%0.2f"%(np.log10(1e-99))
             # Append the field numerical value to data
         data.append(value)
         cloudyparm +="%s\t"%(value)
