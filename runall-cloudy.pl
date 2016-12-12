@@ -67,7 +67,7 @@ else{
 
 {
 	#@input_files = File::Find::Rule->in("$stuff");
-    @input_files = glob("$suff");
+    @input_files = glob("$stuff");
     $i = 0;
     
     if (defined($j)) {
