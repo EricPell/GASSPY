@@ -6,14 +6,13 @@ import os
 import sys
 sys.path.append(os.getcwd())
 
-""" Import default and model specific settings """ 
+""" Import default and model specific settings """
 import defaults
 import myconfig
 try:
     mask_parameters_dict = myconfig.mask_parameters_dict
 except:
     mask_parameters_dict = defaults.mask_parameters_dict
-    
 
 """ Load dependencies """
 import matplotlib
@@ -21,7 +20,7 @@ import matplotlib
 matplotlib.use('Agg')
 
 #import yt
-from yt.config import ytcfg;ytcfg["yt","__withinreason"]="True"
+from yt.config import ytcfg; ytcfg["yt", "__withinreason"] = "True"
 
 import yt
 
@@ -38,26 +37,26 @@ def live_line(str):
 ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
 
-if(myconfig.debug == True):
-    outFile = open("tmp"+".cloudyparameters",'w')
+if myconfig.debug == True:
+    outFile = open("tmp"+".cloudyparameters", 'w')
 
-unique_param_dict={}
+unique_param_dict = {}
 
 """ Set masks based on mask parameters read in by the defaults library, or by myconfig"""
 def mask_data(mask_parameters):
     masks = {}
-    n_mask=0
+    n_mask = 0
     for key in sorted(mask_parameters.keys()):
         if mask_parameters[key] != "default":
-            n_mask+=1
+            n_mask += 1
             masks[key+"min"] = dd[key] > min(mask_parameters[key])
             masks[key+"max"] = dd[key] < max(mask_parameters[key])
-            
+
             if n_mask != 1:
                 mask = mask*masks[key+"min"]*masks[key+"max"]
             else:
                 mask = masks[key+"min"]*masks[key+"max"]
-                
+  
     if(n_mask == 0):
         print ("data is not masked")
         mask = dd["density"] > 0
