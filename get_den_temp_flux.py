@@ -33,7 +33,7 @@ def live_line(str):
     sys.stdout.flush()
     sys.stdout.write(str)
 
- 
+
 ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
 
@@ -56,38 +56,38 @@ def mask_data(mask_parameters):
                 mask = mask*masks[key+"min"]*masks[key+"max"]
             else:
                 mask = masks[key+"min"]*masks[key+"max"]
-  
-    if(n_mask == 0):
-        print ("data is not masked")
+
+    if n_mask == 0:
+        print("data is not masked")
         mask = dd["density"] > 0
-    return(mask) # http://www.imdb.com/title/tt0110475/
+    return mask # http://www.imdb.com/title/tt0110475/
 
 mask = mask_data(mask_parameters_dict)
 
-dxxyz = ["dx","x","y","z"]
-gasfields = ["dens","temp","iha ","ihp ","ih2 ","ico ","icp "]
+dxxyz = ["dx", "x", "y", "z"]
+gasfields = ["dens", "temp", "iha ", "ihp ", "ih2 ", "ico ", "icp "]
 # gas mass density, temperature, fraction of atomic H (iha), ionized (ihp) and molecular (ih2),
 # and various gas fractions.
 
-radfields = ["flge","fluv","flih","fli2"]
+radfields = ["flge", "fluv", "flih", "fli2"]
 # Radiation fields: Should possibly be defined based on code type, i.e. FLASH, RAMSES
 
-cloudyfields = ["dx","dens","temp"] + radfields
+cloudyfields = ["dx", "dens", "temp"] + radfields
 
 outstr = "cell_i"
 for field in dxxyz:
-    outstr +="\t%*s"%(9,field)
+    outstr += "\t%*s"%(9, field)
 for field in gasfields+radfields:
-    outstr +="\t%*s"%(4,field)
+    outstr += "\t%*s"%(4, field)
 
-if(myconfig.debug == True):
+if myconfig.debug is True:
     outFile.write(outstr)
     outFile.write("\n")
 
-Ncells = len( dd['dens'][mask])
+Ncells = len(dd['dens'][mask])
 
 # Extract masked cells into arrays
-simdata={}
+simdata = {}
 for field in dxxyz:
     simdata[field] = dd[field][mask].value
 
@@ -97,8 +97,8 @@ for field in gasfields:
         simdata[field] = np.log10(dd[field][mask].value/mH)
     else:
         simdata[field] = np.log10(dd[field][mask].value)
-        
-for field in radfields:    
+
+for field in radfields:
     if field == "flge":
         simdata[field] = np.log10(dd[field][mask].value)
     else:
@@ -108,10 +108,10 @@ for field in radfields:
 #Loop over every cell in the masked region
 for cell_i in range(Ncells):
     #initialize the data values array
-    data=[]
+    data = []
 
     dx = simdata["dx"][cell_i]
-    
+
     cloudyparm = "%0.3f\t"%(np.log10(dx))
 
     #extract dxxyz positions
@@ -125,7 +125,7 @@ for cell_i in range(Ncells):
             value = "%0.2f"%(np.log10(1e-99))
         try:
             cloudyfields.index(field)
-            cloudyparm +="%s\t"%(value)
+            cloudyparm += "%s\t"%(value)
         except:
             "field not a cloudy param"
         # Append the field numerical value to data
@@ -143,25 +143,25 @@ for cell_i in range(Ncells):
             value = "%0.2f"%(np.log10(1e-99))
             # Append the field numerical value to data
         data.append(value)
-        cloudyparm +="%s\t"%(value)
-    
-    
+        cloudyparm += "%s\t"%(value)
+
+
     # Write cell data to output file
-    if data[-3:-1]+[data[-1]] != ["-99.00","-99.00","-99.00"]:
+    if data[-3:-1]+[data[-1]] != ["-99.00", "-99.00", "-99.00"]:
         try:
-            unique_param_dict[cloudyparm]+=1
+            unique_param_dict[cloudyparm] += 1
         except:
-            unique_param_dict[cloudyparm] =1
-    if(myconfig.debug == True):
-        outFile.write("\t".join( [ "%*i" % (6,cell_i) ] + data ) + "\n")
+            unique_param_dict[cloudyparm] = 1
+    if myconfig.debug is True:
+        outFile.write("\t".join(["%*i"%(6, cell_i)] + data ) + "\n")
 
     #Print progress to stdout
     # Only print every 1% cells.
-    if float(cell_i)/(float(Ncells)/100.) == cell_i/(Ncells/100) :
-        message = "Extracting cell %i:%i (%i percent complete)"%(cell_i,Ncells-cell_i,(int(100.*float(cell_i)/float(Ncells))))
+    if float(cell_i)/(float(Ncells)/100.) == cell_i/(Ncells/100):
+        message = "Extracting cell %i:%i (%i percent complete)"%(cell_i, Ncells-cell_i, (int(100.*float(cell_i)/float(Ncells))))
         live_line(message)
 
-if(myconfig.debug == True):
+if myconfig.debug is True:
     #Cloes output file
     outFile.close()
 
