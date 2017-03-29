@@ -37,7 +37,12 @@ def live_line(str):
 ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
 
-if myconfig.debug == True:
+try:
+    debug = myconfig.debug
+except:
+    debug = defaults.debug
+
+if debug  == True:
     outFile = open("tmp"+".cloudyparameters", 'w')
 
 unique_param_dict = {}
@@ -80,7 +85,7 @@ for field in dxxyz:
 for field in gasfields+radfields:
     outstr += "\t%*s"%(4, field)
 
-if myconfig.debug is True:
+if debug  is True:
     outFile.write(outstr)
     outFile.write("\n")
 
@@ -152,7 +157,7 @@ for cell_i in range(Ncells):
             unique_param_dict[cloudyparm] += 1
         except:
             unique_param_dict[cloudyparm] = 1
-    if myconfig.debug is True:
+    if debug  is True:
         outFile.write("\t".join(["%*i"%(6, cell_i)] + data ) + "\n")
 
     #Print progress to stdout
@@ -161,7 +166,7 @@ for cell_i in range(Ncells):
         message = "Extracting cell %i:%i (%i percent complete)"%(cell_i, Ncells-cell_i, (int(100.*float(cell_i)/float(Ncells))))
         live_line(message)
 
-if myconfig.debug is True:
+if debug  is True:
     #Cloes output file
     outFile.close()
 
