@@ -61,6 +61,12 @@ def check_for_IF(depth,hden,phi_ih,phi_i2):
     else:
         return False
 
+def deeper_model_exists(depth,hden,phi_ih,phi_i2):
+    if depth <= maxdepth(hden,phi_ih,phi_i2)
+        return True
+    else
+        return False
+
 def set_cloudy_init_file(outfile, init_file):
     outfile.write("init \"%s\"\n"%(init_file))
                   
