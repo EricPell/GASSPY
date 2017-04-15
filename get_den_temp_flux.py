@@ -1,10 +1,10 @@
 #!/usr/bin/python
-lastmoddate = "24.05.2016.EWP"
-
 """ Append launch directory to python path for importing config files """
 import os
 import sys
 sys.path.append(os.getcwd())
+
+LastModDate = "24.05.2016.EWP"
 
 """ Import default and model specific settings """
 import defaults
@@ -18,20 +18,15 @@ except:
 import matplotlib
 # Force matplotlib to not use any Xwindows backend.
 matplotlib.use('Agg')
-
-#import yt
 from yt.config import ytcfg; ytcfg["yt", "__withinreason"] = "True"
-
 import yt
-
 import numpy as np
 
-
-""" Define function to write messages to stdout """
-def live_line(str):
+def live_line(stringout):
+    """ Define function to write messages to stdout """
     sys.stdout.write('\r')
     sys.stdout.flush()
-    sys.stdout.write(str)
+    sys.stdout.write(stringout)
 
 
 ds = yt.load(myconfig.inFile)
@@ -47,20 +42,20 @@ if debug  == True:
 
 unique_param_dict = {}
 
-""" Set masks based on mask parameters read in by the defaults library, or by myconfig"""
 def mask_data(mask_parameters):
+    """ Set masks based on mask parameters read in by the defaults library, or by myconfig"""
     masks = {}
     n_mask = 0
-    for key in sorted(mask_parameters.keys()):
-        if mask_parameters[key] != "default":
+    for parameter in sorted(mask_parameters.keys()):
+        if mask_parameters[parameter] != "default":
             n_mask += 1
-            masks[key+"min"] = dd[key] > min(mask_parameters[key])
-            masks[key+"max"] = dd[key] < max(mask_parameters[key])
+            masks[parameter+"min"] = dd[parameter] > min(mask_parameters[parameter])
+            masks[parameter+"max"] = dd[parameter] < max(mask_parameters[parameter])
 
             if n_mask != 1:
-                mask = mask*masks[key+"min"]*masks[key+"max"]
+                mask = mask*masks[parameter+"min"]*masks[parameter+"max"]
             else:
-                mask = masks[key+"min"]*masks[key+"max"]
+                mask = masks[parameter+"min"]*masks[parameter+"max"]
 
     if n_mask == 0:
         print("data is not masked")
@@ -74,8 +69,8 @@ gasfields = ["dens", "temp", "iha ", "ihp ", "ih2 ", "ico ", "icp "]
 # gas mass density, temperature, fraction of atomic H (iha), ionized (ihp) and molecular (ih2),
 # and various gas fractions.
 
-radfields = ["flge", "fluv", "flih", "fli2"]
 # Radiation fields: Should possibly be defined based on code type, i.e. FLASH, RAMSES
+radfields = ["flge", "fluv", "flih", "fli2"]
 
 cloudyfields = ["dx", "dens", "temp"] + radfields
 
@@ -158,7 +153,7 @@ for cell_i in range(Ncells):
         except:
             unique_param_dict[cloudyparm] = 1
     if debug  is True:
-        outFile.write("\t".join(["%*i"%(6, cell_i)] + data ) + "\n")
+        outFile.write("\t".join(["%*i"%(6, cell_i)] + data) + "\n")
 
     #Print progress to stdout
     # Only print every 1% cells.
@@ -173,7 +168,7 @@ if debug  is True:
 sys.stdout.write("\n")
 live_line("Finished %i cells"%(Ncells)+"\n")
 
-outFile = open(myconfig.opiate_lookup,'w')
+outFile = open(myconfig.opiate_lookup, 'w')
 outFile.write("\t".join(["UniqID"]+cloudyfields)+"\tN\n")
 
 uniqueID = 0

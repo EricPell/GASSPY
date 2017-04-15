@@ -62,7 +62,7 @@ def check_for_IF(depth,hden,phi_ih,phi_i2):
         return False
 
 def deeper_model_exists(depth,hden,phi_ih,phi_i2):
-    if depth <= maxdepth(hden,phi_ih,phi_i2)
+    if depth <= max_depth[hden,phi_ih,phi_i2]
         return True
     else
         return False
@@ -146,8 +146,11 @@ parameter_data = input.readlines()
     # sys.exit("Header file did not match expected format")
 #else:
 
+# Create max depth to re-use deep models for shallower ones.
+max_depth = {}
 if(len(parameter_data) < MaxNumberModels):
     for i in range(1,len(parameter_data)):
         [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
+
         create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
         
