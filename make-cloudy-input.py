@@ -1,5 +1,6 @@
 #!/usr/bin/python
-lastmoddate = "18.07.2016.EWP"
+""" Routine to make minimum models required for post processing """
+#lastmoddate = 18.07.2016.EWP
 
 import os
 import sys
