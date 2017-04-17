@@ -22,14 +22,17 @@ try:
 except:
     CLOUDY_INIT_FILE = defaults.CLOUDY_INIT_FILE
 
-"""Decide to force every model to be calculated with full depth, or default to a single zone"""
+#"""Decide to force every model to be calculated with full depth, or default to a single zone"""
 try:
-    if myconfig.ForceDepth == True:
-        ForceDepth = True
+    if myconfig.ForceFullDepth == True:
+        #"""If ForceFullDepth is defined in myconfig as true, set the global to true"""
+        ForceFullDepth = True
     else:
-        ForceDepth = False
+        #"""Else, if set to false, set global false"""
+        ForceFullDepth = False
 except:
-    ForceDepth = False            
+    #"""If Force depth was not defined, that's ok. We will set it to true"""
+    ForceFullDepth = False
 
 
 MaxNumberModels = int(1e7)
@@ -43,7 +46,7 @@ def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi
         os.stat("./cloudy-output")
     except:
         os.mkdir("./cloudy-output")
-        
+
     # pass this a dictionary of parameters and values. Loop over and create prefix. Use dictionary elsewhere.
     prefix = "./cloudy-output/silcc-%s"%UniqID  #_dx_%s_hden_%s_T_%s_flge_%s_fluv_%s_flih_%s_fli2_%s"%(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2)
     outfile = open(prefix+".in",'w')
@@ -54,7 +57,7 @@ def check_for_IF(depth,hden,phi_ih,phi_i2):
     alpha = 4.0e-13 # H recombinations per second cm-6
     ion_depth = (10**(float(phi_ih)) + 10**(float(phi_i2)))/(alpha * 10**(float(hden))**2 )
     # Change hardcoded 1e13 to mean free path of ionizing photon in H0.
-    if ForceDepth == True:
+    if ForceFullDepth == True:
         return True
     elif ion_depth <= 10**float(depth) and ion_depth > 1e13:
         return True
