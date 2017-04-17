@@ -15,17 +15,14 @@ CLOUDY_modelIF = True
 #                                                             #
 ###############################################################
 
-from myconfig import * # read in mask parameters
+import myconfig # Import configuration file from this and read in mask parameters
 
-MaxNumberModels = int(1e7)
-
-# Import configuration file from this
-import myconfig
 try:
     CLOUDY_INIT_FILE = myconfig.CLOUDY_INIT_FILE
 except:
     CLOUDY_INIT_FILE = defaults.CLOUDY_INIT_FILE
 
+"""Decide to force every model to be calculated with full depth, or default to a single zone"""
 try:
     if myconfig.ForceDepth == True:
         ForceDepth = True
@@ -34,6 +31,8 @@ try:
 except:
     ForceDepth = False            
 
+
+MaxNumberModels = int(1e7)
 
 # Import string containing each continuum shape.
 import fervent_bands # Import continuum shapes        
