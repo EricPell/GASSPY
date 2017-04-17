@@ -46,6 +46,7 @@ def mask_data(mask_parameters):
     """ Set masks based on mask parameters read in by the defaults library, or by myconfig"""
     masks = {}
     n_mask = 0
+    partial_mask = dd["density"] > 0
     for parameter in sorted(mask_parameters.keys()):
         if mask_parameters[parameter] != "default":
             n_mask += 1
@@ -53,14 +54,13 @@ def mask_data(mask_parameters):
             masks[parameter+"max"] = dd[parameter] < max(mask_parameters[parameter])
 
             if n_mask != 1:
-                mask = mask*masks[parameter+"min"]*masks[parameter+"max"]
+                partial_mask = partial_mask*masks[parameter+"min"]*masks[parameter+"max"]
             else:
-                mask = masks[parameter+"min"]*masks[parameter+"max"]
+                partial_mask = masks[parameter+"min"]*masks[parameter+"max"]
 
     if n_mask == 0:
         print("data is not masked")
-        mask = dd["density"] > 0
-    return mask # http://www.imdb.com/title/tt0110475/
+    return partial_mask # http://www.imdb.com/title/tt0110475/
 
 mask = mask_data(mask_parameters_dict)
 
