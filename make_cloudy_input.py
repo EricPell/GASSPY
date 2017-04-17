@@ -42,49 +42,57 @@ import fervent_bands # Import continuum shapes
 
 
 def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2):
+    """pass this a dictionary of parameters and values. Loop over and create prefix. Open output """
     try:
         os.stat("./cloudy-output")
     except:
         os.mkdir("./cloudy-output")
 
-    # pass this a dictionary of parameters and values. Loop over and create prefix. Use dictionary elsewhere.
-    prefix = "./cloudy-output/silcc-%s"%UniqID  #_dx_%s_hden_%s_T_%s_flge_%s_fluv_%s_flih_%s_fli2_%s"%(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2)
-    outfile = open(prefix+".in",'w')
+    prefix = "./cloudy-output/silcc-%s"%UniqID
+    outfile = open(prefix+".in", 'w')
     outfile.write("set save prefix \"%s\""%(prefix)+"\n")
-    return(outfile)
+    return outfile
 
-def check_for_IF(depth,hden,phi_ih,phi_i2):
+def check_for_if(cell_depth, cell_hden, cell_phi_ih, cell_phi_i2):
+    """Check to see if cell contains a Hydrogen ionization front"""
     alpha = 4.0e-13 # H recombinations per second cm-6
-    ion_depth = (10**(float(phi_ih)) + 10**(float(phi_i2)))/(alpha * 10**(float(hden))**2 )
+    ion_depth = (10**(float(cell_phi_ih)) +\
+    10**(float(cell_phi_i2)))/(alpha * 10**(float(cell_hden))**2)
+
     # Change hardcoded 1e13 to mean free path of ionizing photon in H0.
-    if ForceFullDepth == True:
+    if ForceFullDepth is True:
         return True
-    elif ion_depth <= 10**float(depth) and ion_depth > 1e13:
+    elif ion_depth <= 10**float(cell_depth) and ion_depth > 1e13:
         return True
     else:
         return False
 
 def set_cloudy_init_file(outfile, init_file):
+    """ Write command to cloudy input file to use custom init file """
     outfile.write("init \"%s\"\n"%(init_file))
-                  
-def set_depth(outfile,depth):
-    outfile.write("stop depth %s\n"%(depth))    
 
-def set_hden(outfile, hden):
-    outfile.write("hden %s\n"%(hden))
+def set_depth(outfile, model_depth):
+    """Write command to cloudy input file to set depth of model"""
+    outfile.write("stop depth %s\n"%(model_depth))
 
-def set_nend(outfile,isIF):
-    
-    if isIF == True:
-        """ Do not set constant temperature if IF exists """
-        outfile.write("set nend 1000\n")        
-    if isIF == False:
-        """ Set constant temperature if IF does not exist """
-        outfile.write("set nend 1\n")        
+def set_hden(outfile, model_hden):
+    """Write command to cloudy input file to set hydrogen density"""
+    outfile.write("hden %s\n"%(model_hden))
 
-def set_T(outfile,T,isIF):
-    if(isIF == False):
-        outfile.write("constant temperature %s\n"%(T))
+def set_nend(outfile, model_is_ionization_front):
+    """Write command to cloudy input file to set number of zones to simulate"""
+    if model_is_ionization_front is True:
+        #Do not set constant temperature if IF exists
+        outfile.write("set nend 1000\n")
+
+    if model_is_ionization_front is False:
+        #Set constant temperature if IF does not exist
+        outfile.write("set nend 1\n")
+
+def set_temperature(outfile, temperature, is_ionization_front):
+    """Set constant temperature if not modeling the actual ionization front temp gradients"""
+    if is_ionization_front is False:
+        outfile.write("constant temperature %s\n"%(temperature))
 
 def set_I_ge(outfile,I_ge):
     if(I_ge != "-99.0"):
@@ -113,7 +121,7 @@ def create_cloudy_input_file(UniqID, depth, hden, T, flux_array, cloudy_init_fil
 
     # CLOUDY_modelIF is set to True by default. Can be changed in parameter file to false, which will prevent isIF from executing
     if(CLOUDY_modelIF):
-        isIF = check_for_IF(depth,hden,phi_ih,phi_i2)
+        isIF = check_for_if(depth,hden,phi_ih,phi_i2)
     else:
         isIF = False
 
@@ -125,7 +133,7 @@ def create_cloudy_input_file(UniqID, depth, hden, T, flux_array, cloudy_init_fil
     set_depth(cloudy_input_file, depth)
     set_hden(cloudy_input_file, hden)
     set_nend(cloudy_input_file, isIF)
-    set_T(cloudy_input_file, T, isIF)
+    set_temperature(cloudy_input_file, T, isIF)
     set_I_ge(cloudy_input_file, I_ge)
     set_phi_uv(cloudy_input_file, phi_uv)
     set_phi_ih(cloudy_input_file, phi_ih)
