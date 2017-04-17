@@ -159,10 +159,9 @@ if(len(parameter_data) < MaxNumberModels):
             max_depth[hden, temp, [flge, fluv, flih, fli2]] = {}
             max_depth[hden, temp, [flge, fluv, flih, fli2]]["depth"] = depth
             max_depth[hden, temp, [flge, fluv, flih, fli2]]["UniqID"] = UniqID
-            
+
 for parameters in max_depth.keys():
-   [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
-   try:
-      if depth > max_depth[hden, temp, [flge, fluv, flih, fli2]]:
-          max_depth[hden, temp, [flge, fluv, flih, fli2]] = depth
+   [hden, temp, [flge, fluv, flih, fli2]] = parameters
+   depth = max_depth[parameters]["depth"]
+   UniqID= max_depth[parameters]["UniqID"]
    create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
