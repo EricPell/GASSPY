@@ -96,22 +96,22 @@ def set_temperature(outfile, temperature, is_ionization_front):
         outfile.write("constant temperature %s\n"%(temperature))
 
 def set_I_ge(outfile,I_ge):
-    if I_ge != "-99.0":
+    if I_ge != "-99.00":
         outfile.write(fervent_bands.flge)
         outfile.write("intensity %s, range 0.41 to 0.823 Ryd\n"%(I_ge))
 
 def set_phi_uv(outfile,phi_uv):
-    if phi_uv != "-99.0":
+    if phi_uv != "-99.00":
         outfile.write(fervent_bands.fluv)
         outfile.write("phi(h) = %s, range 0.823 to 1.0 Ryd\n"%(phi_uv))
 
 def set_phi_ih(outfile,phi_ih):
-    if phi_ih != "-99.0":
+    if phi_ih != "-99.00":
         outfile.write(fervent_bands.flih)
         outfile.write("phi(h) = %s, range 1.0 to 1.117 Ryd\n"%(phi_ih))
 
 def set_phi_i2(outfile,phi_i2):
-    if phi_i2 != "-99.0":
+    if phi_i2 != "-99.00":
         outfile.write(fervent_bands.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
