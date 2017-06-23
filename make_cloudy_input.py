@@ -96,31 +96,41 @@ def set_temperature(outfile, temperature, is_ionization_front):
         outfile.write("constant temperature %s\n"%(temperature))
 
 def set_I_ge(outfile,I_ge):
-    if(I_ge != "-99.0"):
+    if I_ge != "-99.0":
         outfile.write(fervent_bands.flge)
         outfile.write("intensity %s, range 0.41 to 0.823 Ryd\n"%(I_ge))
 
 def set_phi_uv(outfile,phi_uv):
-    if(phi_uv != "-99.0"):
+    if phi_uv != "-99.0":
         outfile.write(fervent_bands.fluv)
         outfile.write("phi(h) = %s, range 0.823 to 1.0 Ryd\n"%(phi_uv))
 
 def set_phi_ih(outfile,phi_ih):
-    if(phi_ih != "-99.0"):
+    if phi_ih != "-99.0":
         outfile.write(fervent_bands.flih)
         outfile.write("phi(h) = %s, range 1.0 to 1.117 Ryd\n"%(phi_ih))
 
 def set_phi_i2(outfile,phi_i2):
-    if(phi_i2 != "-99.0"):
+    if phi_i2 != "-99.0":
         outfile.write(fervent_bands.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
-def create_cloudy_input_file(UniqID, depth, hden, T, flux_array, cloudy_init_file=CLOUDY_INIT_FILE):
-    (I_ge, phi_uv, phi_ih, phi_i2) = flux_array
+def create_cloudy_input_file(__UniqID, __depth, __hden, __T, flux_array, __cloudy_init_file=CLOUDY_INIT_FILE):
     """ crate prefix for models and open Cloudy input file for writing"""
-    cloudy_input_file = set_output_and_save_prefix(UniqID, hden, depth, T, I_ge, phi_uv, phi_ih, phi_i2)
+    (__I_ge, __phi_uv, __phi_ih, __phi_i2) = flux_array
+    cloudy_input_file = set_output_and_save_prefix(\
+     __UniqID,\
+     __hden,\
+     __depth,\
+     __T,\
+     __I_ge,\
+     __phi_uv,\
+     __phi_ih,\
+     __phi_i2)
 
-    # CLOUDY_modelIF is set to True by default. Can be changed in parameter file to false, which will prevent isIF from executing
+    # CLOUDY_modelIF is set to True by default. Can be changed in parameter file to false,
+    # which will prevent isIF from executing
+
     if(CLOUDY_modelIF):
         isIF = check_for_if(depth,hden,phi_ih,phi_i2)
     else:
