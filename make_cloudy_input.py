@@ -169,8 +169,8 @@ if len(parameter_data) < MaxNumberModels:
         [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
         try:
             if depth > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:
-                max_depth[hden, temp, flge, fluv, flih, fli2]]["depth"] = depth
-                max_depth[hden, temp, flge, fluv, flih, fli2]]["UniqID"] = UniqID
+                max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = depth
+                max_depth[hden, temp, flge, fluv, flih, fli2]["UniqID"] = UniqID
         except:
             max_depth[hden, temp, flge, fluv, flih, fli2] = {}
             max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = depth
