@@ -4,6 +4,7 @@
 
 import os
 import sys
+import pickle
 sys.path.append(os.getcwd())
 
 ###############################################################
@@ -153,20 +154,23 @@ parameter_data = input.readlines()
 
 # Create max depth to re-use deep models for shallower ones.
 max_depth = {}
-if(len(parameter_data) < MaxNumberModels):
-    for i in range(1,len(parameter_data)):
+if len(parameter_data) < MaxNumberModels:
+    for i in range(1, len(parameter_data)):
         [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
         try:
-           if depth > max_depth[hden, temp, [flge, fluv, flih, fli2]]["depth"]:
-               max_depth[hden, temp, [flge, fluv, flih, fli2]]["depth"] = depth
-               max_depth[hden, temp, [flge, fluv, flih, fli2]]["UniqID"] = UniqID
+            if depth > max_depth[hden, temp, [flge, fluv, flih, fli2]]["depth"]:
+                max_depth[hden, temp, [flge, fluv, flih, fli2]]["depth"] = depth
+                max_depth[hden, temp, [flge, fluv, flih, fli2]]["UniqID"] = UniqID
         except:
             max_depth[hden, temp, [flge, fluv, flih, fli2]] = {}
             max_depth[hden, temp, [flge, fluv, flih, fli2]]["depth"] = depth
             max_depth[hden, temp, [flge, fluv, flih, fli2]]["UniqID"] = UniqID
 
-for parameters in max_depth.keys():
-   [hden, temp, [flge, fluv, flih, fli2]] = parameters
-   depth = max_depth[parameters]["depth"]
-   UniqID= max_depth[parameters]["UniqID"]
-   create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
+with open('max_depth.pickle', 'wb') as handle:
+    pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+for parameters in max_depth:
+    [hden, temp, [flge, fluv, flih, fli2]] = parameters
+    depth = max_depth[parameters]["depth"]
+    UniqID = max_depth[parameters]["UniqID"]
+    create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
