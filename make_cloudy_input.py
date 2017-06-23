@@ -16,7 +16,7 @@ CLOUDY_modelIF = True
 #                                                             #
 ###############################################################
 
-import myconfig # Import configuration file from this and read in mask parameters
+import myconfig 
 
 try:
     CLOUDY_INIT_FILE = myconfig.CLOUDY_INIT_FILE
