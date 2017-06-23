@@ -115,40 +115,40 @@ def set_phi_i2(outfile,phi_i2):
         outfile.write(fervent_bands.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
-def create_cloudy_input_file(__UniqID, __depth, __hden, __T, flux_array, __cloudy_init_file=CLOUDY_INIT_FILE):
+def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, _cloudy_init_file=CLOUDY_INIT_FILE):
     """ crate prefix for models and open Cloudy input file for writing"""
-    (__I_ge, __phi_uv, __phi_ih, __phi_i2) = flux_array
+    (_I_ge, _phi_uv, _phi_ih, _phi_i2) = flux_array
     cloudy_input_file = set_output_and_save_prefix(\
-     __UniqID,\
-     __hden,\
-     __depth,\
-     __T,\
-     __I_ge,\
-     __phi_uv,\
-     __phi_ih,\
-     __phi_i2)
+     _UniqID,\
+     _hden,\
+     _depth,\
+     _T,\
+     _I_ge,\
+     _phi_uv,\
+     _phi_ih,\
+     _phi_i2)
 
     # CLOUDY_modelIF is set to True by default. Can be changed in parameter file to false,
     # which will prevent isIF from executing
 
     if(CLOUDY_modelIF):
-        isIF = check_for_if(depth,hden,phi_ih,phi_i2)
+        isIF = check_for_if(_depth, _hden, _phi_ih, _phi_i2)
     else:
         isIF = False
 
 
     """ Set common init file """
-    set_cloudy_init_file(cloudy_input_file, cloudy_init_file)
+    set_cloudy_init_file(cloudy_input_file, _cloudy_init_file)
 
     """ Write individual cloudy parameters to input file """
-    set_depth(cloudy_input_file, depth)
-    set_hden(cloudy_input_file, hden)
+    set_depth(cloudy_input_file, _depth)
+    set_hden(cloudy_input_file, _hden)
     set_nend(cloudy_input_file, isIF)
-    set_temperature(cloudy_input_file, T, isIF)
-    set_I_ge(cloudy_input_file, I_ge)
-    set_phi_uv(cloudy_input_file, phi_uv)
-    set_phi_ih(cloudy_input_file, phi_ih)
-    set_phi_i2(cloudy_input_file, phi_i2)
+    set_temperature(cloudy_input_file, _T, isIF)
+    set_I_ge(cloudy_input_file, _I_ge)
+    set_phi_uv(cloudy_input_file, _phi_uv)
+    set_phi_ih(cloudy_input_file, _phi_ih)
+    set_phi_i2(cloudy_input_file, _phi_i2)
 
     """ Close input file """
     cloudy_input_file.close()
@@ -176,11 +176,11 @@ if len(parameter_data) < MaxNumberModels:
             max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = depth
             max_depth[hden, temp, flge, fluv, flih, fli2]["UniqID"] = UniqID
 
-with open('max_depth.pickle', 'wb') as handle:
-    pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
 for parameters in max_depth:
     [hden, temp, flge, fluv, flih, fli2] = parameters
     depth = max_depth[parameters]["depth"]
     UniqID = max_depth[parameters]["UniqID"]
     create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
+
+with open('max_depth.pickle', 'wb') as handle:
+    pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
