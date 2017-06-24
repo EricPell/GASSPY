@@ -194,5 +194,5 @@ for parameters in max_depth:
     UniqID = max_depth[parameters]["UniqID"]
     create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
 
-with open('max_depth.pickle', 'wb') as handle:
-    pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
+#with open('max_depth.pickle', 'wb') as handle:
+#    pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
