@@ -102,17 +102,20 @@ def set_I_ge(outfile,I_ge):
         outfile.write("intensity %s, range 0.41 to 0.823 Ryd\n"%(I_ge))
 
 def set_phi_uv(outfile,phi_uv):
-    if phi_uv != "-99.00":
+    #if phi_uv != "-99.00":
+    if phi_uv > 1:
         outfile.write(fervent_bands.fluv)
         outfile.write("phi(h) = %s, range 0.823 to 1.0 Ryd\n"%(phi_uv))
 
 def set_phi_ih(outfile,phi_ih):
-    if phi_ih != "-99.00":
+    #if phi_ih != "-99.00":
+    if phi_ih > 0:
         outfile.write(fervent_bands.flih)
         outfile.write("phi(h) = %s, range 1.0 to 1.117 Ryd\n"%(phi_ih))
 
 def set_phi_i2(outfile,phi_i2):
-    if phi_i2 != "-99.00":
+    #if phi_i2 != "-99.00":
+    if phi_i2 > 0:
         outfile.write(fervent_bands.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
@@ -169,12 +172,12 @@ for i in range(1, len(parameter_data)):
     [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
 
     # WARNING - Experimental - WARNING 
-    hden = compress.number(float(hden), 1, 3.)
-    temp = compress.number(float(temp), 1, 3.)
-    flge = compress.number(float(flge), 1, 3.)
-    fluv = compress.number(float(fluv), 1, 3.)
-    flih = compress.number(float(flih), 1, 3.)
-    fli2 = compress.number(float(fli2), 1, 3.)
+    hden = compress.number(float(hden), 2, 3.)
+    temp = compress.number(float(temp), 2, 3.)
+    flge = compress.number(float(flge), 2, 3.)
+    fluv = compress.number(float(fluv), 2, 3.)
+    flih = compress.number(float(flih), 2, 3.)
+    fli2 = compress.number(float(fli2), 2, 3.)
     
     try:
         if depth > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:
