@@ -186,6 +186,8 @@ if len(parameter_data) < MaxNumberModels:
             max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = depth
             max_depth[hden, temp, flge, fluv, flih, fli2]["UniqID"] = UniqID
 
+else:
+    print("Number of models exceeds maximum: %i > %i"%(len(parameter_data), MaxNumberModels))
 for parameters in max_depth:
     [hden, temp, flge, fluv, flih, fli2] = parameters
     depth = max_depth[parameters]["depth"]
