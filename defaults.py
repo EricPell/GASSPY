@@ -1,6 +1,6 @@
 lastmoddate = "25.05.2016.EWP"
 
-mask_parameters_dict={
+mask_parameters_dict = {
     "x":"default",\
     "y":"default",\
     "z":"default",\
@@ -12,3 +12,14 @@ CLOUDY_INIT_FILE = "default_postprocess.ini"
 CLOUDY_modelIF   = False
 
 debug = False
+
+# Specify the compression ratio of physical parameters in the grid
+
+compression_ratio = {
+    'dx':1.0,\
+    'dens':2.0,\
+    'temp':1.0,\
+    'flge':2.0,\
+    'fluv':2.0,\
+    'flih':2.0,\
+    'fli2':2.0}
