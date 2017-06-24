@@ -15,8 +15,8 @@ CLOUDY_modelIF = True
 ###############################################################
 #                                                             #
 ###############################################################
-
-import myconfig 
+import defaults
+import myconfig
 
 try:
     CLOUDY_INIT_FILE = myconfig.CLOUDY_INIT_FILE
