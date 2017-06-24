@@ -37,7 +37,7 @@ except:
     ForceFullDepth = False
 
 
-MaxNumberModels = int(1e7)
+MaxNumberModels = int(1e5)
 
 # Import string containing each continuum shape.
 import fervent_bands # Import continuum shapes        
@@ -170,12 +170,12 @@ if len(parameter_data) < MaxNumberModels:
         [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
 
         # WARNING - Experimental - WARNING 
-        hden = compress.number(hden, 1, 3.)
-        temp = compress.number(temp, 1, 3.)
-        flge = compress.number(flge, 1, 3.)
-        fluv = compress.number(fluv, 1, 3.)
-        flih = compress.number(flih, 1, 3.)
-        fli2 = compress.number(fli2, 1, 3.)
+        hden = compress.number(float(hden), 1, 3.)
+        temp = compress.number(float(temp), 1, 3.)
+        flge = compress.number(float(flge), 1, 3.)
+        fluv = compress.number(float(fluv), 1, 3.)
+        flih = compress.number(float(flih), 1, 3.)
+        fli2 = compress.number(float(fli2), 1, 3.)
         
         try:
             if depth > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:

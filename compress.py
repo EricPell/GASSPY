@@ -3,7 +3,9 @@ import numpy as np
 
 def number(input_number, decimal_precision, compression_ratio):
     """Reduce numeric resolution of array to at a given decimal precision by a compression factor"""
-    return np.around(np.around((input_number / compression_ratio), decimal_precision) * compression_ratio)
+    scaled_number = input_number / compression_ratio
+    truncated_scaled_number = np.around(scaled_number, decimal_precision)
+    return np.around(truncated_scaled_number * compression_ratio, decimal_precision)
     #return np.around((input_array / compression_ratio), dec_precision) * compression_ratio
 
 def array(input_array, decimal_precision, compression_ratio):
