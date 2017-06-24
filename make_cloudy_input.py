@@ -170,8 +170,13 @@ if len(parameter_data) < MaxNumberModels:
         [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
 
         # WARNING - Experimental - WARNING 
-        [hden, temp, flge, fluv, flih, fli2] = compress.array([hden, temp, flge, fluv, flih, fli2], 1, 3)
-
+        hden = compress.number(hden, 1, 3.)
+        temp = compress.number(temp, 1, 3.)
+        flge = compress.number(flge, 1, 3.)
+        fluv = compress.number(fluv, 1, 3.)
+        flih = compress.number(flih, 1, 3.)
+        fli2 = compress.number(fli2, 1, 3.)
+        
         try:
             if depth > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:
                 max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = depth
