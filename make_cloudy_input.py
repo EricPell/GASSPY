@@ -166,7 +166,7 @@ parameter_data = input.readlines()
 # Create max depth to re-use deep models for shallower ones.
 max_depth = {}
 if len(parameter_data) < MaxNumberModels:
-    for i in range(1, len(parameter_data)):
+    for i in range(1, min(len(parameter_data),MaxNumberModels)):
         [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
 
         # WARNING - Experimental - WARNING 
