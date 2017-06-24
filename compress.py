@@ -14,3 +14,13 @@ def array(input_array, decimal_precision, compression_ratio):
 
     return compressed_array
     #return np.around((input_array / compression_ratio), dec_precision) * compression_ratio
+
+def dictionary(input_dict, decimal_precision, compression_ratio):
+    """Reduce numeric resolution of array to at a given decimal precision by a compression factor"""
+    compressed_dict = {}
+    for key in input_dict:
+        scaled = input_dict[key] / compression_ratio[key]
+        truncated = np.around(scaled, decimal_precision)
+        compressed_dict[key] = np.around(truncated*compression_ratio[key])
+    return compressed_dict
+    #return np.around((input_array / compression_ratio), dec_precision) * compression_ratio
