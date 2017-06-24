@@ -5,6 +5,7 @@
 import os
 import sys
 import pickle
+import compress
 sys.path.append(os.getcwd())
 
 ###############################################################
@@ -167,6 +168,10 @@ max_depth = {}
 if len(parameter_data) < MaxNumberModels:
     for i in range(1, len(parameter_data)):
         [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
+
+        # WARNING - Experimental - WARNING 
+        [hden, temp, flge, fluv, flih, fli2] = compress.array([hden, temp, flge, fluv, flih, fli2], 1, 3)
+
         try:
             if depth > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:
                 max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = depth
