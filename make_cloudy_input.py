@@ -165,34 +165,33 @@ parameter_data = input.readlines()
 
 # Create max depth to re-use deep models for shallower ones.
 max_depth = {}
-if len(parameter_data) < MaxNumberModels:
-    for i in range(1, min(len(parameter_data),MaxNumberModels)):
-        [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
+for i in range(1, len(parameter_data)):
+    [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
 
-        # WARNING - Experimental - WARNING 
-        hden = compress.number(float(hden), 1, 3.)
-        temp = compress.number(float(temp), 1, 3.)
-        flge = compress.number(float(flge), 1, 3.)
-        fluv = compress.number(float(fluv), 1, 3.)
-        flih = compress.number(float(flih), 1, 3.)
-        fli2 = compress.number(float(fli2), 1, 3.)
-        
-        try:
-            if depth > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:
-                max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = depth
-                max_depth[hden, temp, flge, fluv, flih, fli2]["UniqID"] = UniqID
-        except:
-            max_depth[hden, temp, flge, fluv, flih, fli2] = {}
+    # WARNING - Experimental - WARNING 
+    hden = compress.number(float(hden), 1, 3.)
+    temp = compress.number(float(temp), 1, 3.)
+    flge = compress.number(float(flge), 1, 3.)
+    fluv = compress.number(float(fluv), 1, 3.)
+    flih = compress.number(float(flih), 1, 3.)
+    fli2 = compress.number(float(fli2), 1, 3.)
+    
+    try:
+        if depth > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:
             max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = depth
             max_depth[hden, temp, flge, fluv, flih, fli2]["UniqID"] = UniqID
+    except:
+        max_depth[hden, temp, flge, fluv, flih, fli2] = {}
+        max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = depth
+        max_depth[hden, temp, flge, fluv, flih, fli2]["UniqID"] = UniqID
 
-else:
-    print("Number of models exceeds maximum: %i > %i"%(len(parameter_data), MaxNumberModels))
-for parameters in max_depth:
-    [hden, temp, flge, fluv, flih, fli2] = parameters
-    depth = max_depth[parameters]["depth"]
-    UniqID = max_depth[parameters]["UniqID"]
-    create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
+if len(max_depth) < MaxNumberModels:
 
-with open('max_depth.pickle', 'wb') as handle:
-    pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    for parameters in max_depth:
+        [hden, temp, flge, fluv, flih, fli2] = parameters
+        depth = max_depth[parameters]["depth"]
+        UniqID = max_depth[parameters]["UniqID"]
+        create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
+
+    with open('max_depth.pickle', 'wb') as handle:
+        pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
