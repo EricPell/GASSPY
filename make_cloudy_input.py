@@ -174,10 +174,10 @@ for i in range(1, len(parameter_data)):
     # WARNING - Experimental - WARNING 
     hden = compress.number(float(hden), 2, 3.)
     temp = compress.number(float(temp), 2, 3.)
-    flge = compress.number(float(flge), 2, 3.)
-    fluv = compress.number(float(fluv), 2, 3.)
-    flih = compress.number(float(flih), 2, 3.)
-    fli2 = compress.number(float(fli2), 2, 3.)
+    flge = compress.number(float(flge), 1, 3.)
+    fluv = compress.number(float(fluv), 1, 3.)
+    flih = compress.number(float(flih), 1, 3.)
+    fli2 = compress.number(float(fli2), 1, 3.)
     
     try:
         if float(depth) > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:
