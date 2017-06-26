@@ -135,10 +135,10 @@ for cell_i in range(Ncells):
 
     for field in radfields:
         logflux = simdata[field][cell_i]
-        if logflux > -4:
+        if logflux > 0:
             value = "%0.2f"%(logflux)
         else:
-            value = "-99.00"
+            value = "-99.000"
         if value == "-inf" or value == "inf":
             value = "%0.2f"%(np.log10(1e-99))
             # Append the field numerical value to data
@@ -147,7 +147,7 @@ for cell_i in range(Ncells):
 
 
     # Write cell data to output file
-    if data[-3:-1]+[data[-1]] != ["-99.00", "-99.00", "-99.00"]:
+    if data[-3:-1]+[data[-1]] != ["-99.000", "-99.000", "-99.000"]:
         try:
             unique_param_dict[cloudyparm] += 1
         except:
