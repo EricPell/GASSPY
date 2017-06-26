@@ -174,7 +174,7 @@ for i in range(1, len(parameter_data)):
     # WARNING - Experimental - WARNING 
     # The following code block is hard coded and won't reflect changes to the config file
     hden = compress.number(float(hden), 2, 3.)
-    temp = compress.number(float(temp), 2, 3.)
+    temp = compress.number(float(temp), 1, 3.)
     flge = compress.number(float(flge), 1, 3.)
     fluv = compress.number(float(fluv), 1, 3.)
     flih = compress.number(float(flih), 1, 3.)
