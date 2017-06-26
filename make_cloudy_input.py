@@ -86,7 +86,7 @@ def set_nend(outfile, model_is_ionization_front):
     """Write command to cloudy input file to set number of zones to simulate"""
     if model_is_ionization_front is True:
         #Do not set constant temperature if IF exists
-        outfile.write("set nend 1000\n")
+        outfile.write("set nend 5000\n")
 
     if model_is_ionization_front is False:
         #Set constant temperature if IF does not exist
