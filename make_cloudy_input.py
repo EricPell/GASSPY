@@ -172,6 +172,7 @@ for i in range(1, len(parameter_data)):
     [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
 
     # WARNING - Experimental - WARNING 
+    # The following code block is hard coded and won't reflect changes to the config file
     hden = compress.number(float(hden), 2, 3.)
     temp = compress.number(float(temp), 2, 3.)
     flge = compress.number(float(flge), 1, 3.)
