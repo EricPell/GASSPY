@@ -6,6 +6,7 @@ import os
 import sys
 import pickle
 import compress
+import numpy as np
 sys.path.append(os.getcwd())
 
 ###############################################################
@@ -182,21 +183,21 @@ for i in range(1, len(parameter_data)):
     
     try:
         if float(depth) > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:
-            max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = float(depth)
-            max_depth[hden, temp, flge, fluv, flih, fli2]["UniqID"] = UniqID
+            max_depth[np.around(hden, 2), np.around(temp, 2), np.around(flge, 2), np.around(fluv, 2), np.around(flih, 2), np.around(fli2, 2)]["depth"] = np.around(float(depth), 3)
+            max_depth[np.around(hden, 2), np.around(temp, 2), np.around(flge, 2), np.around(fluv, 2), np.around(flih, 2), np.around(fli2, 2)]["UniqID"] = UniqID
     except:
-        max_depth[hden, temp, flge, fluv, flih, fli2] = {}
-        max_depth[hden, temp, flge, fluv, flih, fli2]["depth"] = float(depth)
-        max_depth[hden, temp, flge, fluv, flih, fli2]["UniqID"] = UniqID
+        max_depth[np.around(hden, 2), np.around(temp, 2), np.around(flge, 2), np.around(fluv, 2), np.around(flih, 2), np.around(fli2, 2)] = {}
+        max_depth[np.around(hden, 2), np.around(temp, 2), np.around(flge, 2), np.around(fluv, 2), np.around(flih, 2), np.around(fli2, 2)]["depth"] = float(depth)
+        max_depth[np.around(hden, 2), np.around(temp, 2), np.around(flge, 2), np.around(fluv, 2), np.around(flih, 2), np.around(fli2, 2)]["UniqID"] = UniqID
 
 for parameters in max_depth:
     [hden, temp, flge, fluv, flih, fli2] = parameters
-    depth = max_depth[parameters]["depth"]
-    UniqID = max_depth[parameters]["UniqID"]
+    depth = max_depth[np.around(hden, 2), np.around(temp, 2), np.around(flge, 2), np.around(fluv, 2), np.around(flih, 2), np.around(fli2, 2)]["depth"]
+    UniqID = max_depth[np.around(hden, 2), np.around(temp, 2), np.around(flge, 2), np.around(fluv, 2), np.around(flih, 2), np.around(fli2, 2)]["UniqID"]
     if myconfig.debug == False:
         create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
     if myconfig.debug == True:
-        print(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
+        print(UniqID, depth, np.around(hden, 2), np.around(temp, 2), np.around(flge, 2), np.around(fluv, 2), np.around(flih, 2), np.around(fli2, 2))
 
 #with open('max_depth.pickle', 'wb') as handle:
 #    pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
