@@ -192,12 +192,12 @@ for i in range(1, len(parameter_data)):
 
 for parameters in max_depth:
     [hden, temp, flge, fluv, flih, fli2] = parameters
-    depth = max_depth["%0.3f"%(hden), "%0.3f"%(temp), "%0.3f"%(flge), "%0.3f"%(fluv), "%0.3f"%(flih), "%0.3f"%(fli2)]["depth"]
-    UniqID = max_depth["%0.3f"%(hden), "%0.3f"%(temp), "%0.3f"%(flge), "%0.3f"%(fluv), "%0.3f"%(flih), "%0.3f"%(fli2)]["UniqID"]
+    depth = max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]
+    UniqID = max_depth[hden, temp, flge, fluv, flih, fli2]["UniqID"]
     if myconfig.debug == False:
         create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
     if myconfig.debug == True:
-        print(UniqID, depth, "%0.3f"%(hden), "%0.3f"%(temp), "%0.3f"%(flge), "%0.3f"%(fluv), "%0.3f"%(flih), "%0.3f"%(fli2) )
+        print(UniqID, depth, hden, temp, flge, fluv, flih, fli2 )
 
 #with open('max_depth.pickle', 'wb') as handle:
 #    pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
