@@ -2,6 +2,7 @@
 """ Append launch directory to python path for importing config files """
 import os
 import sys
+import compress
 sys.path.append(os.getcwd())
 
 LastModDate = "24.05.2016.EWP"
