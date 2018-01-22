@@ -98,7 +98,7 @@ sub avgEmissivty{
 	    $Sum_dr = $r_new; # the variable r is the depth into the cloud. It is the total r, so it represents the sum of all drs.
 	    
 	    for(my $col = 1; $col <= @array_columns -1;$col++){
-		$SumProduct_dr_emissivity[$col] += abs($dr) * 10**($array_columns[$col]+30.);
+		    $SumProduct_dr_emissivity[$col] += abs($dr) * 10**($array_columns[$col]+30.);
 	    }
 	    $row++;
 	} while($row <= @array_rows -1);
