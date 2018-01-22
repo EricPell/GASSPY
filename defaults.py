@@ -8,8 +8,14 @@ mask_parameters_dict = {
 
 CLOUDY_INIT_FILE = "default_postprocess.ini"
 
-# Specifies variable CLOUDY_modelIF for make-cloudy-input.py -> sets models to single zone
-CLOUDY_modelIF   = False
+""" Set Cloudy to calculate a full calculation instead of a single zone """
+ForceFullDepth = True
+
+""" DEPRECATED: REMOVE """
+# Specifies variable CLOUDY_modelIF for make-cloudy-input.py -> checks model for H/H+ IF and sets models to single zone if not.
+CLOUDY_modelIF   = True
+
+
 
 debug = False
 

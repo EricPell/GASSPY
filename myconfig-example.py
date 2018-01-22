@@ -8,6 +8,8 @@ mask_parameters_dict={
     "z":[-50.*3.08e18, 250*3.08e18],\
     "temp":[1e3,1e5]}
 
+ForceFullDepth = True
+
 opiate_library = 'silcc-combined-ems.tbl'
 opiate_lookup  = 'silcc.unique_parameters'
 
