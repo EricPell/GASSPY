@@ -1,4 +1,4 @@
-lastmoddate = "25.05.2016.EWP"
+lastmoddate = "22/01/2018.EWP"
 
 mask_parameters_dict = {
     "x":"default",\
@@ -23,3 +23,5 @@ compression_ratio = {
     'fluv':2.0,\
     'flih':2.0,\
     'fli2':2.0}
+
+append_db = True
