@@ -27,15 +27,11 @@ except:
 
 #"""Decide to force every model to be calculated with full depth, or default to a single zone"""
 try:
-    if myconfig.ForceFullDepth == True:
-        #"""If ForceFullDepth is defined in myconfig as true, set the global to true"""
-        ForceFullDepth = True
-    else:
-        #"""Else, if set to false, set global false"""
-        ForceFullDepth = False
+    """Try and read ForceFullDepth from myconfig"""
+    ForceFullDepth = myconfig.ForceFullDepth
 except:
-    #"""If Force depth was not defined, that's ok. We will set it to true"""
-    ForceFullDepth = False
+    """Else ForceFullDepth is defined in defaults as true, set the global to true"""
+    ForceFullDepth = defaults.ForceFullDepth
 
 
 MaxNumberModels = int(1e5)
