@@ -10,6 +10,12 @@ LastModDate = "24.05.2016.EWP"
 """ Import default and model specific settings """
 import defaults
 import myconfig
+
+try:
+    append_db = myconfig.append_db
+else:
+    append_db = myconfig.defaults
+
 try:
     mask_parameters_dict = myconfig.mask_parameters_dict
 except:
@@ -169,10 +175,21 @@ if debug  is True:
 sys.stdout.write("\n")
 live_line("Finished %i cells"%(Ncells)+"\n")
 
-outFile = open(myconfig.opiate_lookup, 'w')
-outFile.write("\t".join(["UniqID"]+cloudyfields)+"\tN\n")
+if append_db is True:
+    if not os.path.exists(filename):
+        print >> sys.stderr, 'You have selected to append to an existing database %s, but I could not find the file. I will make a new database.'%myconfig.opiate_lookup
+        append_db = False
 
-uniqueID = 0
+else:
+    """ If we are not appending to an existing database set the uniqueIDs to 0 and open the database for writing"""
+    uniqueID0 = 0        
+    outFile = open(myconfig.opiate_lookup, 'a')
+
+    """ Add a header row to the database """
+    outFile.write("\t".join(["UniqID"]+cloudyfields)+"\tN\n")
+
+uniqueID = uniqeID0
+
 for key in sorted(unique_param_dict.keys()):
     outFile.write("%i"%uniqueID+"\t"+key+"%i"%unique_param_dict[key]+"\n")
     uniqueID += 1
