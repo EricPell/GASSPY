@@ -21,6 +21,13 @@ import defaults
 import myconfig
 
 try:
+    flux_type = myconfig.flux_type
+except:
+    flux_type = myconfig.default
+    if flux_type is "default"
+        sys.exit("I can not proceed without knowing the type of radiation bands used in the simulation")
+
+try:
     CLOUDY_INIT_FILE = myconfig.CLOUDY_INIT_FILE
 except:
     CLOUDY_INIT_FILE = defaults.CLOUDY_INIT_FILE
@@ -40,7 +47,7 @@ MaxNumberModels = int(1e5)
 import fervent_bands # Import continuum shapes        
 
 
-def set_output_and_save_prefix(UniqID, depth, hden, T, I_ge, phi_uv, phi_ih, phi_i2):
+def set_output_and_save_prefix(UniqID):
     """pass this a dictionary of parameters and values. Loop over and create prefix. Open output """
     try:
         os.stat("./cloudy-output")
@@ -115,18 +122,23 @@ def set_phi_i2(outfile,phi_i2):
         outfile.write(fervent_bands.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
-def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, _cloudy_init_file=CLOUDY_INIT_FILE):
-    """ crate prefix for models and open Cloudy input file for writing"""
-    (_I_ge, _phi_uv, _phi_ih, _phi_i2) = flux_array
-    cloudy_input_file = set_output_and_save_prefix(\
-     _UniqID,\
-     _hden,\
-     _depth,\
-     _T,\
-     _I_ge,\
-     _phi_uv,\
-     _phi_ih,\
-     _phi_i2)
+def set_Hion_excessE_phi_ih(outfile,phi_ih):
+    if phi_ih != "-99.000":
+    #if phi_ih > 0:
+        outfile.write(Hion_excessE.flih)
+        outfile.write("phi(h) = %s, range 1.0 to 3.0 Ryd\n"%(phi_ih))
+
+def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, flux_type="fervent", _cloudy_init_file=CLOUDY_INIT_FILE):
+    """ create prefix for models and open Cloudy input file for writing"""
+    cloudy_input_file = set_output_and_save_prefix(_UniqID)
+    if flux_type is "fervent":
+        """4 band fervent"""
+        (_I_ge, _phi_uv, _phi_ih, _phi_i2) = flux_array
+
+    elif flux_type is "Hion_excessE":
+        """1 band simple ionizing SED"""
+        (_phi_ih) = flux_array
+        (_I_ge, _phi_uv, _phi_i2) = (np.nan, np.nan, np.nan)
 
     # CLOUDY_modelIF is set to True by default. Can be changed in parameter file to false,
     # which will prevent isIF from executing
@@ -145,10 +157,14 @@ def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, _cloudy_ini
     set_hden(cloudy_input_file, _hden)
     set_nend(cloudy_input_file, isIF)
     set_temperature(cloudy_input_file, _T, isIF)
-    set_I_ge(cloudy_input_file, _I_ge)
-    set_phi_uv(cloudy_input_file, _phi_uv)
-    set_phi_ih(cloudy_input_file, _phi_ih)
-    set_phi_i2(cloudy_input_file, _phi_i2)
+    
+    if flux_type is "fervent":
+        set_I_ge(cloudy_input_file, _I_ge)
+        set_phi_uv(cloudy_input_file, _phi_uv)
+        set_phi_ih(cloudy_input_file, _phi_ih)
+        set_phi_i2(cloudy_input_file, _phi_i2)
+    elif flux_type is "Hion_excessE":
+        set_Hion_excessE_phi_ih(cloudy_input_file, _phi_ih)
 
     """ Close input file """
     cloudy_input_file.close()
@@ -167,8 +183,10 @@ max_depth = {}
 for i in range(1, len(parameter_data)):
     [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
 
+    # WARNING - Does depth need to be compressed? Ideally not.... I honestly can't see why it would need to be compressed.
+
     # WARNING - Experimental - WARNING 
-    # The following code block is hard coded and won't reflect changes to the config file
+    # The following code block hard codes compression values, and won't changes to the config file
     hden = compress.number(float(hden), 2, 3.)
     temp = compress.number(float(temp), 1, 3.)
     flge = compress.number(float(flge), 1, 3.)
