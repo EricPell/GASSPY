@@ -1,5 +1,7 @@
 lastmoddate = "22/01/2018.EWP"
 
+radfields = ["flge", "fluv", "flih", "fli2"]
+
 mask_parameters_dict = {
     "x":"default",\
     "y":"default",\
@@ -11,11 +13,13 @@ CLOUDY_INIT_FILE = "default_postprocess.ini"
 """ Set Cloudy to calculate a full calculation instead of a single zone """
 ForceFullDepth = True
 
+""" Set class of energy bands used for radiative transfer. Note: default, which is not defined, will cause the code to abort """
+flux_type = "default"
+
+
 """ DEPRECATED: REMOVE """
 # Specifies variable CLOUDY_modelIF for make-cloudy-input.py -> checks model for H/H+ IF and sets models to single zone if not.
 CLOUDY_modelIF   = True
-
-
 
 debug = False
 
