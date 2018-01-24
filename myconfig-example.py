@@ -1,17 +1,29 @@
 # Config parameters
 inFile = "SILCC_hdf5_plt_cnt_0403"
+radfields = ["flge", "fluv", "flih", "fli2"]
 
 # Set min-max limits for dimensions and temperature
 mask_parameters_dict={
-    "x":[-250*3.08e18, 50*3.08e18],\
-    "y":[-250*3.08e18, 50*3.08e18],\
-    "z":[-50.*3.08e18, 250*3.08e18],\
-    "temp":[1e3,1e5]}
+    "mask1":{
+        "x":[-250*3.08e18, 50*3.08e18],\
+        "y":[-250*3.08e18, 50*3.08e18],\
+        "z":[-50.*3.08e18, 250*3.08e18]\,
+        "temp":[1e3,2e4]
+        },\
+
+    "mask2":{
+        "x":[-250*3.08e18, 50*3.08e18],\
+        "y":[-250*3.08e18, 50*3.08e18],\
+        "z":[-50.*3.08e18, 250*3.08e18],\
+        "temp":[1e3,2e4]
+        }    
+}
 
 ForceFullDepth = True
 
 opiate_library = 'silcc-combined-ems.tbl'
 opiate_lookup  = 'silcc.unique_parameters'
+
 
 line_labels = ["N  2      121.767m", "N  2      205.244m", "N  2      6583.45A", "Blnd      5755.00A",\
                "O  3      88.3323m", "O  3      5006.84A", "Blnd      4363.00A",\
@@ -29,7 +41,7 @@ line_labels = ["N  2      121.767m", "N  2      205.244m", "N  2      6583.45A",
                "CO        650.074m",\
                "CO        520.089m",\
                "CO        433.438m",\
-               "CO        371.549m",\
+               "CO        371.549m",\ 
                "CO        325.137m",\
                "CO        289.041m",\
                "CO        260.169m",\
