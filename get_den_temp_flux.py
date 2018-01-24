@@ -49,25 +49,31 @@ if debug  == True:
 
 unique_param_dict = {}
 
-def mask_data(mask_parameters):
+def mask_data(mask_dict):
     """ Set masks based on mask parameters read in by the defaults library, or by myconfig"""
     masks = {}
     n_mask = 0
-    partial_mask = dd["density"] > 0
-    for parameter in sorted(mask_parameters.keys()):
-        if mask_parameters[parameter] != "default":
-            n_mask += 1
-            masks[parameter+"min"] = dd[parameter] > min(mask_parameters[parameter])
-            masks[parameter+"max"] = dd[parameter] < max(mask_parameters[parameter])
+    """ Create a mask which contains all cells, since there is no such thing as negative density"""
+    full_mask = dd["density"] < 0
+    for mask_name in mask_dict.keys():
+        """For each defined mask in mask_parameters_dictionary"""
+        n_mask += 1
 
-            if n_mask != 1:
+        partial_mask = dd["density"] > 0
+        mask_parameters = mask_dict[mask_name]
+        for parameter in sorted(mask_parameters.keys()):
+            if mask_dict[mask_name][parameter] != "default":
+                masks[parameter+"min"] = dd[parameter] > min(mask_dict[mask_name][parameter])
+                masks[parameter+"max"] = dd[parameter] < max(mask_dict[mask_name][parameter])
+
                 partial_mask = partial_mask*masks[parameter+"min"]*masks[parameter+"max"]
-            else:
-                partial_mask = masks[parameter+"min"]*masks[parameter+"max"]
+        
+        full_mask = full_mask + partial_mask
 
     if n_mask == 0:
         print("data is not masked")
-    return partial_mask # http://www.imdb.com/title/tt0110475/
+    del(masks, partial_mask)
+    return full_mask # http://www.imdb.com/title/tt0110475/
 
 mask = mask_data(mask_parameters_dict)
 
@@ -77,7 +83,10 @@ gasfields = ["dens", "temp", "iha ", "ihp ", "ih2 ", "ico ", "icp "]
 # and various gas fractions.
 
 # Radiation fields: Should possibly be defined based on code type, i.e. FLASH, RAMSES
-radfields = ["flge", "fluv", "flih", "fli2"]
+try:
+    radfields = myconfig.radfields
+except:
+    radfields = defaults.radfields
 
 cloudyfields = ["dx", "dens", "temp"] + radfields
 
@@ -112,6 +121,7 @@ for field in radfields:
         simdata[field] = dd[field][mask].value-2.0*np.log10(dd['dx'][mask].value)
         tolowmask = simdata[field] < 0.0
         simdata[field][tolowmask] = -99.00
+        
 #Loop over every cell in the masked region
 for cell_i in range(Ncells):
     #initialize the data values array
@@ -140,27 +150,30 @@ for cell_i in range(Ncells):
 
     #extract intensity radiation fields
 
-    for field in radfields:
-        logflux = simdata[field][cell_i]
-        if logflux > 0:
-            value = "%0.2f"%(logflux)
-        else:
-            value = "-99.000"
-        if value == "-inf" or value == "inf":
-            value = "%0.2f"%(np.log10(1e-99))
-            # Append the field numerical value to data
-        data.append(value)
-        cloudyparm += "%s\t"%(value)
+    """ Fervent Radiation cleaning step to deal with low and fully shielded cells"""
+    if flux_type is "fervent":
+        for field in radfields:
+            logflux = simdata[field][cell_i]
+            if logflux > 0:
+                value = "%0.2f"%(logflux)
+            else:
+                value = "-99.000"
+            if value == "-inf" or value == "inf":
+                value = "%0.2f"%(np.log10(1e-99))
+                # Append the field numerical value to data
+            data.append(value)
+            cloudyparm += "%s\t"%(value)
 
 
-    # Write cell data to output file
-    if data[-3:-1]+[data[-1]] != ["-99.000", "-99.000", "-99.000"]:
-        try:
-            unique_param_dict[cloudyparm] += 1
-        except:
-            unique_param_dict[cloudyparm] = 1
-    if debug  is True:
-        outFile.write("\t".join(["%*i"%(6, cell_i)] + data) + "\n")
+        # Write cell data to output file
+        if data[-3:-1]+[data[-1]] != ["-99.000", "-99.000", "-99.000"]:
+            try:
+                unique_param_dict[cloudyparm] += 1
+            except:
+                unique_param_dict[cloudyparm] = 1
+        if debug  is True:
+            outFile.write("\t".join(["%*i"%(6, cell_i)] + data) + "\n")
+
 
     #Print progress to stdout
     # Only print every 1% cells.
