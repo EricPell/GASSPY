@@ -77,7 +77,10 @@ Ncells = len(dd['dens'][mask])
 dxxyz = ["dx","x","y","z"]
 gasfields = ["dens","temp","iha ","ihp ","ih2 ","ico ","icp "]
 
-radfields = ["flge","fluv","flih","fli2"]
+try:
+    radfields = myconfig.radfields
+except:
+    radfields = defaults.radfields
 
 cloudyfields = ["dx","dens","temp"] + radfields
 
