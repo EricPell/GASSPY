@@ -26,6 +26,17 @@ opiate_library = 'silcc-combined-ems.tbl'
 opiate_lookup  = 'silcc.unique_parameters'
 
 
+#data base compression ratios in logspace. Decimal precission and compression factor.
+compression_ratio = {
+    'dx':(3, 1.0),\
+    'dens':(1, 2.0),\
+    'temp':(1, 1.0),\
+    'flge':(1, 2.0),\
+    'fluv':(1, 2.0),\
+    'flih':(1, 2.0),\
+    'fli2':(1, 2.0)}
+
+
 line_labels = ["N  2      121.767m", "N  2      205.244m", "N  2      6583.45A", "Blnd      5755.00A",\
                "O  3      88.3323m", "O  3      5006.84A", "Blnd      4363.00A",\
                "O  2      3726.03A", "Blnd      3727.00A", "O  2      3728.81A", "Blnd      7323.00A", "Blnd      7332.00A",\
