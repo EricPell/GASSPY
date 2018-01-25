@@ -26,6 +26,11 @@ try:
 except:
     flux_type = defaults.flux_type
 
+try:
+    compression_ratio = myconfig.compression_ratio
+except:
+    compression_ratio = defaults.compression_ratio
+
 
 """ Load dependencies """
 import matplotlib
@@ -161,15 +166,14 @@ for cell_i in range(Ncells):
         for field in radfields:
             logflux = simdata[field][cell_i]
             if logflux > 0:
-                value = "%0.2f"%(logflux)
+                value = "%0.3f"%compress.number(float(logflux), compression_ratio[field])
             else:
                 value = "-99.000"
             if value == "-inf" or value == "inf":
                 value = "%0.2f"%(np.log10(1e-99))
-                # Append the field numerical value to data
+            # Append the field numerical value to data
             data.append(value)
             cloudyparm += "%s\t"%(value)
-
 
         # Write cell data to output file
         if data[-3:-1]+[data[-1]] != ["-99.000", "-99.000", "-99.000"]:
@@ -188,28 +192,32 @@ for cell_i in range(Ncells):
         live_line(message)
 
 if debug  is True:
-    #Cloes output file
+    #Close output file
     outFile.close()
 
+""" We have now finished looping over all cells """
 sys.stdout.write("\n")
 live_line("Finished %i cells"%(Ncells)+"\n")
 
+""" Check if we are creating or appending to a data base. Set write mode and initialize uniqueID accordingly."""
 if append_db is True:
-    if not os.path.exists(filename):
+    if not os.path.exists(myconfig.opiate_lookup):
         print >> sys.stderr, 'You have selected to append to an existing database %s, but I could not find the file. I will make a new database.'%myconfig.opiate_lookup
         append_db = False
-
-else:
+    else:
+        uniqueID0 = 0
+        outFile = open(myconfig.opiate_lookup, 'a')
+               
+if append_db is False:
     """ If we are not appending to an existing database set the uniqueIDs to 0 and open the database for writing"""
     uniqueID0 = 0        
-    outFile = open(myconfig.opiate_lookup, 'a')
-
+    outFile = open(myconfig.opiate_lookup, 'w')
     """ Add a header row to the database """
     outFile.write("\t".join(["UniqID"]+cloudyfields)+"\tN\n")
 
-uniqueID = uniqeID0
+uniqueID = uniqueID0
 
-for key in sorted(unique_param_dict.keys()):
-    outFile.write("%i"%uniqueID+"\t"+key+"%i"%unique_param_dict[key]+"\n")
-    uniqueID += 1
+""" Loop over each unique, compressed, cloudy input parameters, and print them with a uniqueID"""
+for i, key in enumerate(sorted(unique_param_dict.keys())):
+    outFile.write("%i"%(uniqueID0+i)+"\t"+key+"%i"%unique_param_dict[key]+"\n")
 outFile.close()
