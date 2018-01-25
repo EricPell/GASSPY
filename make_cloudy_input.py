@@ -24,7 +24,7 @@ try:
     flux_type = myconfig.flux_type
 except:
     flux_type = default.flux_type
-    if flux_type is "default"
+    if flux_type is "default":
         sys.exit("I can not proceed without knowing the type of radiation bands used in the simulation")
 
 try:
