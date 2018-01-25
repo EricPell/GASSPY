@@ -162,27 +162,36 @@ for cell_i in range(Ncells):
     #extract intensity radiation fields
 
     """ Fervent Radiation cleaning step to deal with low and fully shielded cells"""
-    if flux_type is "fervent":
-        for field in radfields:
-            logflux = simdata[field][cell_i]
-            if logflux > 0:
-                value = "%0.3f"%compress.number(float(logflux), compression_ratio[field])
-            else:
-                value = "-99.000"
-            if value == "-inf" or value == "inf":
-                value = "%0.2f"%(np.log10(1e-99))
-            # Append the field numerical value to data
-            data.append(value)
-            cloudyparm += "%s\t"%(value)
+   
+    for field in radfields:
+        logflux = simdata[field][cell_i]
+        if logflux > 0:
+            """ Do we have atleast 1 photon per cm-2?"""
+            value = "%0.3f"%compress.number(float(logflux), compression_ratio[field])
+        else:
+            value = "-99.000"
+        if value == "-inf" or value == "inf":
+            value = "%0.2f"%(np.log10(1e-99))
+        # Append the field numerical value to data
+        data.append(value)
+        cloudyparm += "%s\t"%(value)
 
+    if (flux_type is "fervent") and (data[-3:-1]+[data[-1]] != ["-99.000", "-99.000", "-99.000"]):
         # Write cell data to output file
-        if data[-3:-1]+[data[-1]] != ["-99.000", "-99.000", "-99.000"]:
-            try:
-                unique_param_dict[cloudyparm] += 1
-            except:
-                unique_param_dict[cloudyparm] = 1
-        if debug  is True:
-            outFile.write("\t".join(["%*i"%(6, cell_i)] + data) + "\n")
+        try:
+            unique_param_dict[cloudyparm] += 1
+        except:
+            unique_param_dict[cloudyparm] = 1
+
+    if flux_type is "Hion_excessE" and data[-1] != ["-99.000"]:
+        # Write cell data to output file
+        try:
+            unique_param_dict[cloudyparm] += 1
+        except:
+            unique_param_dict[cloudyparm] = 1
+
+    if debug  is True:
+        outFile.write("\t".join(["%*i"%(6, cell_i)] + data) + "\n")
 
 
     #Print progress to stdout
