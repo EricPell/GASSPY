@@ -13,13 +13,19 @@ import myconfig
 
 try:
     append_db = myconfig.append_db
-else:
-    append_db = myconfig.defaults
+except:
+    append_db = defaults.append_db
 
 try:
     mask_parameters_dict = myconfig.mask_parameters_dict
 except:
     mask_parameters_dict = defaults.mask_parameters_dict
+
+try:
+    flux_type = myconfig.flux_type
+except:
+    flux_type = defaults.flux_type
+
 
 """ Load dependencies """
 import matplotlib
