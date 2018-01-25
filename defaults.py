@@ -26,12 +26,12 @@ debug = False
 # Specify the compression ratio of physical parameters in the grid
 
 compression_ratio = {
-    'dx':1.0,\
-    'dens':2.0,\
-    'temp':1.0,\
-    'flge':2.0,\
-    'fluv':2.0,\
-    'flih':2.0,\
-    'fli2':2.0}
+    'dx':(3, 1.0),\
+    'dens':(1, 2.0),\
+    'temp':(1, 1.0),\
+    'flge':(1, 2.0),\
+    'fluv':(1, 2.0),\
+    'flih':(1, 2.0),\
+    'fli2':(1, 2.0)}
 
 append_db = True
