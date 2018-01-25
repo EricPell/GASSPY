@@ -23,7 +23,7 @@ import myconfig
 try:
     flux_type = myconfig.flux_type
 except:
-    flux_type = default.flux_type
+    flux_type = defaults.flux_type
     if flux_type is "default":
         sys.exit("I can not proceed without knowing the type of radiation bands used in the simulation")
 
@@ -45,11 +45,20 @@ except:
     """Else ForceFullDepth is defined in defaults as true, set the global to true"""
     ForceFullDepth = defaults.ForceFullDepth
 
+try:
+    debug = myconfig.debug
+except:
+    debug = defaults.debug
 
 MaxNumberModels = int(1e5)
 
 # Import string containing each continuum shape.
-import fervent_bands # Import continuum shapes        
+if flux_type is 'fervent':
+    import fervent_bands # Import continuum shapes
+elif flux_type is 'Hion_excessE':
+    import Hion_excessE_bands
+else:
+    sys.exit("You have selected a flux type I do not understand. Flux Type = %s"%(flux_type))
 
 
 def set_output_and_save_prefix(UniqID):
@@ -130,7 +139,7 @@ def set_phi_i2(outfile,phi_i2):
 def set_Hion_excessE_phi_ih(outfile,phi_ih):
     if phi_ih != "-99.000":
     #if phi_ih > 0:
-        outfile.write(Hion_excessE.flih)
+        outfile.write(Hion_excessE_bands.flih)
         outfile.write("phi(h) = %s, range 1.0 to 3.0 Ryd\n"%(phi_ih))
 
 def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, flux_type="fervent", _cloudy_init_file=CLOUDY_INIT_FILE):
@@ -186,7 +195,9 @@ parameter_data = input.readlines()
 # Create max depth to re-use deep models for shallower ones.
 max_depth = {}
 for i in range(1, len(parameter_data)):
-    [UniqID, depth, hden, temp, flge, fluv, flih, fli2, NumberOfCellsLike] = parameter_data[i].split("\t")
+    [UniqID, depth, hden, temp] = parameter_data[i].split("\t")[0:4]
+    rad_fluxes = parameter_data[i].split("\t")[4:-1]
+    NumberOfCellsLike = parameter_data[i].split("\t")[-1]
 
     # WARNING - Does depth need to be compressed? Ideally not.... I honestly can't see why it would need to be compressed.
 
@@ -197,24 +208,39 @@ for i in range(1, len(parameter_data)):
     #fluv = compress.number(float(fluv), compression_ratio['fluv'])
     #flih = compress.number(float(flih), compression_ratio['flih'])
     #fli2 = compress.number(float(fli2), compression_ratio['fli2'])
+
+    #if database_type is str:
+    if type(rad_fluxes[0]) is str:
+        try:
+            if float(depth) > max_depth[hden, temp, rad_fluxes]["depth"]:
+                max_depth[hden, temp, rad_fluxes]["depth"] = float(depth)
+                max_depth[hden, temp, rad_fluxes]["UniqID_of_maxDepth"] = UniqID
+        except:
+            max_depth[hden, temp, rad_fluxes] = {}
+            max_depth[hden, temp, rad_fluxes]["depth"] = float(depth)
+            max_depth[hden, temp, rad_fluxes]["UniqID_of_maxDepth"] = UniqID
     
-    try:
-        if float(depth) > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:
-            max_depth["%0.3f"%(hden), "%0.3f"%(temp), "%0.3f"%(flge), "%0.3f"%(fluv), "%0.3f"%(flih), "%0.3f"%(fli2)]["depth"] = float(depth)
-            max_depth["%0.3f"%(hden), "%0.3f"%(temp), "%0.3f"%(flge), "%0.3f"%(fluv), "%0.3f"%(flih), "%0.3f"%(fli2)]["UniqID"] = UniqID
-    except:
-        max_depth["%0.3f"%(hden), "%0.3f"%(temp), "%0.3f"%(flge), "%0.3f"%(fluv), "%0.3f"%(flih), "%0.3f"%(fli2)] = {}
-        max_depth["%0.3f"%(hden), "%0.3f"%(temp), "%0.3f"%(flge), "%0.3f"%(fluv), "%0.3f"%(flih), "%0.3f"%(fli2)]["depth"] = float(depth)
-        max_depth["%0.3f"%(hden), "%0.3f"%(temp), "%0.3f"%(flge), "%0.3f"%(fluv), "%0.3f"%(flih), "%0.3f"%(fli2)]["UniqID"] = UniqID
+    elif type(rad_fluxes[0]) is float:
+        try:
+            if float(depth) > max_depth[hden, temp, rad_fluxes]["depth"]:
+                max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes]["depth"] = float(depth)
+                max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes]["UniqID_of_maxDepth"] = UniqID
+            else:
+                UniquID_of_maxDepth =  max_depth[hden, temp, rad_fluxes]["UniqID_of_maxDepth"]
+                #dict[UniquID_of_maxDepth].append(UniqID)
+        except:
+            max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes] = {}
+            max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes]["depth"] = float(depth)
+            max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes]["UniqID_of_maxDepth"] = UniqID
 
 for parameters in max_depth:
-    [hden, temp, flge, fluv, flih, fli2] = parameters
-    depth = max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]
-    UniqID = max_depth[hden, temp, flge, fluv, flih, fli2]["UniqID"]
-    if myconfig.debug == False:
-        create_cloudy_input_file(UniqID, depth, hden, temp, [flge, fluv, flih, fli2])
-    if myconfig.debug == True:
-        print(UniqID, depth, hden, temp, flge, fluv, flih, fli2 )
+    [hden, temp, rad_fluxes] = parameters
+    depth = max_depth[hden, temp, rad_fluxes]["depth"]
+    UniqID = max_depth[hden, temp, rad_fluxes]["UniqID"]
+    if debug == False:
+        create_cloudy_input_file(UniqID, depth, hden, temp, rad_fluxes)
+    if debug == True:
+        print(UniqID, depth, hden, temp, rad_fluxes)
 
-#with open('max_depth.pickle', 'wb') as handle:
-#    pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('max_depth.pickle', 'wb') as handle:
+    pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
