@@ -211,7 +211,7 @@ live_line("Finished %i cells"%(Ncells)+"\n")
 """ Check if we are creating or appending to a data base. Set write mode and initialize uniqueID accordingly."""
 if append_db is True:
     if not os.path.exists(myconfig.opiate_lookup):
-        print >> sys.stderr, 'You have selected to append to an existing database %s, but I could not find the file. I will make a new database.'%myconfig.opiate_lookup
+        sys.stderr.write('You have selected to append to an existing database %s, but I could not find the file. I will make a new database.'%myconfig.opiate_lookup)
         append_db = False
     else:
         uniqueID0 = 0
