@@ -23,9 +23,14 @@ import myconfig
 try:
     flux_type = myconfig.flux_type
 except:
-    flux_type = myconfig.default
+    flux_type = default.flux_type
     if flux_type is "default"
         sys.exit("I can not proceed without knowing the type of radiation bands used in the simulation")
+
+try:
+    compression_ratio = myconfig.compression_ratio
+except:
+    compression_ratio = defaults.compression_ratio
 
 try:
     CLOUDY_INIT_FILE = myconfig.CLOUDY_INIT_FILE
@@ -186,13 +191,12 @@ for i in range(1, len(parameter_data)):
     # WARNING - Does depth need to be compressed? Ideally not.... I honestly can't see why it would need to be compressed.
 
     # WARNING - Experimental - WARNING 
-    # The following code block hard codes compression values, and won't changes to the config file
-    hden = compress.number(float(hden), 2, 3.)
-    temp = compress.number(float(temp), 1, 3.)
-    flge = compress.number(float(flge), 1, 3.)
-    fluv = compress.number(float(fluv), 1, 3.)
-    flih = compress.number(float(flih), 1, 3.)
-    fli2 = compress.number(float(fli2), 1, 3.)
+    #hden = compress.number(float(hden), compression_ratio['hden'])
+    #temp = compress.number(float(temp), compression_ratio['temp'])
+    #flge = compress.number(float(flge), compression_ratio['flge'])
+    #fluv = compress.number(float(fluv), compression_ratio['fluv'])
+    #flih = compress.number(float(flih), compression_ratio['flih'])
+    #fli2 = compress.number(float(fli2), compression_ratio['fli2'])
     
     try:
         if float(depth) > max_depth[hden, temp, flge, fluv, flih, fli2]["depth"]:
