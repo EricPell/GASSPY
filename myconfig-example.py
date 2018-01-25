@@ -1,13 +1,14 @@
 # Config parameters
 inFile = "SILCC_hdf5_plt_cnt_0403"
 radfields = ["flge", "fluv", "flih", "fli2"]
+flux_type = "fervent"
 
 # Set min-max limits for dimensions and temperature
 mask_parameters_dict={
     "mask1":{
         "x":[-250*3.08e18, 50*3.08e18],\
         "y":[-250*3.08e18, 50*3.08e18],\
-        "z":[-50.*3.08e18, 250*3.08e18]\,
+        "z":[-50.*3.08e18, 250*3.08e18],\
         "temp":[1e3,2e4]
         },\
 
@@ -41,7 +42,7 @@ line_labels = ["N  2      121.767m", "N  2      205.244m", "N  2      6583.45A",
                "CO        650.074m",\
                "CO        520.089m",\
                "CO        433.438m",\
-               "CO        371.549m",\ 
+               "CO        371.549m",\
                "CO        325.137m",\
                "CO        289.041m",\
                "CO        260.169m",\
