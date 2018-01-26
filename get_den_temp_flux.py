@@ -31,6 +31,10 @@ try:
 except:
     compression_ratio = defaults.compression_ratio
 
+try: 
+    log10_flux_low_limit = myconfig.log10_flux_low_limit
+except: 
+    log10_flux_low_limit = defaults.log10_flux_low_limit
 
 """ Load dependencies """
 import matplotlib
@@ -136,9 +140,9 @@ for field in radfields:
 
     if flux_type is "Hion_excessE":
             simdata[field] = np.log10(dd[field][mask].value*2.99792e10) # Hion_excessE is an energy density. U*c is flux 
-            to_low_value =  -np.log10(2.1790E-11)*1000 # energy flux of one ionizing photon == 13.6eV \times 1000 photons per cm-2 which is 100x less than the ISRF. See ApJ 2002, 570, 697
-            tolowmask = simdata[field] < to_low_value
-            simdata[field][tolowmask] = -99.00
+            #to_low_value =  -np.log10(2.1790E-11)*1000 # energy flux of one ionizing photon == 13.6eV \times 1000 photons per cm-2 which is 100x less than the ISRF. See ApJ 2002, 570, 697
+            #tolowmask = simdata[field] < to_low_value
+            #simdata[field][tolowmask] = -99.00
         
         
 #Loop over every cell in the masked region
@@ -156,9 +160,9 @@ for cell_i in range(Ncells):
 
     #extract gas properties field
     for field in gasfields:
-        value = "%0.2f"%(simdata[field][cell_i])
+        value = "%0.3f"%(compress.number(simdata[field][cell_i], compression_ratio[field]))
         if value == "-inf" or value == "inf":
-            value = "%0.2f"%(np.log10(1e-99))
+            value = "%0.3f"%(np.log10(1e-99))
         try:
             cloudyfields.index(field)
             cloudyparm += "%s\t"%(value)
@@ -173,7 +177,7 @@ for cell_i in range(Ncells):
    
     for field in radfields:
         logflux = simdata[field][cell_i]
-        if logflux > 0:
+        if logflux > log10_flux_low_limit[field]:
             """ Do we have atleast 1 photon per cm-2?"""
             value = "%0.3f"%compress.number(float(logflux), compression_ratio[field])
         else:

@@ -32,6 +32,19 @@ compression_ratio = {
     'flge':(1, 2.0),\
     'fluv':(1, 2.0),\
     'flih':(1, 2.0),\
-    'fli2':(1, 2.0)}
+    'fli2':(1, 2.0),\
+    'euve':(1, 1.0)}
+
+log10_flux_low_limit = {
+    'flge':-5,\
+    'fluv':0,\
+    'flih':0,\
+    'fli2':0,\
+    'euve':-5}
+"""'flge': log erg -s cm-2
+'fluv': log photon number flux
+'flih': log photon number flux
+'fli2': log photon number flux
+'euve': log erg -s cm-2 """
 
 append_db = True
