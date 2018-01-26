@@ -126,12 +126,20 @@ for field in gasfields:
         simdata[field] = np.log10(dd[field][mask].value)
 
 for field in radfields:
-    if field == "flge":
-        simdata[field] = np.log10(dd[field][mask].value)
-    else:
-        simdata[field] = dd[field][mask].value-2.0*np.log10(dd['dx'][mask].value)
-        tolowmask = simdata[field] < 0.0
-        simdata[field][tolowmask] = -99.00
+    if flux_type is "fervent":
+        if field == "flge":
+            simdata[field] = np.log10(dd[field][mask].value)
+        else:
+            simdata[field] = dd[field][mask].value-2.0*np.log10(dd['dx'][mask].value)
+            tolowmask = simdata[field] < 0.0
+            simdata[field][tolowmask] = -99.00
+
+    if flux_type is "Hion_excessE":
+            simdata[field] = np.log10(dd[field][mask].value/2.99792e10) # Hion_excessE is an energy density. U/c is flux 
+            to_low_value =  -np.log10(2.1790E-11)*1000 # energy flux of one ionizing photon == 13.6eV \times 1000 photons per cm-2 which is 100x less than the ISRF. See ApJ 2002, 570, 697
+            tolowmask = simdata[field] < to_low_value
+            simdata[field][tolowmask] = -99.00
+        
         
 #Loop over every cell in the masked region
 for cell_i in range(Ncells):
