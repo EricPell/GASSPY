@@ -136,11 +136,11 @@ def set_phi_i2(outfile,phi_i2):
         outfile.write(fervent_bands.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
-def set_Hion_excessE_phi_ih(outfile,phi_ih):
-    if phi_ih != "-99.000":
+def set_Hion_excessE_phi_ih(outfile,I_ih):
+    if I_ih != "-99.000":
     #if phi_ih > 0:
         outfile.write(Hion_excessE_bands.flih)
-        outfile.write("phi(h) = %s, range 1.0 to 3.0 Ryd\n"%(phi_ih))
+        outfile.write("intensity = %s, range 1.0 to 3.0 Ryd\n"%(I_ih))
 
 def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, flux_type="fervent", _cloudy_init_file=CLOUDY_INIT_FILE):
     """ create prefix for models and open Cloudy input file for writing"""
@@ -232,6 +232,7 @@ for i in range(1, len(parameter_data)):
             max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes] = {}
             max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes]["depth"] = float(depth)
             max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes]["UniqID_of_maxDepth"] = UniqID
+            #dict[UniquID_of_maxDepth].append(UniqID)
 
 for parameters in max_depth:
     [hden, temp, rad_fluxes] = parameters
