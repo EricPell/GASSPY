@@ -160,7 +160,10 @@ for cell_i in range(Ncells):
 
     #extract gas properties field
     for field in gasfields:
-        value = "%0.3f"%(compress.number(simdata[field][cell_i], compression_ratio[field]))
+        try:
+            value = "%0.3f"%(compress.number(simdata[field][cell_i], compression_ratio[field]))
+        except:
+            value = "%0.3f"%(simdata[field][cell_i])
         if value == "-inf" or value == "inf":
             value = "%0.3f"%(np.log10(1e-99))
         try:
@@ -183,7 +186,7 @@ for cell_i in range(Ncells):
         else:
             value = "-99.000"
         if value == "-inf" or value == "inf":
-            value = "%0.2f"%(np.log10(1e-99))
+            value = "%0.3f"%(np.log10(1e-99))
         # Append the field numerical value to data
         data.append(value)
         cloudyparm += "%s\t"%(value)
@@ -195,7 +198,7 @@ for cell_i in range(Ncells):
         except:
             unique_param_dict[cloudyparm] = 1
 
-    if flux_type is "Hion_excessE" and data[-1] != ["-99.000"]:
+    if flux_type is "Hion_excessE" and data[-1] != "-99.000":
         # Write cell data to output file
         try:
             unique_param_dict[cloudyparm] += 1
