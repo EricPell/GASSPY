@@ -6,9 +6,9 @@
             "type": "python",
             "request": "launch",
             "stopOnEntry": true,
-            "pythonPath": "${config.python.pythonPath}",
+            "pythonPath": "${config:python.pythonPath}",
             "program": "${file}",
-            "cwd": "${workspaceRoot}",
+            "cwd": "C:\\Users\\ericp\\OPIATE-testing\\simulation_data\\high-z\\0054",
             "debugOptions": [
                 "WaitOnAbnormalExit",
                 "WaitOnNormalExit",
