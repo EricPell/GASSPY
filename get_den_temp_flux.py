@@ -135,7 +135,7 @@ for field in radfields:
             simdata[field][tolowmask] = -99.00
 
     if flux_type is "Hion_excessE":
-            simdata[field] = np.log10(dd[field][mask].value/2.99792e10) # Hion_excessE is an energy density. U/c is flux 
+            simdata[field] = np.log10(dd[field][mask].value*2.99792e10) # Hion_excessE is an energy density. U*c is flux 
             to_low_value =  -np.log10(2.1790E-11)*1000 # energy flux of one ionizing photon == 13.6eV \times 1000 photons per cm-2 which is 100x less than the ISRF. See ApJ 2002, 570, 697
             tolowmask = simdata[field] < to_low_value
             simdata[field][tolowmask] = -99.00
