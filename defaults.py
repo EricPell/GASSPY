@@ -47,4 +47,4 @@ log10_flux_low_limit = {
 'fli2': log photon number flux
 'euve': log erg -s cm-2 """
 
-append_db = True
+append_db = False
