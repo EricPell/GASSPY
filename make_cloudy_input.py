@@ -142,7 +142,7 @@ def set_Hion_excessE_phi_ih(outfile,I_ih):
         outfile.write(Hion_excessE_bands.flih)
         outfile.write("intensity = %s, range 1.0 to 3.0 Ryd\n"%(I_ih))
 
-def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, flux_type="fervent", _cloudy_init_file=CLOUDY_INIT_FILE):
+def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, flux_type, _cloudy_init_file=CLOUDY_INIT_FILE):
     """ create prefix for models and open Cloudy input file for writing"""
     cloudy_input_file = set_output_and_save_prefix(_UniqID)
     if flux_type is "fervent":
@@ -212,36 +212,37 @@ for i in range(1, len(parameter_data)):
     #if database_type is str:
     if type(rad_fluxes[0]) is str:
         try:
-            if float(depth) > max_depth[hden, temp, rad_fluxes]["depth"]:
-                max_depth[hden, temp, rad_fluxes]["depth"] = float(depth)
-                max_depth[hden, temp, rad_fluxes]["UniqID_of_maxDepth"] = UniqID
+            if float(depth) > max_depth[hden, temp, ",".join(rad_fluxes)]["depth"]:
+                max_depth[hden, temp, ",".join(rad_fluxes)]["depth"] = float(depth)
+                max_depth[hden, temp, ",".join(rad_fluxes)]["UniqID_of_maxDepth"] = UniqID
         except:
-            max_depth[hden, temp, rad_fluxes] = {}
-            max_depth[hden, temp, rad_fluxes]["depth"] = float(depth)
-            max_depth[hden, temp, rad_fluxes]["UniqID_of_maxDepth"] = UniqID
+            max_depth[hden, temp, ",".join(rad_fluxes)] = {}
+            max_depth[hden, temp, ",".join(rad_fluxes)]["depth"] = float(depth)
+            max_depth[hden, temp, ",".join(rad_fluxes)]["UniqID_of_maxDepth"] = UniqID
     
     elif type(rad_fluxes[0]) is float:
         try:
-            if float(depth) > max_depth[hden, temp, rad_fluxes]["depth"]:
-                max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes]["depth"] = float(depth)
-                max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes]["UniqID_of_maxDepth"] = UniqID
+            if float(depth) > max_depth[hden, temp, ",".join(rad_fluxes)]["depth"]:
+                max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)]["depth"] = float(depth)
+                max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)]["UniqID_of_maxDepth"] = UniqID
             else:
-                UniquID_of_maxDepth =  max_depth[hden, temp, rad_fluxes]["UniqID_of_maxDepth"]
+                UniquID_of_maxDepth =  max_depth[hden, temp, ",".join(rad_fluxes)]["UniqID_of_maxDepth"]
                 #dict[UniquID_of_maxDepth].append(UniqID)
         except:
-            max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes] = {}
-            max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes]["depth"] = float(depth)
-            max_depth["%0.3f"%(hden), "%0.3f"%(temp), rad_fluxes]["UniqID_of_maxDepth"] = UniqID
+            max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)] = {}
+            max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)]["depth"] = float(depth)
+            max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)]["UniqID_of_maxDepth"] = UniqID
             #dict[UniquID_of_maxDepth].append(UniqID)
 
 for parameters in max_depth:
-    [hden, temp, rad_fluxes] = parameters
-    depth = max_depth[hden, temp, rad_fluxes]["depth"]
-    UniqID = max_depth[hden, temp, rad_fluxes]["UniqID"]
+    [hden, temp, rad_fluxes_string] = parameters
+    rad_fluxes = rad_fluxes_string.split(",")
+    depth = max_depth[hden, temp, rad_fluxes_string]["depth"]
+    UniqID = max_depth[hden, temp, rad_fluxes_string]["UniqID_of_maxDepth"]
     if debug == False:
-        create_cloudy_input_file(UniqID, depth, hden, temp, rad_fluxes)
+        create_cloudy_input_file(UniqID, depth, hden, temp, rad_fluxes, flux_type)
     if debug == True:
-        print(UniqID, depth, hden, temp, rad_fluxes)
+        print(UniqID, depth, hden, temp, rad_fluxes_string)
 
 with open('max_depth.pickle', 'wb') as handle:
     pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
