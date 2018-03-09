@@ -17,7 +17,7 @@ close(IN);
 $header = $data[0];
 
 for $file (@FILES){
-    print STDERR "Processing $file\r";
+    print STDERR "Processing $file\n";
     $ID = substr($file,length($prefix),(length($file)-(length(".ems")+length($prefix)) ));
     open(IN, "<", $file);
     chomp(@data = <IN>);
@@ -35,7 +35,10 @@ for $file (@FILES){
 	# Push model string into full suite of data
 	push(@full_data,$string);
     }
-    elsif($data[0] ne $header){exit "Header miss-match\n";}
+    elsif($data[0] ne $header){
+        print "data[0] = ", $data[0],"\n heade=$header\n";
+        exit "Header miss-match\n";
+    }
     close(IN);
 }
 

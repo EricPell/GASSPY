@@ -111,5 +111,16 @@ else{
 	    system "nice -n 5 ${CLOUDY_PATH}/${CLOUDY_EXE} < $input  > $out";	
 	}
     }
+
+	@_ = `ps -e | grep ${CLOUDY_EXE}`;
+	$num_proc= scalar @_;
+
+	while (1 <= $num_proc)
+	{
+		print("sleeping, still have $num_proc to run....Zzzz....Zzzzz\r");
+		sleep(1);
+	    @_ = `ps -e | grep ${CLOUDY_EXE}`;
+	    $num_proc= scalar @_;
+	}
 }
 
