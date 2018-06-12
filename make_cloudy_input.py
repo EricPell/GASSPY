@@ -109,9 +109,11 @@ def set_nend(outfile, model_is_ionization_front):
         #Set constant temperature if IF does not exist
         outfile.write("set nend 1\n")
 
-def set_temperature(outfile, temperature, is_ionization_front):
+def set_temperature(outfile, temperature, is_ionization_front, force_Teq=False, force_Tconst=False):
     """Set constant temperature if not modeling the actual ionization front temp gradients"""
-    if is_ionization_front is False:
+    if temperature <= 0:
+        sys.exit("WHAT DID YOU DO, THERE ARE NO SUCH THINGS AS NEGATIVE TEMPERATURES!!!!! (The temperature is assumed to be in K - thanks Max D.)")
+    if (is_ionization_front is False and force_Teq is False) or (is_ionization_front is True and force_Tconst is True):
         outfile.write("constant temperature %s\n"%(temperature))
 
 def set_I_ge(outfile,I_ge):
@@ -142,7 +144,15 @@ def set_Hion_excessE_phi_ih(outfile,I_ih):
         outfile.write(Hion_excessE_bands.flih)
         outfile.write("intensity = %s, range 1.0 to 3.0 Ryd\n"%(I_ih))
 
-def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, flux_type, _cloudy_init_file=CLOUDY_INIT_FILE):
+def create_cloudy_input_file(model):
+    _UniqID=model.UniqID
+    _depth=model.depth
+    _hden=model.hden
+    _T=model.T
+    flux_array=model.fluxes
+    flux_type=model.flux_type 
+    _cloudy_init_file=model.CLOUDY_INIT_FILE
+
     """ create prefix for models and open Cloudy input file for writing"""
     cloudy_input_file = set_output_and_save_prefix(_UniqID)
     if flux_type is "fervent":
@@ -170,6 +180,7 @@ def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, flux_type, 
     set_depth(cloudy_input_file, _depth)
     set_hden(cloudy_input_file, _hden)
     set_nend(cloudy_input_file, isIF)
+
     set_temperature(cloudy_input_file, _T, isIF)
     
     if flux_type is "fervent":
