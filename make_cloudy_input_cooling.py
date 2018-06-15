@@ -100,10 +100,7 @@ def set_depth(outfile, model_depth):
 
 def set_hden(outfile, model_hden):
     """Write command to cloudy input file to set hydrogen density"""
-    if float(model_hden) > -5.0:
-        outfile.write("hden %s\n"%(model_hden))
-    else:
-        outfile.write("hden %0.3f\n"%(float(model_hden) - np.log10(1.67e-24)))
+    outfile.write("hden %s\n"%(model_hden))
 
 def set_nend(outfile, model_is_ionization_front):
     """Write command to cloudy input file to set number of zones to simulate"""
@@ -174,6 +171,10 @@ def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, flux_type, 
     # CLOUDY_modelIF is set to True by default. Can be changed in parameter file to false,
     # which will prevent isIF from executing
 
+    #check if hden is log of mass density or volume density.
+    if float(_hden) < -6.0:
+        _hden = str(float(_hden) - np.log10(1.67e-24))
+
     if(CLOUDY_modelIF):
         isIF = check_for_if(_depth, _hden, _phi_ih, _phi_i2)
     else:
@@ -228,31 +229,30 @@ for i in range(1, len(parameter_data)):
     #flih = compress.number(float(flih), compression_ratio['flih'])
     #fli2 = compress.number(float(fli2), compression_ratio['fli2'])
 
-    if float(hden) - np.log10(1.67e-24) > 11:
         #if database_type is str:
-        if type(rad_fluxes[0]) is str:
-            try:
-                if float(depth) > max_depth[hden, temp, ",".join(rad_fluxes)]["depth"]:
-                    max_depth[hden, temp, ",".join(rad_fluxes)]["depth"] = float(depth)
-                    max_depth[hden, temp, ",".join(rad_fluxes)]["UniqID_of_maxDepth"] = UniqID
-            except:
-                max_depth[hden, temp, ",".join(rad_fluxes)] = {}
+    if type(rad_fluxes[0]) is str:
+        try:
+            if float(depth) > max_depth[hden, temp, ",".join(rad_fluxes)]["depth"]:
                 max_depth[hden, temp, ",".join(rad_fluxes)]["depth"] = float(depth)
                 max_depth[hden, temp, ",".join(rad_fluxes)]["UniqID_of_maxDepth"] = UniqID
-        
-        elif type(rad_fluxes[0]) is float:
-            try:
-                if float(depth) > max_depth[hden, temp, ",".join(rad_fluxes)]["depth"]:
-                    max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)]["depth"] = float(depth)
-                    max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)]["UniqID_of_maxDepth"] = UniqID
-                else:
-                    UniquID_of_maxDepth =  max_depth[hden, temp, ",".join(rad_fluxes)]["UniqID_of_maxDepth"]
-                    #dict[UniquID_of_maxDepth].append(UniqID)
-            except:
-                max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)] = {}
+        except:
+            max_depth[hden, temp, ",".join(rad_fluxes)] = {}
+            max_depth[hden, temp, ",".join(rad_fluxes)]["depth"] = float(depth)
+            max_depth[hden, temp, ",".join(rad_fluxes)]["UniqID_of_maxDepth"] = UniqID
+    
+    elif type(rad_fluxes[0]) is float:
+        try:
+            if float(depth) > max_depth[hden, temp, ",".join(rad_fluxes)]["depth"]:
                 max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)]["depth"] = float(depth)
                 max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)]["UniqID_of_maxDepth"] = UniqID
+            else:
+                UniquID_of_maxDepth =  max_depth[hden, temp, ",".join(rad_fluxes)]["UniqID_of_maxDepth"]
                 #dict[UniquID_of_maxDepth].append(UniqID)
+        except:
+            max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)] = {}
+            max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)]["depth"] = float(depth)
+            max_depth["%0.3f"%(hden), "%0.3f"%(temp), ",".join(rad_fluxes)]["UniqID_of_maxDepth"] = UniqID
+            #dict[UniquID_of_maxDepth].append(UniqID)
 
 for parameters in max_depth:
     [hden, temp, rad_fluxes_string] = parameters

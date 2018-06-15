@@ -13,7 +13,7 @@ sys.path.append(os.getcwd())
 # Set default parameters that can be overwritten by my config #
 ###############################################################
 # Sets CLOUDY_modelIF to True
-CLOUDY_modelIF = True
+CLOUDY_modelIF = False
 ###############################################################
 #                                                             #
 ###############################################################
@@ -57,6 +57,9 @@ if flux_type is 'fervent':
     import fervent_bands # Import continuum shapes
 elif flux_type is 'Hion_excessE':
     import Hion_excessE_bands
+elif flux_type is 'fsb99':
+    """nothing to import"""
+
 else:
     sys.exit("You have selected a flux type I do not understand. Flux Type = %s"%(flux_type))
 
@@ -111,7 +114,7 @@ def set_nend(outfile, model_is_ionization_front):
 
 def set_temperature(outfile, temperature, is_ionization_front, force_Teq=False, force_Tconst=False):
     """Set constant temperature if not modeling the actual ionization front temp gradients"""
-    if temperature <= 0:
+    if float(temperature) <= 0:
         sys.exit("WHAT DID YOU DO, THERE ARE NO SUCH THINGS AS NEGATIVE TEMPERATURES!!!!! (The temperature is assumed to be in K - thanks Max D.)")
     if (is_ionization_front is False and force_Teq is False) or (is_ionization_front is True and force_Tconst is True):
         outfile.write("constant temperature %s\n"%(temperature))
@@ -138,6 +141,12 @@ def set_phi_i2(outfile,phi_i2):
         outfile.write(fervent_bands.fli2)
         outfile.write("phi(h) = %s, range 1.117 to 3 Ryd\n"%(phi_i2))
 
+def set_fsb99_phi_ih(outfile,phi_fsb99):
+    # "table star \"%s.mod\" age=%0.1f years \n" % (SB99model, np.max([SB99_age, i.SB99_age_min])))
+    SB99model = "1e6cluster_norot_Z0014_BH120"
+    outfile.write("table star \"%s.mod\" age=%0.1e years \n" % (SB99model, 1e5))
+    outfile.write("phi(h) = %s, range 1.0 to 3 Ryd\n"%(phi_fsb99))
+
 def set_Hion_excessE_phi_ih(outfile,I_ih):
     if I_ih != "-99.000":
     #if phi_ih > 0:
@@ -145,13 +154,13 @@ def set_Hion_excessE_phi_ih(outfile,I_ih):
         outfile.write("intensity = %s, range 1.0 to 3.0 Ryd\n"%(I_ih))
 
 def create_cloudy_input_file(model):
-    _UniqID=model.UniqID
-    _depth=model.depth
-    _hden=model.hden
-    _T=model.T
-    flux_array=model.fluxes
-    flux_type=model.flux_type 
-    _cloudy_init_file=model.CLOUDY_INIT_FILE
+    _UniqID=model["UniqID"]
+    _depth=model["depth"]
+    _hden=model["hden"]
+    _T=model["temp"]
+    flux_array=model["rad_fluxes"]
+    flux_type=model["flux_type"] 
+    _cloudy_init_file=model["CLOUDY_INIT_FILE"]
 
     """ create prefix for models and open Cloudy input file for writing"""
     cloudy_input_file = set_output_and_save_prefix(_UniqID)
@@ -161,11 +170,20 @@ def create_cloudy_input_file(model):
 
     elif flux_type is "Hion_excessE":
         """1 band simple ionizing SED"""
-        (_phi_ih) = flux_array
+        _phi_ih = flux_array[0]
         (_I_ge, _phi_uv, _phi_i2) = (np.nan, np.nan, np.nan)
+
+    elif flux_type is "fsb99":
+        _phi_fsb99 = flux_array[0]
+        (_phi_ih, _I_ge, _phi_uv, _phi_i2) = (np.nan, np.nan, np.nan, np.nan)
+
 
     # CLOUDY_modelIF is set to True by default. Can be changed in parameter file to false,
     # which will prevent isIF from executing
+
+    #check if hden is log of mass density or volume density.
+    if float(_hden) < -6.0:
+        _hden = str(float(_hden) - np.log10(1.67e-24))
 
     if(CLOUDY_modelIF):
         isIF = check_for_if(_depth, _hden, _phi_ih, _phi_i2)
@@ -180,7 +198,6 @@ def create_cloudy_input_file(model):
     set_depth(cloudy_input_file, _depth)
     set_hden(cloudy_input_file, _hden)
     set_nend(cloudy_input_file, isIF)
-
     set_temperature(cloudy_input_file, _T, isIF)
     
     if flux_type is "fervent":
@@ -190,10 +207,21 @@ def create_cloudy_input_file(model):
         set_phi_i2(cloudy_input_file, _phi_i2)
     elif flux_type is "Hion_excessE":
         set_Hion_excessE_phi_ih(cloudy_input_file, _phi_ih)
+    elif flux_type is "fsb99":
+        set_fsb99_phi_ih(cloudy_input_file, _phi_fsb99)
 
     """ Close input file """
     cloudy_input_file.close()
 
+def make_model(UniqID, depth, hden, temp, rad_fluxes, flux_type, init_file):
+    model_dict = {"UniqID":UniqID,
+    "depth":depth,
+    "hden":hden,
+    "temp":temp,
+    "rad_fluxes":rad_fluxes,
+    "flux_type":flux_type,
+    "CLOUDY_INIT_FILE":init_file}
+    return(model_dict)
 
 """ Begin main part of code """
 input = open(myconfig.opiate_lookup,'r')
@@ -251,7 +279,8 @@ for parameters in max_depth:
     depth = max_depth[hden, temp, rad_fluxes_string]["depth"]
     UniqID = max_depth[hden, temp, rad_fluxes_string]["UniqID_of_maxDepth"]
     if debug == False:
-        create_cloudy_input_file(UniqID, depth, hden, temp, rad_fluxes, flux_type)
+        model = make_model(UniqID, depth, hden, temp, rad_fluxes, flux_type, CLOUDY_INIT_FILE)
+        create_cloudy_input_file(model)
     if debug == True:
         print(UniqID, depth, hden, temp, rad_fluxes_string)
 
