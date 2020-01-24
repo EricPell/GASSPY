@@ -52,6 +52,7 @@ class uniq_dict_creator(object):
             self.debug = defaults.debug
 
         self.unique_param_dict = {}
+        self.data = []
 
         self.dxxyz = ["dx", "x", "y", "z"]
         self.gasfields = ["dens", "temp", "iha ", "ihp ", "ih2 ", "ico ", "icp "]
@@ -66,8 +67,6 @@ class uniq_dict_creator(object):
 
         #TODO Change the next lines to create a table. Option: Use astropy.tables
         self.cloudyfields = ["dx", "dens", "temp"] + self.radfields
-
-        self.outTable = table.Table()
 
     def mask_data(self, simdata):
         """ Set masks based on mask parameters read in by the defaults library, or by myconfig"""
@@ -134,7 +133,7 @@ class uniq_dict_creator(object):
         #Loop over every cell in the masked region
         for cell_i in range(len(self.simdata)):
             # initialize the data values array
-            data = []
+            cell_data = []
 
             dx = self.simdata["dx"][cell_i]
 
@@ -142,7 +141,7 @@ class uniq_dict_creator(object):
 
             #extract dxxyz positions
             for field in self.dxxyz:
-                data.append("%0.3e"%(self.simdata[field][cell_i]))
+                cell_data.append("%0.3e"%(self.simdata[field][cell_i]))
 
             #extract gas properties field
             for field in self.gasfields:
@@ -174,10 +173,10 @@ class uniq_dict_creator(object):
                 if value == "-inf" or value == "inf":
                     value = "%0.3f"%(np.log10(1e-99))
                 # Append the field numerical value to data
-                data.append(value)
+                cell_data.append(value)
                 cloudyparm += "%s\t"%(value)
 
-            if (self.flux_type is "fervent") and (data[-3:-1]+[data[-1]] != ["-99.000", "-99.000", "-99.000"]):
+            if (self.flux_type is "fervent") and (cell_data[-3:-1]+[cell_data[-1]] != ["-99.000", "-99.000", "-99.000"]):
                 # Write cell data to output file
                 try:
                     self.unique_param_dict[cloudyparm] += 1
@@ -190,3 +189,5 @@ class uniq_dict_creator(object):
                     self.unique_param_dict[cloudyparm] += 1
                 except:
                     self.unique_param_dict[cloudyparm] = 1
+            
+            self.data.append(cell_data)
