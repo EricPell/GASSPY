@@ -15,7 +15,10 @@ class cloudy_creator(object):
     def __init__(self):
         """ Import default and model specific settings """
         import defaults
-        import myconfig
+        try:
+            import myconfig
+        except:
+            import myconfig_example
 
         try:
             self.append_db = myconfig.append_db
