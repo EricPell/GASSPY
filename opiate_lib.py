@@ -11,7 +11,7 @@ sys.path.append(os.getcwd())
 
 LastModDate = "24.05.2016.EWP"
 
-class cloudy_creator(object):
+class uniq_dict_creator(object):
     def __init__(self):
         """ Import default and model specific settings """
         import defaults
