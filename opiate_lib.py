@@ -19,6 +19,7 @@ class cloudy_creator(object):
             import myconfig
         except:
             import myconfig_example
+            print("You are reading the example config file. This is not recommended")
 
         try:
             self.append_db = myconfig.append_db
