@@ -33,13 +33,21 @@ opiate_lookup  = 'silcc.unique_parameters'
 
 #data base compression ratios in logspace. Decimal precission and compression factor.
 compression_ratio = {
-    'dx':(3, 1.0),\
-    'dens':(1, 2.0),\
-    'temp':(1, 1.0),\
-    'flge':(1, 2.0),\
-    'fluv':(1, 2.0),\
-    'flih':(1, 2.0),\
-    'fli2':(1, 2.0)}
+    'dx':(3, 1.0),
+    'dens':(1, 2.0),
+    'temp':(1, 1.0),
+    'flux':{
+        0:(1, 2.0),
+        1:(1, 2.0),
+        2:(1, 2.0)
+        }
+    }
+
+log10_flux_low_limit = {
+    0:-5.0,\
+    1:-5.0,\
+    2:-5.0,\
+    'default':-5.0}
 
 
 line_labels = ["N  2      121.767m", "N  2      205.244m", "N  2      6583.45A", "Blnd      5755.00A",\

@@ -85,17 +85,22 @@ try:
         "y"     :xyz[1].ravel(),
         "z"     :xyz[2].ravel(),
         
-        "Flux_NpHII":{"Emin":13.59844,
+        "flux":{
+            0:{"Emin":13.59844,
                 "Emax":24.58741,
-                "data":fits_dict["NpHII"][0].data.ravel() / dx.ravel()**2.0 * scipy.constants.c},
+                "shape":"const",
+                "data":fits_dict["NpHII"][0].data.ravel() * scipy.constants.c},
 
-        "Flux_NpHeII":{"Emin":24.58741,
+            1:{"Emin":24.58741,
                 "Emax":54.41778,
-                "data":fits_dict["NpHeII"][0].data.ravel() / dx.ravel()**2.0 * scipy.constants.c},
+                "shape":"const",
+                "data":fits_dict["NpHeII"][0].data.ravel() * scipy.constants.c},
 
-        "Flux_NpHeIII":{ "Emin":54.41778,
+            2:{ "Emin":54.41778,
                 "Emax":100.0000,
-                "data":fits_dict["NpHeIII"][0].data.ravel() / dx.ravel()**2.0 * scipy.constants.c}
+                "shape":"const",
+                "data":fits_dict["NpHeIII"][0].data.ravel() * scipy.constants.c}
+        }
     }
     test_results["create simdata attribute"] = "PASS"
 except:
@@ -103,10 +108,10 @@ except:
 
 
 try:
-    creator.collect_den_temp_flux()
-    test_results["create uniqe data"] = "PASSED"
+    print("compression ratio: %f"%creator.collect_den_temp_flux())
+    test_results["collect_den_temp_flux"] = "PASSED"
 except:
-    test_results["create uniqe data"] = "FAILED"
+    test_results["collect_den_temp_flux"] = "FAILED"
 
 
 report(test_results)
