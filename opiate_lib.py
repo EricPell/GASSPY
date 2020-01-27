@@ -18,7 +18,7 @@ class uniq_dict_creator(object):
         try:
             import myconfig
         except:
-            import myconfig_example
+            import myconfig_example as myconfig
             print("You are reading the example config file. This is not recommended")
 
         try:
@@ -55,7 +55,7 @@ class uniq_dict_creator(object):
         self.data = []
 
         self.dxxyz = ["dx", "x", "y", "z"]
-        self.gasfields = ["dens", "temp", "iha ", "ihp ", "ih2 ", "ico ", "icp "]
+        self.gasfields = ["dens", "temp"]
         # gas mass density, temperature, fraction of atomic H (iha), ionized (ihp) and molecular (ih2),
         # and various gas fractions.
 
@@ -66,7 +66,7 @@ class uniq_dict_creator(object):
             self.radfields = defaults.radfields
 
         #TODO Change the next lines to create a table. Option: Use astropy.tables
-        self.cloudyfields = ["dx", "dens", "temp"] + self.radfields
+        self.cloudyfields = ["dx", "dens", "temp"] + self.radfields[self.flux_type]
 
     def mask_data(self, simdata):
         """ Set masks based on mask parameters read in by the defaults library, or by myconfig"""
@@ -131,7 +131,14 @@ class uniq_dict_creator(object):
             velocity: (to be) used to calculated compressional heating
         """
         #Loop over every cell in the masked region
-        for cell_i in range(len(self.simdata)):
+
+        for field in self.radfields[self.flux_type]:
+            try:
+                self.log10_flux_low_limit[field]
+            except:
+                self.log10_flux_low_limit[field] = self.log10_flux_low_limit["default"]
+
+        for cell_i in range(len(self.simdata['dx'])):
             # initialize the data values array
             cell_data = []
 
@@ -146,7 +153,7 @@ class uniq_dict_creator(object):
             #extract gas properties field
             for field in self.gasfields:
                 try:
-                    value = "%0.3f"%(compress.number(simdata[field][cell_i], compression_ratio[field]))
+                    value = "%0.3f"%(compress.number(self.simdata[field][cell_i], self.compression_ratio[field]))
                 except:
                     value = "%0.3f"%(simdata[field][cell_i])
                 if value == "-inf" or value == "inf":
@@ -157,14 +164,14 @@ class uniq_dict_creator(object):
                 except:
                     "field not a cloudy param"
                 # Append the field numerical value to data
-                data.append(value)
+                self.data.append(value)
 
             #extract intensity radiation fields
 
             """ Fervent Radiation cleaning step to deal with low and fully shielded cells"""
-        
-            for field in self.radfields:
-                logflux = self.simdata[field][cell_i]
+            for field in self.radfields[self.flux_type]:
+                logflux = np.log10(self.simdata["Flux_"+field]['data'][cell_i])
+                self.simdata["Flux_"+field]
                 if logflux > self.log10_flux_low_limit[field]:
                     """ Do we have atleast 1 photon per cm-2?"""
                     value = "%0.3f"%compress.number(float(logflux), self.compression_ratio[field])

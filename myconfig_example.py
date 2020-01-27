@@ -1,7 +1,12 @@
 # Config parameters
-inFile = "SILCC_hdf5_plt_cnt_0403"
-radfields = ["flge", "fluv", "flih", "fli2"]
-flux_type = "fervent"
+
+flux_type = "RAMSES"
+
+radfields = {
+    "RAMSES":["NpHII","NpHeIII","NpHeII"],
+    "fervent":["flge", "fluv", "flih", "fli2"]
+    }
+
 
 # Set min-max limits for dimensions and temperature
 mask_parameters_dict={

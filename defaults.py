@@ -40,7 +40,8 @@ log10_flux_low_limit = {
     'fluv':0,\
     'flih':0,\
     'fli2':0,\
-    'euve':-5}
+    'euve':-5,\
+    'default':-5.0}
 """'flge': log erg -s cm-2
 'fluv': log photon number flux
 'flih': log photon number flux
