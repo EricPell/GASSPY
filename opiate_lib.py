@@ -138,6 +138,7 @@ class uniq_dict_creator(object):
             except:
                 self.log10_flux_low_limit[field] = self.log10_flux_low_limit["default"]
 
+        N_rad_fields = len(self.radfields[self.flux_type])
         for cell_i in range(len(self.simdata['dx'])):
             # initialize the data values array
             cell_data = []
@@ -168,7 +169,7 @@ class uniq_dict_creator(object):
 
             #extract intensity radiation fields
 
-            """ Fervent Radiation cleaning step to deal with low and fully shielded cells"""
+            """ Cleaning step to deal with low and fully shielded cells"""
             for field in self.radfields[self.flux_type]:
                 logflux = np.log10(self.simdata["Flux_"+field]['data'][cell_i])
                 self.simdata["Flux_"+field]
@@ -183,18 +184,11 @@ class uniq_dict_creator(object):
                 cell_data.append(value)
                 cloudyparm += "%s\t"%(value)
 
-            if (self.flux_type is "fervent") and (cell_data[-3:-1]+[cell_data[-1]] != ["-99.000", "-99.000", "-99.000"]):
-                # Write cell data to output file
+            if cell_data[-N_rad_fields:] != ['-99.000']*N_rad_fields:
                 try:
                     self.unique_param_dict[cloudyparm] += 1
                 except:
                     self.unique_param_dict[cloudyparm] = 1
 
-            if self.flux_type is "Hion_excessE" and self.data[-1] != "-99.000":
-                # Write cell data to output file
-                try:
-                    self.unique_param_dict[cloudyparm] += 1
-                except:
-                    self.unique_param_dict[cloudyparm] = 1
             
             self.data.append(cell_data)
