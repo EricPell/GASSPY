@@ -190,7 +190,7 @@ class uniq_dict_creator(object):
                 except:
                     self.unique_param_dict[cloudyparm] = 1
 
-            if flux_type is "Hion_excessE" and data[-1] != "-99.000":
+            if self.flux_type is "Hion_excessE" and self.data[-1] != "-99.000":
                 # Write cell data to output file
                 try:
                     self.unique_param_dict[cloudyparm] += 1
