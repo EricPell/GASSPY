@@ -19,7 +19,7 @@ flux_type = "default"
 
 """ DEPRECATED: REMOVE """
 # Specifies variable CLOUDY_modelIF for make-cloudy-input.py -> checks model for H/H+ IF and sets models to single zone if not.
-CLOUDY_modelIF   = True
+CLOUDY_modelIF   = False
 
 debug = False
 
@@ -27,13 +27,13 @@ debug = False
 
 compression_ratio = {
     'dx':(3, 1.0),\
-    'dens':(1, 2.0),\
-    'temp':(1, 1.0),\
-    'flge':(1, 2.0),\
-    'fluv':(1, 2.0),\
-    'flih':(1, 2.0),\
-    'fli2':(1, 2.0),\
-    'euve':(1, 1.0)}
+    'dens':(1, 5.0),\
+    'temp':(1, 5.0),\
+    'flge':(1, 5.0),\
+    'fluv':(1, 5.0),\
+    'flih':(1, 5.0),\
+    'fli2':(1, 5.0),\
+    'euve':(1, 5.0)}
 
 log10_flux_low_limit = {
     'flge':-5,\

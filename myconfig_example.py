@@ -1,6 +1,6 @@
 # Config parameters
 
-flux_type = "RAMSES"
+flux_type = "user"
 
 radfields = {
     "RAMSES":["NpHII","NpHeIII","NpHeII"],
@@ -27,8 +27,8 @@ mask_parameters_dict={
 
 ForceFullDepth = True
 
-opiate_library = 'silcc-combined-ems.tbl'
-opiate_lookup  = 'silcc.unique_parameters'
+opiate_library = 'opiate-combined-ems.tbl'
+opiate_lookup  = 'opiate.unique_parameters'
 
 
 #data base compression ratios in logspace. Decimal precission and compression factor.
@@ -77,7 +77,7 @@ line_labels = ["N  2      121.767m", "N  2      205.244m", "N  2      6583.45A",
                "HCN       375.844m",\
                "Si 2      34.8046m"]
 
-CLOUDY_INIT_FILE = "silcc_flash_postprocess.ini"
+CLOUDY_INIT_FILE = "default_postprocess-c17.ini"
 
 # Old line labels from pre-2017
 line_labels = ["N  2 205.4m", "N  2  6584A", "N  2  5755A",\
