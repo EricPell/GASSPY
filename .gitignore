@@ -1,5 +1,6 @@
 *pyc
 opiate_max_depth.pickle
-./cloudy-output/
-./cloudy-output/*
-./cloudy-output/*
+cloudy-output/*.in
+cloudy-output/*.sed
+cloudy-output/*
+
