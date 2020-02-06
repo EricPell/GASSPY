@@ -457,7 +457,7 @@ class opiate_to_cloudy(object):
     def set_user_flux(self, flux_array, user_flux_definition):
         for phi, field in zip(flux_array, user_flux_definition.keys()):
             # "table star \"%s.mod\" age=%0.1f years \n" % (SB99model, np.max([SB99_age, i.SB99_age_min])))
-            self.outfile.write("table SED \"opiate_user_flux_%s.sed\""%field)
+            self.outfile.write("table SED \"./cloudy-output/opiate_user_flux_%s.sed\"\n"%field)
             self.outfile.write("phi(h) = %s, range %f to %f Ryd\n"%(phi, user_flux_definition[field]['Emin']/13.6,user_flux_definition[field]['Emax']/13.6))
 
     def set_Hion_excessE_phi_ih(self,I_ih):
@@ -560,13 +560,13 @@ class opiate_to_cloudy(object):
             sedfile = "./cloudy-output/%s_user_flux_%s.sed"%(self.save_prefix, field)
             outfile = open(sedfile, 'w')
             if opiate_data['flux'][field]["shape"] is 'const':
-                outfile.write("1.000 %f nuFnu\n"%(opiate_data['flux'][field]["Emin"]/13.6) )
-                outfile.write("1.000 %f nuFnu\n"%(opiate_data['flux'][field]["Emax"]/13.6) )
+                outfile.write("%f 1.000 nuFnu\n"%(opiate_data['flux'][field]["Emin"]/13.6) )
+                outfile.write("%f 1.000 nuFnu\n"%(opiate_data['flux'][field]["Emax"]/13.6) )
             outfile.close()
 
 
 
-    def process_grid(self, opiate_data):
+    def process_grid(self, opiate_data, model_limit=-1):
         # dx + gas fields, which could be more than den and temp
         max_depth = {}
         N_models = len(opiate_data['dens']['data'])
@@ -597,18 +597,20 @@ class opiate_to_cloudy(object):
         # The resulting depth array has a shape and size equal to the unique_initial conditions.
 
         for i, initial_condition in enumerate(unique_inital_conditions.tolist()):
-            UniqID = max_depth_uniqueIDs[i]
-            depth = max_depths[i]
-            parameters = initial_condition.split(",")
-            # This reads the order from above
-            # Read as Temp, then log n
-            [temp, hden] = parameters[:2]
-            rad_fluxes = parameters[2:]
-            if self.debug == False:
-                self.make_model("%010i"%UniqID, depth, hden, temp, rad_fluxes, self.flux_type, self.CLOUDY_INIT_FILE, user_flux_definition=opiate_data['flux'])
-                self.create_cloudy_input_file(self.model_dict)
-            if self.debug == True:
-                print(UniqID, depth, hden, temp, rad_fluxes_string)
+            if ( model_limit < 0 ) or (i <= model_limit):
+                UniqID = max_depth_uniqueIDs[i]
+                depth = max_depths[i]
+                parameters = initial_condition.split(",")
+                # This reads the order from above
+                # Read as Temp, then log n
+                [temp, hden] = parameters[:2]
+                rad_fluxes = parameters[2:]
+                if self.debug == False:
+                    self.make_model("%010i"%UniqID, depth, hden, temp, rad_fluxes, self.flux_type, self.CLOUDY_INIT_FILE, user_flux_definition=opiate_data['flux'])
+                    self.create_cloudy_input_file(self.model_dict)
+                if self.debug == True:
+                    print(UniqID, depth, hden, temp, rad_fluxes_string)
 
+        save_dictionary = {"max_depths":max_depths, "max_depth_uniqueIDs":max_depth_uniqueIDs, "unique_inital_conditions":unique_inital_conditions}
         with open(self.save_prefix+'_max_depth.pickle', 'wb') as handle:
-            pickle.dump(max_depth, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(save_dictionary, handle, protocol=pickle.HIGHEST_PROTOCOL)

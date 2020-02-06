@@ -1,0 +1,11 @@
+set save prefix "./cloudy-output/opiate-0000023591"
+init "default_postprocess-c17.ini"
+stop depth 18.415
+hden 1.4000
+set nend 5000
+table SED "./cloudy-output/opiate_user_flux_0.sed"
+phi(h) = -2.6000, range 0.999885 to 1.807898 Ryd
+table SED "./cloudy-output/opiate_user_flux_1.sed"
+phi(h) = -2.2000, range 1.807898 to 4.001307 Ryd
+table SED "./cloudy-output/opiate_user_flux_2.sed"
+phi(h) = -99.0000, range 4.001307 to 7.352941 Ryd

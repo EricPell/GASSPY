@@ -126,7 +126,7 @@ except:
 
 try:
     # Create a cloud input model for each unique data point
-    opiate_to_cloudy.process_grid(creator.compressedsimdata)
+    opiate_to_cloudy.process_grid(creator.compressedsimdata, model_limit=10)
     test_results["create cloudy files from grid"] = True
 except:
     test_results["create cloudy files from grid"] = False
