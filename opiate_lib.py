@@ -605,11 +605,12 @@ class opiate_to_cloudy(object):
                 # Read as Temp, then log n
                 [temp, hden] = parameters[:2]
                 rad_fluxes = parameters[2:]
-                if self.debug == False:
-                    self.make_model("%010i"%UniqID, depth, hden, temp, rad_fluxes, self.flux_type, self.CLOUDY_INIT_FILE, user_flux_definition=opiate_data['flux'])
-                    self.create_cloudy_input_file(self.model_dict)
-                if self.debug == True:
-                    print(UniqID, depth, hden, temp, rad_fluxes_string)
+                if ",".join(rad_fluxes) != ",".join(["-99.0000"]*len(rad_fluxes)):
+                    if self.debug == False:
+                        self.make_model("%010i"%UniqID, depth, hden, temp, rad_fluxes, self.flux_type, self.CLOUDY_INIT_FILE, user_flux_definition=opiate_data['flux'])
+                        self.create_cloudy_input_file(self.model_dict)
+                    if self.debug == True:
+                        print(UniqID, depth, hden, temp, rad_fluxes_string)
 
         save_dictionary = {"max_depths":max_depths, "max_depth_uniqueIDs":max_depth_uniqueIDs, "unique_inital_conditions":unique_inital_conditions}
         with open(self.save_prefix+'_max_depth.pickle', 'wb') as handle:
