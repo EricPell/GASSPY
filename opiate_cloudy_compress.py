@@ -35,7 +35,7 @@ if __name__ == "__main__":
     try:
         opts, args = getopt.getopt(sys.argv[1:],"hi:o:",["ifile=","ofile="])
     except getopt.GetoptError:
-        print('opate_cloudy_compress.py -i <inputdirectory> -o <output pckl>')
+        print('opiate_cloudy_compress.py -i <inputdirectory> -o <output pckl>')
         sys.exit(2)
 
     for opt, arg in opts:
