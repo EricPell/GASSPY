@@ -72,6 +72,6 @@ if __name__ == "__main__":
         data_dirs = glob.glob(root_dir+"//group*//", recursive=True)
         if len(data_dirs) == 0:
             data_dirs = [root_dir]
-        pickle.dump(data_dirs, open(outfile), "wb")
+        pickle.dump(data_dirs, open(outfile, "wb"))
 
     main(data_dirs, hdd_lock1, hdd_lock2, multiproc=8)
