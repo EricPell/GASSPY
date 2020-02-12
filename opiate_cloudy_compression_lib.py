@@ -11,7 +11,7 @@ import time
 import pickle
 import bz2
 
-default_file_types = ["ems","mol","pdr","press"]
+default_file_types = ["ems"]
 default_prefixes = ["opiate"]
 
 def find_data_files(root, file_types=None, prefixes=None, recursive=True):
@@ -68,7 +68,7 @@ def read_data(file_list,raw_data_dict=None, guess=False):
 
                     except:
                         table = "read error"
-                        print("%s/%s read error"%(root,suffix))
+                        print("%s.%s read error"%(root,suffix))
 
                     # Read data into dictionary         
                     # Check if this root already exists in the dictionary, and create new level if not
