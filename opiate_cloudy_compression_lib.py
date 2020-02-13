@@ -35,7 +35,7 @@ def find_data_files(root, file_types=None, prefixes=None, recursive=True):
     print(root+": found %i files"%len(found_files))
     return(found_files)        
 
-def read_data(file_list,raw_data_dict=None, guess=False):
+def read_data(file_list, raw_data_dict=None, guess=False):
     if raw_data_dict is None:
         # If dict_store is None, then we are not appending to an existing dictionary, and must create a new one.
         raw_data_dict = {}
@@ -158,4 +158,37 @@ def worker_compress_cloudy_dir(data_dir, lock1, lock2, existing_store=False, bz2
 
     del(store)
     # gc.collect()
-    
+
+def average_emissivities(x, y, N_levels):
+    """ 
+    take a profile with independent axis X and values Y, and calculate N averages
+    """
+    max_x = np.max(x)
+
+    depth = [ 0.5**level*max_x for level in N_levels]
+
+    avg_y = np.zeros(N_levels)
+
+    dx = np.zeros(len(x))
+    dx[0] = x[0]
+    dx[1:] = x[1:] - x[:-1]
+
+    # Initialize the index of of x to the maximum value.
+    stop_x_i = len(x) - 1
+
+    # Calculate the volume averaged emissivity of the whole cell.
+    avg_y[0] = np.sum(dx * y) / x[-1]
+
+    # Next for each refignment level cut the cell in half.
+    for level in range(1, N_levels):
+        # Calculate desired depth.
+        stop_x = 0.5**level * max_x
+
+        # Find the index where the depth is closest to the desired depth
+        stop_x_i = np.argmin( np.abs(x[:stop_x_i]-stop_x) )
+
+        # Calculate the volume averaged y
+        avg_y[level] = np.sum(dx[:stop_x_i] * y[:stop_x_i]) / x[stop_x_i]
+        depth[level] = stop_x
+
+    return(depth, avg_y)    
