@@ -7,6 +7,7 @@ from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import as_completed
 import multiprocessing
 import gc
+import numpy as np
 
 #Undo for debugging in vs code.
 #multiprocessing.set_start_method('spawn', True)
@@ -31,6 +32,8 @@ if __name__ == "__main__":
 
     root_dir = "cloudy-output"
     outfile = "opiate_filelist.pckl"
+
+    max_core_count = 8
 
     try:
         opts, args = getopt.getopt(sys.argv[1:],"hi:o:",["ifile=","ofile="])
@@ -73,5 +76,7 @@ if __name__ == "__main__":
         if len(data_dirs) == 0:
             data_dirs = [root_dir]
         pickle.dump(data_dirs, open(outfile, "wb"))
+    
+    multi_proc_count = np.min([max_core_count, np.max([1, len(data_dirs)]) ])
 
-    main(data_dirs, hdd_lock1, hdd_lock2, multiproc=8)
+    main(data_dirs, hdd_lock1, hdd_lock2, multiproc=1)
