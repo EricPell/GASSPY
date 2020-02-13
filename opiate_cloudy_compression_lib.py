@@ -159,7 +159,7 @@ def worker_compress_cloudy_dir(data_dir, lock1, lock2, existing_store=False, bz2
     del(store)
     # gc.collect()
 
-def average_emissivities(x, y, N_levels):
+def volume_average(x, y, N_levels):
     """ 
     take a profile with independent axis X and values Y, and calculate N averages
     """
