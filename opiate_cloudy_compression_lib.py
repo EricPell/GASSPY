@@ -29,7 +29,7 @@ def find_data_files(root, file_types=None, prefixes=None, recursive=True):
 
     for file_type in file_types:
         for prefix in prefixes:
-            found = glob.glob(root+prefix+"*."+file_type, recursive=recursive)
+            found = glob.glob("%s/%s*.%s"%(root, prefix, file_type), recursive=recursive)
             found_files = found_files + found
 
     print(root+": found %i files"%len(found_files))
@@ -112,7 +112,7 @@ def save_dict(dictionary, outfile, compress_output=True):
 
     return(True)
 
-def worker_compress_cloudy_dir(data_dir, lock1, lock2, existing_store=False, bz2comp=True, save_dir=False, save_name=False):
+def worker_compress_cloudy_dir(data_dir, lock1, lock2, existing_store=False, bz2comp=True, save_dir=False, save_name=False, overwrite=True):
     """
     Run all processes to compress a group of files, suitable for threading.
     """
@@ -120,12 +120,12 @@ def worker_compress_cloudy_dir(data_dir, lock1, lock2, existing_store=False, bz2
         save_dir = "./"+data_dir
     if save_name is False:
         save_name = "cloudy_struct_models"
-    pickle_file_name = save_dir+"%s.pckl"%(save_name)
+    pickle_file_name = save_dir+"/%s.pckl"%(save_name)
 
     # The flag "existing_store" means check for an existing storage pickle, and if
     # it exists, open it. Setting to false is equivlant to overwrite.
 
-    if existing_store and os.path.isfile(pickle_file_name):
+    if existing_store and os.path.isfile(pickle_file_name) and (overwrite is False):
         # try:
         #     # print ("Trying to read existing store")
         #     if bz2comp:
