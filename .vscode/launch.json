@@ -10,6 +10,14 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "COMPRESSION",
+            "type": "python",
+            "request": "launch",
+            "program": "opiate_cloudy_compress.py",
+            "args":["-i cloud-compress", "-o test.pckl"],
+            "console": "integratedTerminal"
         }
     ]
 }
