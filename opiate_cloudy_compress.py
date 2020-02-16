@@ -51,32 +51,43 @@ if __name__ == "__main__":
         elif opt in ("-o", "--ofile"):
             outfile = arg
 
-    try:
-        m = multiprocessing.Manager()
-    except:
-        multiprocessing.set_start_method('spawn', True)
-        m = multiprocessing.Manager()
+    multiprocessing.set_start_method('spawn', True)
+    m = multiprocessing.Manager()
+
+    # try:
+    #     m = multiprocessing.Manager()
+    # except:
+    #     multiprocessing.set_start_method('spawn', True)
+    #     m = multiprocessing.Manager()
     
     hdd_lock1 = m.Lock()
     hdd_lock2 = m.Lock()
 
     import pickle
-    try:
-        infile = open("opiate_filelist.pckl", "rb")
-        data_dirs = pickle.load(infile)
-        infile.close()
-    except:
-        """
-        To prevent directories from becoming too large, cloudy runs can be grouped into sub-directories.
-        We will look for sub-directories in the provided project location. If we find none we then use
-        the root directory to search for and compress models. 
-        We support one level of grouping at this time.
-        """
+    reuse_filelist = False
+    if reuse_filelist:
+        try:
+            infile = open("opiate_filelist.pckl", "rb")
+            data_dirs = pickle.load(infile)
+            infile.close()
+        except:
+            """
+            To prevent directories from becoming too large, cloudy runs can be grouped into sub-directories.
+            We will look for sub-directories in the provided project location. If we find none we then use
+            the root directory to search for and compress models. 
+            We support one level of grouping at this time.
+            """
+            data_dirs = glob.glob(root_dir+"//group*//", recursive=True)
+            if len(data_dirs) == 0:
+                data_dirs = [root_dir]
+            pickle.dump(data_dirs, open(outfile, "wb"))
+
+    else:
         data_dirs = glob.glob(root_dir+"//group*//", recursive=True)
         if len(data_dirs) == 0:
             data_dirs = [root_dir]
         pickle.dump(data_dirs, open(outfile, "wb"))
-    
+
     multi_proc_count = np.min([max_core_count, np.max([1, len(data_dirs)]) ])
 
     main(data_dirs, hdd_lock1, hdd_lock2, multiproc=1)
