@@ -1,7 +1,8 @@
 *pyc
-opiate_max_depth.pickle
+*fits
+*pckl
+cloudy-output/*.fits
 cloudy-output/*.in
 cloudy-output/*.sed
 cloudy-output/*
-*pckl
 cloudy-output
