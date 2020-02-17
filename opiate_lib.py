@@ -7,6 +7,7 @@ import numpy as np
 import pickle
 import astropy.table.table as table
 from astropy.table import QTable
+from astropy.table import Table
 
 import opiate_defaults as defaults
 sys.path.append(os.getcwd())
@@ -596,7 +597,8 @@ class opiate_to_cloudy(object):
 
         # The resulting depth array has a shape and size equal to the unique_initial conditions.
 
-        for i, initial_condition in enumerate(unique_inital_conditions.tolist()):
+        frozen_conditions = unique_inital_conditions.tolist()
+        for i, initial_condition in enumerate(frozen_conditions):
             if ( model_limit < 0 ) or (i <= model_limit):
                 UniqID = max_depth_uniqueIDs[i]
                 depth = max_depths[i]
@@ -612,6 +614,12 @@ class opiate_to_cloudy(object):
                     if self.debug == True:
                         print(UniqID, depth, hden, temp, rad_fluxes_string)
 
-        save_dictionary = {"max_depths":max_depths, "max_depth_uniqueIDs":max_depth_uniqueIDs, "unique_inital_conditions":unique_inital_conditions}
-        with open(self.save_prefix+'_max_depth.pickle', 'wb') as handle:
+        save_dictionary = {"max_depths":max_depths, "max_depth_uniqueIDs":max_depth_uniqueIDs, "unique_inital_conditions":frozen_conditions}
+        t = Table()
+        t['max_depth'] = max_depths
+        t['max_depth_uniqueIDs']  = max_depth_uniqueIDs
+        t['unique_inital_conditions'] = frozen_conditions
+        t.write("opiate_physical_params_of_id.fits")
+        
+        with open(self.save_prefix+'_max_depth.pckl', 'wb') as handle:
             pickle.dump(save_dictionary, handle, protocol=pickle.HIGHEST_PROTOCOL)

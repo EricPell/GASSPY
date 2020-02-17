@@ -33,6 +33,7 @@ def find_data_files(root, file_types=None, prefixes=None, recursive=True):
             found_files = found_files + found
 
     print(root+": found %i files"%len(found_files))
+
     return(found_files)        
 
 def read_data(file_list, raw_data_dict=None, guess=False):
@@ -112,7 +113,7 @@ def save_dict(dictionary, outfile, compress_output=True):
 
     return(True)
 
-def worker_compress_cloudy_dir(data_dir, lock1, lock2, existing_store=False, bz2comp=True, save_dir=False, save_name=False, overwrite=True):
+def worker_compress_cloudy_dir(data_dir, lock1, lock2, existing_store=False, bz2comp=True, save_dir=False, save_name=False, overwrite=True, max_files=False):
     """
     Run all processes to compress a group of files, suitable for threading.
     """
@@ -140,6 +141,8 @@ def worker_compress_cloudy_dir(data_dir, lock1, lock2, existing_store=False, bz2
         # Waiting is OVER! It's ok if more than one process reads at a time so we don't need to lock
         with lock1:
             datafiles = find_data_files(data_dir)
+        if type(max_files) is int:
+            datafiles=datafiles[:max_files]
 
         # print("No existing store")
         store = {}
@@ -152,43 +155,67 @@ def worker_compress_cloudy_dir(data_dir, lock1, lock2, existing_store=False, bz2
     # There should be a flag for both to allow the user to set this appropriately
     if table_modified:
         # print ("Table modified.")
-        save_dict(store,pickle_file_name, compress_output=bz2comp)
+        save_volume_average(store)
+        save_dict(store, pickle_file_name, compress_output=bz2comp)
     # else:
     #     # print("Table unmodified; not saving")
 
     del(store)
     # gc.collect()
 
-def volume_average(x, y, N_levels):
+def save_volume_average(store, outf="opiate_avg_emissivities.fits", field="ems", N_levels=0):
     """ 
     take a profile with independent axis X and values Y, and calculate N averages
     """
-    max_x = np.max(x)
 
-    depth = [ 0.5**level*max_x for level in N_levels]
+    average_store = {}
+    
 
-    avg_y = np.zeros(N_levels)
+    # depths = [ 0.5**level*max_x for level in range(N_levels)]
+    # avg_y = np.zeros(N_levels)
 
-    dx = np.zeros(len(x))
-    dx[0] = x[0]
-    dx[1:] = x[1:] - x[:-1]
+    # # Next for each refignment level cut the cell in half.
+    # for level in range(1, N_levels):
+    #     # Calculate desired depth.
+    #     stop_x = 0.5**level * max_x
 
-    # Initialize the index of of x to the maximum value.
-    stop_x_i = len(x) - 1
+    #     # Find the index where the depth is closest to the desired depth
+    #     stop_x_i = np.argmin( np.abs(x[:stop_x_i]-stop_x) )
 
-    # Calculate the volume averaged emissivity of the whole cell.
-    avg_y[0] = np.sum(dx * y) / x[-1]
+    #     # Calculate the volume averaged y
+    #     avg_y = [ np.sum(dx[:stop_x_i] * store[model][field][colname][:stop_x_i]) / x[stop_x_i] for colname in store[model][field].colnames[1:] ]
+    #     depth[level] = stop_x
 
-    # Next for each refignment level cut the cell in half.
-    for level in range(1, N_levels):
-        # Calculate desired depth.
-        stop_x = 0.5**level * max_x
+    ## Initialize the index of of x to the maximum value.
+    #stop_x_i = len(x) - 1
 
-        # Find the index where the depth is closest to the desired depth
-        stop_x_i = np.argmin( np.abs(x[:stop_x_i]-stop_x) )
+    avg_y = {}
+    models = sorted(store.keys())
+    for colname in store[models[0]][field].colnames[1:]:
+        avg_y[colname] = np.zeros(len(models))
 
-        # Calculate the volume averaged y
-        avg_y[level] = np.sum(dx[:stop_x_i] * y[:stop_x_i]) / x[stop_x_i]
-        depth[level] = stop_x
+    for i, model in enumerate(models):
+        x = store[model][field]['depth']
+        if len(x) > 0:
+            dx = np.zeros(len(x))
+            dx[0] = x[0]
+            dx[1:] = x[1:] - x[:-1]
 
-    return(depth, avg_y)    
+            max_x = np.max(x)
+
+            # Calculate the volume averaged emissivity of the whole cell.
+            for colname in store[model][field].colnames[1:]:
+                #[ np.sum(dx * np.array(store[model][field][colname])) / x[-1]  ]
+                avg_y[colname][i] = np.sum(dx * np.array(store[model][field][colname])) / x[-1]
+
+    from astropy.table import Table
+    
+    col_names = ['model'] + store[model][field].colnames[1:]
+    t = Table()
+    t['model'] = sorted(store.keys())
+    for colname in store[model][field].colnames[1:]:
+        t[colname] = avg_y[colname]
+
+    t.write(outf, overwrite=True)
+
+    return(t)    
