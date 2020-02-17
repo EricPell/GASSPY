@@ -12,7 +12,7 @@ import numpy as np
 #Undo for debugging in vs code.
 #multiprocessing.set_start_method('spawn', True)
 
-def main(dirs, hdd_lock1, hdd_lock2, multiproc=1):
+def main(dirs, hdd_lock1, hdd_lock2, multiproc=1, max_files=False):
     """
     Create a processor pool and process each cloudy output directory
     """
@@ -25,7 +25,7 @@ def main(dirs, hdd_lock1, hdd_lock2, multiproc=1):
                     print(future.result())
     else:
         for data_dir in dirs:
-            occl.worker_compress_cloudy_dir(data_dir,hdd_lock1,hdd_lock2, True)
+            occl.worker_compress_cloudy_dir(data_dir,hdd_lock1,hdd_lock2, True, max_files=max_files)
 
 if __name__ == "__main__":
     import sys, getopt
@@ -90,4 +90,4 @@ if __name__ == "__main__":
 
     multi_proc_count = np.min([max_core_count, np.max([1, len(data_dirs)]) ])
 
-    main(data_dirs, hdd_lock1, hdd_lock2, multiproc=1)
+    main(data_dirs, hdd_lock1, hdd_lock2, multiproc=1, max_files=False)
