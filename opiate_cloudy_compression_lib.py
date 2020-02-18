@@ -212,8 +212,7 @@ def save_volume_average(store, outf="opiate_avg_emissivities.fits", field="ems",
     
     col_names = ['model'] + store[model][field].colnames[1:]
     t = Table()
-    t['model'] = sorted(store.keys())
-
+    t.meta["model_root_path"] = "-".join(model[0].split("-")[:-1])
     # Model names must adhere to a standard where the final '-' in the name is always followed by the uniqueID.
     t["uniqueID"] = np.array([int(key.split("-")[-1]) for key in sorted(store.keys())])
 
