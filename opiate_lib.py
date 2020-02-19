@@ -237,7 +237,10 @@ class uniq_dict_creator(object):
 
                 if logflux > self.log10_flux_low_limit[field]:
                     """ Do we have atleast 1 photon per cm-2?"""
-                    value = "%0.3f"%compress.number(float(logflux), self.compression_ratio['flux'][field])
+                    compressed = compress.number(float(logflux), self.compression_ratio['flux'][field])
+                    value = "%0.3f"%(compressed)
+                    if float(value) == -1*float(value):
+                        value = "%0.3f"%(0.0)
                 else:
                     value = "-99.000"
                 if value == "-inf" or value == "inf":
