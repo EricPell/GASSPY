@@ -12,6 +12,20 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "Test Make",
+            "type": "python",
+            "request": "launch",
+            "program": "tests/test_opiate_make_cloudy.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Test Opiate",
+            "type": "python",
+            "request": "launch",
+            "program": "tests/test_opiate_lib.py",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "COMPRESSION",
             "type": "python",
             "request": "launch",

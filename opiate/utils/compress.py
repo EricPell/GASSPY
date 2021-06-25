@@ -12,7 +12,8 @@ def number(input_number, reduction_parameters):
 def array(input_array, reduction_parameters):
     (decimal_precision, compression_ratio) = reduction_parameters
     """Reduce numeric resolution of array to at a given decimal precision by a compression factor"""
-    scaled_array = np.divide(input_array, decimals = compression_ratio)
+    scaled_array = np.divide(input_array, compression_ratio)
+
     truncated_scaled_array = np.around(scaled_array, decimal_precision)
     compressed_array = np.around(np.multiply(truncated_scaled_array, compression_ratio), decimal_precision)
 
