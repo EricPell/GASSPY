@@ -5,6 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Average",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/ewpelleg/research/OPIATE/opiate/utils/model_average.py",
+            "args":["/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/cloudy-output/opiate-",],
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",
