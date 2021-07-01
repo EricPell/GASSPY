@@ -307,6 +307,8 @@ class uniq_dict_creator(object):
         self.unique.columns = field_header
 
         # Save the unique dictionary to a pickle
+
+        self.unique = self.unique.reset_index(drop=True)
         self.unique.to_pickle(self.outdir+"/"+self.outname+"_unique.pkl")
 
         # Save the flux definition to a yaml file
@@ -514,7 +516,6 @@ class opiate_to_cloudy(object):
     def process_grid(self, model_limit=-1, N0=0):
         # dx + gas fields, which could be more than den and temp
         max_depth = {}
-        self.unique_panda_pickle = self.unique_panda_pickle.reset_index()
         N_models = self.unique_panda_pickle.shape[0]
 
         #This is the maximum number of possible unique IDs. In the end we will populate this from 0 to N_unique, and crop the array. This prevents repeated copies that result form appending.
