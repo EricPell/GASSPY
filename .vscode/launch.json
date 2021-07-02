@@ -3,13 +3,14 @@
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
+    "argsExpansion": "none",
     "configurations": [
         {
             "name": "Average",
             "type": "python",
             "request": "launch",
             "program": "/home/ewpelleg/research/OPIATE/opiate/utils/model_average.py",
-            "args":["/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/cloudy-output/opiate-",],
+            "args":["/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/cloudy-output/opiate-\\*.ems", "/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/opiate_unique.pkl"],
             "console": "integratedTerminal"
         },
         {

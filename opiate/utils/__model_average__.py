@@ -1,12 +1,17 @@
 """calculate the average emissivity and opacity of a cell"""
 import numpy
 import pandas
-def average_emissivity(file_name, unique_pdf):
+import os
+from multiprocessing import Pool
+
+def average_emissivity(file_name, storage_key=None):
+    #Unique pdf is a pandas data frame that contains a list of values that will be used as a key in the dictionary.
 
     avg_file = file_name+".avg"
-    index = int(file_name.split("/")[-1].replace(".ems","").replace("opiate-",""))
 
-    tuple_key = tuple(unique_pdf.iloc[index])
+    if storage_key is None:
+        index = int(file_name.split("/")[-1].replace(".ems","").replace("opiate-",""))
+        storage_key = (index,)
 
     df = pandas.read_csv(file_name, delimiter="\t")
 
@@ -34,9 +39,33 @@ def average_emissivity(file_name, unique_pdf):
 
     # Save the file
     for line in emissivity_dictionary:
-        emissivity_dictionary[line][tuple_key] = df[line]
+        emissivity_dictionary[line][storage_key] = df[line]
     df.to_csv(avg_file)
     return(emissivity_dictionary)
+
+def build_avgem_dict(file_list, storage_keys,nprocs=None):
+    if nprocs == None:
+        nprocs = min(len(os.sched_getaffinity(0)),len(file_list))
+    else:
+        assert(type(nprocs)==int)
+        assert(nprocs>0)
+    #Make the dictionary
+    df = pandas.read_csv(file_list[0], delimiter="\t")
+
+    # Make a list of each file to work with starmap. I anticipate other parameters in the future, like a dictionary to write to.
+    worker_list = [[file_list[i], storage_keys[i]] for i in range(len(file_list))]
+    with Pool(nprocs) as p:
+        dicts = p.starmap(average_emissivity, worker_list)      
+
+    lines = dicts[0].keys()
+    emissivity_dict = {}
+    for line in lines:
+        emissivity_dict[line] = {}
+        for i in range(len(dicts)):
+            for key in dicts[i][line].keys():
+                emissivity_dict[line][key] = dicts[i][line][key]
+
+    return(emissivity_dict)
 
 def average_opacity(file_name):
     df = pandas.read_csv(file_name, delimiter="\t")
