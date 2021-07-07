@@ -2,7 +2,7 @@
 import glob
 import os
 import sys
-import __model_average__
+from opiate.utils import __model_average__
 from multiprocessing import Pool
 import pandas
 import pickle
@@ -11,7 +11,7 @@ nprocs = 32
 # If the provided file is a regexp ending in ems, search for matches since provided path is not a file:
 if len(sys.argv) >= 2:
     unique_pdf = pandas.read_pickle(sys.argv[2])
-storage_keys = [tuple(unique_pdf.iloc[index])for index in range(len(unique_pdf))]
+storage_keys = [tuple(unique_pdf.iloc[index]) for index in range(len(unique_pdf))]
 
 # VS Code hack for debugging. Add an escape charecter to the wild card, and replace if present
 sys.argv[1] = sys.argv[1].replace("\\","")
@@ -22,7 +22,7 @@ for search_string in sys.argv[1].split(","):
         file_list = glob.glob(search_string)
         avg_emissvity_dict = __model_average__.build_avgem_dict(file_list,storage_keys)
         
-        outfile = open(sys.argv[2].replace(".pkl","_emissivity_dictionary.pkl"),'wb')
+        outfile = open(sys.argv[2].replace(".pkl","_avge_missivity_dictionary.pkl"),'wb')
         pickle.dump(avg_emissvity_dict,outfile)
         outfile.close()
         pass

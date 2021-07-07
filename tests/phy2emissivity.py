@@ -90,43 +90,43 @@ dx = np.log10(dx)
 
 try:
     creator.simdata = {
-        "temp"  :np.log10(fits_dict["T"][0].data.ravel()),
+        "temp"  :np.log10(fits_dict["T"][0].data),
 
-        "dens"  :np.log10(fits_dict["rho"][0].data.ravel() / 1e-24),
+        "dens"  :np.log10(fits_dict["rho"][0].data / 1e-24),
 
-        "dx"    :dx.ravel(),
+        "dx"    :dx,
 
-        "x"     :fits_dict["x"][0].data.ravel(),
-        "y"     :fits_dict["y"][0].data.ravel(),
-        "z"     :fits_dict["z"][0].data.ravel(),
+        "x"     :fits_dict["x"][0].data,
+        "y"     :fits_dict["y"][0].data,
+        "z"     :fits_dict["z"][0].data,
 
         "fluxes":{
             "FUV":{
                 "Emin":0.1,
                 "Emax":13.59844,
                 "shape":"specFUV.sed",
-                "data":np.log10(fits_dict['fluxes']["NpFUV"][0].data.ravel()),
+                "data":np.log10(fits_dict['fluxes']["NpFUV"][0].data),
                 },
 
             "HII":{
                 "Emin":13.59844,
                 "Emax":24.58741,
                 "shape":"specHII.sed",
-                "data":np.log10(fits_dict['fluxes']["NpHII"][0].data.ravel())
+                "data":np.log10(fits_dict['fluxes']["NpHII"][0].data)
                 },
 
             "HeII":{
                 "Emin":24.58741,
                 "Emax":54.41778,
                 "shape":"specHeII.sed",
-                "data":np.log10(fits_dict['fluxes']["NpHeII"][0].data.ravel())
+                "data":np.log10(fits_dict['fluxes']["NpHeII"][0].data)
                 },
 
             "HeIII":{
                 "Emin":54.41778,
                 "Emax":100.0000,
                 "shape":"specHeIII.sed",
-                "data":np.log10(fits_dict['fluxes']["NpHeIII"][0].data.ravel())
+                "data":np.log10(fits_dict['fluxes']["NpHeIII"][0].data)
                 }
         }
     }
@@ -149,6 +149,7 @@ try:
 
     creator.outdir="/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/"
     creator.outname = "opiate"
+    creator.save_compressed3d=creator.outname+"_compressed3d.npy"
 
 
     del(fits_dict)
@@ -162,11 +163,6 @@ try:
 except:
     test_results["collect_den_temp_flux"] = False
 
-try:
-    print("compression ratio: %f"%creator.trim())
-    test_results["trim"] = True
-except:
-    test_results["trim"] = False
 
 del(creator)
 

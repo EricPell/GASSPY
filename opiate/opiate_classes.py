@@ -30,8 +30,9 @@ class uniq_dict_creator(object):
 
         self.N_cells = 0
 
-        self.outname = "SHELL_CDMASK2"
-        self.outdir = "/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2"
+        self.outname = "test"
+        self.outdir = "./"
+        self.save_compressed3d = False
 
         self.dxxyz = ["dx", "x", "y", "z"]
         self.gasfields = ["dens", "temp"]
@@ -210,7 +211,7 @@ class uniq_dict_creator(object):
             
             self.full_mask = self.full_mask + partial_mask
             
-    def compress_simdata(self):
+    def compress_simdata(self,save_compressed3d=False):
         """
         SIM DATA MUST BE A TABLE OR DICTIONARY CONTAINING
         'dx': cell size
@@ -269,44 +270,52 @@ class uniq_dict_creator(object):
         self.simdata=None
         gc.collect()
 
+        N_fields = len(self.cloudyfields) - 1 + N_rad_fields
+        self.field_header = [None for i in range(N_fields)]
+        self.stacked = [None for i in range(N_fields)]
+        i_field = 0
+        for field in self.cloudyfields:
+            if field != "fluxes":
+                #self.compressedsimdata[field]["data"] = self.compressedsimdata[field]["data"][:self.N_unique]
+                # keep a record of the field order, including fluxes
+                self.stacked[i_field] = self.compressedsimdata[field]["data"]
+                self.field_header[i_field]=field
+                i_field+=1
+            else:
+                for flux_type in self.compressedsimdata["fluxes"].keys():
+                    # keep a record of the field order, including fluxes
+                    self.stacked[i_field] = self.compressedsimdata["fluxes"][flux_type]["data"]
+                    self.field_header[i_field]=flux_type
+                    # self.compressedsimdata["fluxes"][flux_type]["data"] = [:self.N_unique]
+                    i_field+=1
+
+        self.stacked = np.array(self.stacked).T
+        if self.save_compressed3d is not False:
+            with open(self.outdir+"/"+self.save_compressed3d,'wb') as f:
+                np.save(f, self.stacked)
+            # Read:
+            # with open(save_compressed3d,'rb') as f:
+            #    np.load(f)
+
+
+    def trim(self):
         """
         TRIM THE DATA!!!!
         The fields to store compressed data were done with arrays of length equal to the original data.
         The compression ensures that the length is <= len(original data)
         Thus we crop out the data longer than the self.N_unique
         """
-        N_fields = len(self.cloudyfields) - 1 + N_rad_fields
-        field_header = [None for i in range(N_fields)]
-        a = [None for i in range(N_fields)]
-        i_field = 0
-        for field in self.cloudyfields:
-            if field != "fluxes":
-                #self.compressedsimdata[field]["data"] = self.compressedsimdata[field]["data"][:self.N_unique]
-                # keep a record of the field order, including fluxes
-                a[i_field] = self.compressedsimdata[field]["data"]
-                field_header[i_field]=field
-                i_field+=1
-            else:
-                for flux_type in self.compressedsimdata["fluxes"].keys():
-                    # keep a record of the field order, including fluxes
-                    a[i_field] = self.compressedsimdata["fluxes"][flux_type]["data"]
-                    field_header[i_field]=flux_type
-                    # self.compressedsimdata["fluxes"][flux_type]["data"] = [:self.N_unique]
-                    i_field+=1
-
-        for key in self.compressedsimdata.keys():
-            if key != "fluxes":
-                print(key, len(self.compressedsimdata[key]["data"]))
-            else:
-                for fluxkey in self.compressedsimdata["fluxes"].keys():
-                    print(key, len(self.compressedsimdata['fluxes'][fluxkey]["data"]))
-
-        stacked = np.vstack(a).T
-        del(a)
-        self.unique = pd.DataFrame(stacked).drop_duplicates()
-        self.unique.columns = field_header
-
         # Save the unique dictionary to a pickle
+        if len(np.shape(self.stacked)) == 4:
+            # Flatten the stacked image from 3d + N_fields to 1d + N_fields
+            # This is required for pandas
+            self.stacked = np.reshape(self.stacked,(np.prod(np.shape(self.stacked)[:-1]),np.shape(self.stacked)[-1]))
+
+        self.unique = pd.DataFrame(self.stacked).drop_duplicates()
+        del(self.stacked)
+
+        self.unique.columns = self.field_header
+
 
         self.unique = self.unique.reset_index(drop=True)
         self.unique.to_pickle(self.outdir+"/"+self.outname+"_unique.pkl")
@@ -324,7 +333,6 @@ class uniq_dict_creator(object):
 
         del(self.compressedsimdata)
         self.N_unique = self.unique.shape[0]
-        del(stacked)
 
         return(self.N_unique/self.N_cells)
 
