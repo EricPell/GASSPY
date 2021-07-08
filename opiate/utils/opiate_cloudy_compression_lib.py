@@ -95,7 +95,7 @@ def merge_data(raw_data_dict, reduced_data_dict=None):
     reduced_data_dict = {}
 
     #Loop over all top levels of the dictionary. These are defined by the "root" given to create the dictionary.
-    for root in raw_data_dict.keys():
+    for root in raw_data_dict:
         reduced_data_dict[root] 
 
 def save_dict(dictionary, outfile, compress_output=True):
