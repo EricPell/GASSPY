@@ -2,9 +2,6 @@ import cudf
 import cupy
 from cudf.core import column
 import numpy as np
-import cProfile, pstats
-profiler = cProfile.Profile()
-profiler.enable()
 
 def main():
     def multiply(a_df, arg1="x", arg2=1.0, arg3=None):
@@ -23,22 +20,24 @@ def main():
         ray_df["zi"] = (ray_df["zp"]*rotation_matrix[2,2]) + zp_transf
 
         
-    def coordinate_toIndex(ray_df):
+    def coordinate_toIndex(ray_df, Nxmax=512, Nymax=512, Nzmax=512):
         ray_df["xi"] = cudf.DataFrame(ray_df["xi"].floordiv(1), dtype = int)
         ray_df["yi"] = cudf.DataFrame(ray_df["yi"].floordiv(1), dtype = int)
         ray_df["zi"] = cudf.DataFrame(ray_df["zi"].floordiv(1), dtype = int)
-        #ray_df.drop_duplicates(subset=['xi','yi','zi'],inplace=True)
+        ray_df.drop_duplicates(subset=['xi','yi','zi'],inplace=True)
+
+        ray_df = ray_df.iloc[(ray_df.xi >= 0) * (ray_df.yi >= 0) * (ray_df.zi >= 0)*(ray_df.xi <= Nxmax) * (ray_df.yi <= Nymax) * (ray_df.zi <= Nzmax)]
 
     def getOpiateIndex(ray_df, idf):
         ray_df["opiate_j"] = idf.iloc[(ray_df["xi"].values.ravel().tolist(), ray_df["yi"].values.ravel().tolist(), ray_df["zi"].values.ravel().tolist()),:]  
 
-    Nxp=4
-    Nyp=512
+    Nxp= 4
+    Nyp= 512
     Nz = 512
-    z_subsamples = 10
+    z_subsamples = 1
     zp = np.linspace(0,Nz,int(Nz*z_subsamples))
 
-    ixx, iyy, izz = np.meshgrid(np.arange(0,512),np.arange(0,512),np.arange(0,512))
+    ixx, iyy, izz = np.meshgrid(np.arange(0,Nxp),np.arange(0,Nyp),np.arange(0,Nz))
     ixx = ixx.ravel()
     iyy = iyy.ravel()
     izz = izz.ravel()
@@ -46,8 +45,8 @@ def main():
     opiate_id = np.random.randint(17555, size=ixx.shape)
     op_df = cudf.DataFrame(opiate_id, dtype=int, index = cudf.DataFrame({"ix":ixx, "iy":iyy, "iz":izz}))
 
-    theta = np.pi/2.0
-    phi = np.pi/2.0
+    theta = np.pi*0.01
+    phi = np.pi*0.0
 
     import time
     t0 = time.time()
@@ -55,6 +54,7 @@ def main():
 
     N_pixels_in_plane = Nxp * Nyp
     npix=0
+
     for xp in range(Nxp):
         for yp in range(Nyp):
             npix += 1
@@ -65,38 +65,47 @@ def main():
             df3d.pipe(coordinate_toIndex)
             #df.pipe(getOpiateIndex, op_df)
 
+            n_values = len(df3d["xi"].values)
+
             try:
-                xi_list[yp,:] = df3d["xi"].values
-                yi_list[yp,:] = df3d["yi"].values
-                zi_list[yp,:] = df3d["zi"].values
+                xi_list[xp,yp,0:n_values] = df3d["xi"].values
+                yi_list[xp,yp,0:n_values] = df3d["yi"].values
+                zi_list[xp,yp,0:n_values] = df3d["zi"].values
             
             except:
-                xi_list = cupy.ndarray((Nyp,len(zp)),dtype=int)
-                yi_list = cupy.ndarray((Nyp,len(zp)),dtype=int)
-                zi_list = cupy.ndarray((Nyp,len(zp)),dtype=int)
+                xi_list = cupy.full((Nxp, Nyp,len(zp)), -1, dtype=int)
+                yi_list = cupy.full((Nxp, Nyp,len(zp)), -1, dtype=int)
+                zi_list = cupy.full((Nxp, Nyp,len(zp)), -1, dtype=int)
 
-                xi_list[yp,:] = df3d["xi"].values
-                yi_list[yp,:] = df3d["yi"].values
-                zi_list[yp,:] = df3d["zi"].values
+                xi_list[xp,yp,0:n_values] = df3d["xi"].values
+                yi_list[xp,yp,0:n_values] = df3d["yi"].values
+                zi_list[xp,yp,0:n_values] = df3d["zi"].values
 
             # xi_list = df3d["xi"].values.ravel()
             # yi_list = df3d["yi"].values.ravel()
             # zi_list = df3d["zi"].values.ravel()
             #df3d["opiate_j"] = op_df.iloc[(xi_list, yi_list, zi_list),:]
-        opiate_j = op_df.iloc[(xi_list.ravel(), yi_list.ravel(), zi_list.ravel()),:]
-        del(opiate_j,xi_list,yi_list,zi_list)
         print("%0.2f%% complete"%(npix/N_pixels_in_plane*100), end="\r")
+        mask = (xi_list>=0)*(yi_list>=0)*(zi_list>=0)
+        opiate_j = op_df.iloc[(xi_list[mask].ravel(), yi_list[mask].ravel(), zi_list[mask].ravel()),:]
+        print(len(opiate_j))
+        del(opiate_j,xi_list,yi_list,zi_list)
 
-
+    print("\n")
     print("Total time = %f"%(time.time()-t0))
     print("Time/op in ns = %f"%(Nz*z_subsamples*Nxp*Nyp/(time.time()-t0)/1e9))
 
-if __name__ == '__main__':
-    import cProfile, pstats
-    profiler = cProfile.Profile()
-    profiler.enable()
-    main()
-    profiler.disable()
-    stats = pstats.Stats(profiler).sort_stats('ncalls')
-    stats.print_stats()
+main()
+
+# if __name__ == '__main__':
+#     import cProfile, pstats
+#     profiler = cProfile.Profile()
+#     profiler.enable()
+#     import cProfile, pstats
+#     profiler = cProfile.Profile()
+#     profiler.enable()
+#     main()
+#     profiler.disable()
+#     stats = pstats.Stats(profiler).sort_stats('ncalls')
+#     stats.print_stats()
 
