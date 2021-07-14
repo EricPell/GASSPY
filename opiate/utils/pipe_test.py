@@ -36,11 +36,11 @@ def main():
 
         
     def coordinate_toCell(ray_df, ray_parameters=ray_parameters_series):
-        last = ray_df.drop_duplicates(subset=['xi','yi','zi'],keep="last").index.to_array()
-        first = ray_df.drop_duplicates(subset=['xi','yi','zi']).index.to_array()
+        last = ray_df.drop_duplicates(subset=['xp', 'yp', 'xi', 'yi', 'zi'],keep="last").index.to_array()
+        ray_df.drop_duplicates(subset=['xp', 'yp', 'xi', 'yi', 'zi'], inplace=True)
+        first = ray_df.index.to_array()
         nray_subsec = last - first
         del(first,last)
-        ray_df.drop_duplicates(subset=['xi','yi','zi'], inplace=True)
 
         #query_string  = "(xi >= -1 and xi < {0} and yi >= -1 and yi < {1} and zi >= -1 and zi < {2})".format(Nxmax + 1, Nymax + 1, Nzmax + 1)
         #ray_df = ray_df.query(query_string)
@@ -62,6 +62,7 @@ def main():
 
     def getOpiateIndex(ray_df, idf):
         ray_df["opiate_j"] = idf.iloc[(ray_df["xi"].values.ravel().tolist(), ray_df["yi"].values.ravel().tolist(), ray_df["zi"].values.ravel().tolist()),:]  
+
     theta = np.pi*0.01
     phi = np.pi*0.0
     xps = np.arange(0,512)
@@ -75,11 +76,8 @@ def main():
     fluxes_df    = cudf.DataFrame({"xp": xp.ravel(), "yp" : yp.ravel(), "flux" : np.zeros(xp.ravel().shape)}).set_index(["xp","yp"])
     #opacities_df = cudf.DataFrame({"xp": xp.ravel(), "yp" : yp.ravel(), "opacity" : np.zeros(xp.ravel().shape)}).set_index(["xp","yp"])
 
-
-    outfluxmap = cupy.full((Nxp,Nxp),0.0,dtype="float32")
-
     Nz = 512
-    zps = np.linspace(0,Nz,int(((Nz)*ray_parameters_series["z_subsamples"]+1)))
+    zps = np.linspace(0,Nz,int(((Nz)*ray_parameters_series["z_subsamples"])))
 
     dZStep = 52
     nZStep = Nz//dZStep + 1
@@ -88,7 +86,13 @@ def main():
 
     t0 = time.time()
     for iz in range(nZStep):
-        xp, yp, zp = np.meshgrid(xps, yps, zps[iz*dZStep: (iz+1)*dZStep])
+        izmin = iz*dZStep
+        if(izmin >= len(zps) - 1):
+            break
+        izmax = min((iz+1)*dZStep, len(zps))
+        print(izmin, izmax, len(zps))
+
+        xp, yp, zp = np.meshgrid(xps, yps, zps[izmin: izmax])
 
         df3d = cudf.DataFrame({"xp" : xp.ravel()})#, "yp" : yp.ravel(), "zp":zp.ravel()})
         del(xp)
@@ -121,7 +125,13 @@ def main():
         fluxes_df["flux"] += df3d["avg_em"].groupby([cudf.Grouper(level = 'xp'), cudf.Grouper(level = 'yp')]).sum()
         print(iz)
 
-    print(fluxes_df)
+    flux_array = cupy.array(fluxes_df["flux"])
+
+    #import matplotlib.pyplot as plt
+    #plt.imshow(np.log10(cupy.asnumpy(flux_array).reshape(512,512)))
+    #plt.show()
+    #plt.close()
+    print(flux_array)
 '''
     #for xp in range(Nxp):
     t0 = time.time()
@@ -156,14 +166,18 @@ def main():
 '''
 if __name__ == '__main__':
     
-    # import cProfile, pstats
-    # profiler = cProfile.Profile()
-    # profiler.enable()
+    import cProfile, pstats
+    profiler = cProfile.Profile()
+    profiler.enable()
 
+    import time
+    t0 = time.time()
     for i in range(1):
         main()
 
-    # profiler.disable()
-    # stats = pstats.Stats(profiler).sort_stats('ncalls')
-    # stats.dump_stats('profile-data')
+    t1 = time.time()
+    print("total time: %f"%(t1-t0))
+    profiler.disable()
+    stats = pstats.Stats(profiler).sort_stats('ncalls')
+    stats.dump_stats('profile-data_final')
 
