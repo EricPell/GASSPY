@@ -42,10 +42,6 @@ def main():
         nray_subsec = last - first
         del(first,last)
 
-        #query_string  = "(xi >= -1 and xi < {0} and yi >= -1 and yi < {1} and zi >= -1 and zi < {2})".format(Nxmax + 1, Nymax + 1, Nzmax + 1)
-        #ray_df = ray_df.query(query_string)
-
-
         ray_df["Nraysubseg"] = nray_subsec
         del(nray_subsec)
         
