@@ -3,7 +3,7 @@ import yaml
 import numpy as np
 from opiate.utils import savename
 
-def run(simdata, obsplane, config_yaml=None, overwrite=True):
+def run(simdata, obsplane, config_yaml=None, overwrite=True, saveprefix = None):
     if config_yaml is None:
         """ Use a default file name, assumed to be in datadir"""
         config_yaml = "opiate_config.yaml"
@@ -13,7 +13,7 @@ def run(simdata, obsplane, config_yaml=None, overwrite=True):
         config_yaml = yaml.load(file, Loader=yaml.FullLoader)
 
     for line_label in config_yaml["line_labels"]:
-        name = savename.get_filename(line_label, simdata, obsplane)
+        name = savename.get_filename(line_label, simdata, obsplane, saveprefix=saveprefix)
         data = np.load("%s/glowviz_output/%s.npy"%(simdata.datadir,name))
         hdu = fits.PrimaryHDU(data)
         hdul = fits.HDUList([hdu])
