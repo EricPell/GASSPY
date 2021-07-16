@@ -39,7 +39,7 @@ class observer_plane_class:
         self.rot_origin = sim_data.origin
         self.xp0_s =   0.0
         self.yp0_s =   0.0
-        self.zp0_s = - 0.5 * self.NumZ 
+        self.zp0_s =   -0.5 * self.NumZ 
         
         self.__dict__.update(kwargs)
 
