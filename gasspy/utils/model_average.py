@@ -2,7 +2,7 @@
 import glob
 import os
 import sys
-from opiate.utils import __model_average__
+from gasspy.utils import __model_average__
 from multiprocessing import Pool
 import pandas
 import pickle

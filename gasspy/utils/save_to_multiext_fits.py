@@ -1,7 +1,7 @@
 from astropy.io import fits
 import yaml
 import numpy as np
-from opiate.utils import savename
+from gasspy.utils import savename
 import glob
 import os
 

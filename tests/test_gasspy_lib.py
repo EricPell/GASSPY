@@ -1,5 +1,5 @@
 """
-OPIATE LIBRARY TEST
+gasspy LIBRARY TEST
 """
 import sys
 import numpy as np
@@ -20,18 +20,18 @@ def report(test_results):
 
 test_results={}
 try:
-    from opiate import opiate_classes
+    from gasspy import gasspy_classes
     test_results["import library"] = True
 except:
     test_results["import library"] = False
-    sys.exit("OPIATE IMPORT: FAILED")
+    sys.exit("gasspy IMPORT: FAILED")
 
 """
 create an instance
 """
-creator = opiate_classes.uniq_dict_creator()
+creator = gasspy_classes.uniq_dict_creator()
 try:
-    creator = opiate_classes.uniq_dict_creator()
+    creator = gasspy_classes.uniq_dict_creator()
     test_results["initialize creator class"] = True
 except:
     test_results["initialize creator class"] = False
@@ -148,7 +148,7 @@ try:
         }
 
     creator.outdir="/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/"
-    creator.outname = "opiate"
+    creator.outname = "gasspy"
 
 
     del(fits_dict)
@@ -157,30 +157,24 @@ except:
     test_results["create simdata attribute"] = False
 
 try:
-    creator.compress_simdata()
+    print("compression ratio: %f"%creator.compress_simdata())
     test_results["collect_den_temp_flux"] = True
 except:
     test_results["collect_den_temp_flux"] = False
 
-try:
-    print("compression ratio: %f"%creator.trim())
-    test_results["trim"] = True
-except:
-    test_results["trim"] = False
-
 del(creator)
 
 # try:
-#     opiate_to_cloudy = opiate_classes.opiate_to_cloudy()
+#     gasspy_to_cloudy = gasspy_classes.gasspy_to_cloudy()
     
-#     test_results["init opiate_to_cloudy class"] = True
+#     test_results["init gasspy_to_cloudy class"] = True
 # except:
-#     test_results["init opiate_to_cloudy class"] = False
+#     test_results["init gasspy_to_cloudy class"] = False
 
 
 # try:
 #     # Create a cloud input model for each unique data point
-#     opiate_to_cloudy.process_grid(creator.compressedsimdata)
+#     gasspy_to_cloudy.process_grid(creator.compressedsimdata)
 #     test_results["create cloudy files from grid"] = True
 # except:
 #     test_results["create cloudy files from grid"] = False

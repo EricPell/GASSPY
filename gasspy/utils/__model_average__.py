@@ -10,7 +10,7 @@ def average_emissivity(file_name, storage_key=None):
     avg_file = file_name+".avg"
 
     if storage_key is None:
-        index = int(file_name.split("/")[-1].replace(".ems","").replace("opiate-",""))
+        index = int(file_name.split("/")[-1].replace(".ems","").replace("gasspy-",""))
         storage_key = (index,)
 
     df = pandas.read_csv(file_name, delimiter="\t")

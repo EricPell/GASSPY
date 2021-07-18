@@ -205,7 +205,7 @@ def create_cloudy_input_file(_UniqID, _depth, _hden, _T, flux_array, flux_type, 
 
 
 """ Begin main part of code """
-input = open(myconfig.opiate_lookup,'r')
+input = open(myconfig.gasspy_lookup,'r')
 parameter_data = input.readlines()
 
 #if(parameter_data[0] != "UniqID  dx      dens    temp    flge    fluv    flih    fli2    N\n"):

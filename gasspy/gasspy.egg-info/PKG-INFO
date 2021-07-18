@@ -1,12 +1,12 @@
 Metadata-Version: 2.1
-Name: OPIATE
+Name: gasspy
 Version: 0.0.1
 Summary: A small example package
-Home-page: https://github.com/EricPell/OPIATE/
+Home-page: https://github.com/EricPell/gasspy/
 Author: Eric Pellegrini
 Author-email: ericpellegrini@outlook.com
 License: UNKNOWN
-Project-URL: Bug Tracker, https://github.com/EricPell/OPIATE/issues
+Project-URL: Bug Tracker, https://github.com/EricPell/gasspy/issues
 Description: README.txt - Readme file containing information on directory contents
         as well as running the code(s)
         

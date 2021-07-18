@@ -1,4 +1,4 @@
-from opiate.utils import save_to_fits, savename
+from gasspy.utils import save_to_fits, savename
 import cudf
 import cupy
 import numpy as np
@@ -94,7 +94,7 @@ def path_rayCell(ray_df, ray_parameters_df):
 
 
 def getSubphysicsIndex(ray_df, idf):
-    ray_df["opiate_j"] = idf.iloc[(ray_df["xi"].values.ravel().tolist(), ray_df["yi"].values.ravel().tolist(), ray_df["zi"].values.ravel().tolist()),:] 
+    ray_df["gasspy_j"] = idf.iloc[(ray_df["xi"].values.ravel().tolist(), ray_df["yi"].values.ravel().tolist(), ray_df["zi"].values.ravel().tolist()),:] 
 
 def traceRays(sim_data, obsplane, line_labels=None, dZslab = 52, savefiles = True, saveprefix=None):
     if line_labels is None:
@@ -174,9 +174,9 @@ def traceRays(sim_data, obsplane, line_labels=None, dZslab = 52, savefiles = Tru
         # Clean the object and reduce memory footprint getting rid of unused coordinates
         raydf.drop(columns=["xi","yi","zi","Nraysubseg"], inplace=True)
 
-        # THIS IS A LIST OF CELL INDEXES WHERE THE INDEX IS AN OPIATE ID
+        # THIS IS A LIST OF CELL INDEXES WHERE THE INDEX IS AN gasspy ID
         # IT IS IN 3D, so we ravel it
-        # opiate_id = cudf.DataFrame(cupy.load(indir+"opiate_indices3d.npy").ravel())
+        # gasspy_id = cudf.DataFrame(cupy.load(indir+"gasspy_indices3d.npy").ravel())
         raydf.set_index(["xp","yp"], inplace=True)
         raydf[line_labels] = cudf.DataFrame(data = avg_em_df.iloc[subphys_id_cudf.iloc[raydf["index1D"]].values].values, index = raydf.index)
 
@@ -186,11 +186,11 @@ def traceRays(sim_data, obsplane, line_labels=None, dZslab = 52, savefiles = Tru
         del(raydf)    
 
     if savefiles:
-        os.makedirs("%s/glowviz_output/"%(sim_data.datadir), exist_ok=True)
+        os.makedirs("%s/gasspy_output/"%(sim_data.datadir), exist_ok=True)
         for line_label in line_labels:
             flux_array = cupy.array(fluxes_df[line_label])
             flux_array = cupy.asnumpy(flux_array)
-            fname = "%s/glowviz_output/%s.npy"%(sim_data.datadir, savename.get_filename(line_label, sim_data, obsplane, saveprefix = saveprefix))
+            fname = "%s/gasspy_output/%s.npy"%(sim_data.datadir, savename.get_filename(line_label, sim_data, obsplane, saveprefix = saveprefix))
             print("saving " + fname)
             np.save(fname, flux_array.reshape(obsplane.Nxp, obsplane.Nyp))
             del(flux_array)

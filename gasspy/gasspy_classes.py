@@ -14,7 +14,7 @@ import pandas as pd
 import gc
 import yaml
 
-from . import opiate_defaults as defaults
+from . import gasspy_defaults as defaults
 sys.path.append(os.getcwd())
 
 LastModDate = "2021.06.06.EWP"
@@ -336,7 +336,7 @@ class uniq_dict_creator(object):
 
         return(self.N_unique/self.N_cells)
 
-class opiate_to_cloudy(object):
+class gasspy_to_cloudy(object):
     def __init__(self,
     outdir=None,
     outname=None,
@@ -355,7 +355,7 @@ class opiate_to_cloudy(object):
         if outname != None:
             self.outname = outname
         else:
-            self.outname = "opiate"
+            self.outname = "gasspy"
 
         if fluxdef_file != None:
             self.fluxdef_file = fluxdef_file

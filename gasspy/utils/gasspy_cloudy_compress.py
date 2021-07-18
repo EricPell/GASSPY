@@ -1,6 +1,6 @@
 """Compress the emp cloudy files"""
 import glob
-import opiate_cloudy_compression_lib as occl
+import gasspy_cloudy_compression_lib as occl
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor
@@ -31,14 +31,14 @@ if __name__ == "__main__":
     import sys, getopt
 
     root_dir = "cloudy-output"
-    outfile = "opiate_filelist.pckl"
+    outfile = "gasspy_filelist.pckl"
 
     max_core_count = 8
 
     try:
         opts, args = getopt.getopt(sys.argv[1:],"hi:o:",["ifile=","ofile="])
     except getopt.GetoptError:
-        print('opiate_cloudy_compress.py -i <inputdirectory> -o <output pckl>')
+        print('gasspy_cloudy_compress.py -i <inputdirectory> -o <output pckl>')
         sys.exit(2)
 
     for opt, arg in opts:
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     reuse_filelist = False
     if reuse_filelist:
         try:
-            infile = open("opiate_filelist.pckl", "rb")
+            infile = open("gasspy_filelist.pckl", "rb")
             data_dirs = pickle.load(infile)
             infile.close()
         except:

@@ -224,7 +224,7 @@ def make_model(UniqID, depth, hden, temp, rad_fluxes, flux_type, init_file):
     return(model_dict)
 
 """ Begin main part of code """
-input = open(myconfig.opiate_lookup,'r')
+input = open(myconfig.gasspy_lookup,'r')
 parameter_data = input.readlines()
 
 #if(parameter_data[0] != "UniqID  dx      dens    temp    flge    fluv    flih    fli2    N\n"):

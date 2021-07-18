@@ -1,7 +1,7 @@
 import pickle
 import numpy as np
-emissivity_dict = pickle.load( open( "/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/opiate_unique_emissivity_dictionary.pkl", "rb" ) )
-param_dict = pickle.load(open("/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/opiate_unique.pkl", "rb"))
+emissivity_dict = pickle.load( open( "/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/gasspy_unique_emissivity_dictionary.pkl", "rb" ) )
+param_dict = pickle.load(open("/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/gasspy_unique.pkl", "rb"))
 
 line = list(emissivity_dict.keys())[30]
 

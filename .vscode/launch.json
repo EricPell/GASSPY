@@ -9,8 +9,8 @@
             "name": "Average",
             "type": "python",
             "request": "launch",
-            "program": "/home/ewpelleg/research/OPIATE/opiate/utils/model_average.py",
-            "args":["/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/cloudy-output/opiate-\\*.ems", "/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/opiate_unique.pkl"],
+            "program": "/home/ewpelleg/research/gasspy/gasspy/utils/model_average.py",
+            "args":["/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/cloudy-output/gasspy-\\*.ems", "/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/gasspy_unique.pkl"],
             "console": "integratedTerminal"
         },
         {
@@ -24,21 +24,21 @@
             "name": "Test Make",
             "type": "python",
             "request": "launch",
-            "program": "tests/test_opiate_make_cloudy.py",
+            "program": "tests/test_gasspy_make_cloudy.py",
             "console": "integratedTerminal"
         },
         {
-            "name": "Test Opiate",
+            "name": "Test gasspy",
             "type": "python",
             "request": "launch",
-            "program": "tests/test_opiate_lib.py",
+            "program": "tests/test_gasspy_lib.py",
             "console": "integratedTerminal"
         },
         {
             "name": "COMPRESSION",
             "type": "python",
             "request": "launch",
-            "program": "opiate_cloudy_compress.py",
+            "program": "gasspy_cloudy_compress.py",
             "args":["-i cloud-compress", "-o test.pckl"],
             "console": "integratedTerminal"
         }

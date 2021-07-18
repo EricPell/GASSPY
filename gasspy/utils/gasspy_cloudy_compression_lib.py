@@ -12,7 +12,7 @@ import pickle
 import bz2
 
 default_file_types = ["ems"]
-default_prefixes = ["opiate"]
+default_prefixes = ["gasspy"]
 
 def find_data_files(root, file_types=None, prefixes=None, recursive=True):
     import glob
@@ -163,7 +163,7 @@ def worker_compress_cloudy_dir(data_dir, lock1, lock2, existing_store=False, bz2
     del(store)
     # gc.collect()
 
-def save_volume_average(store, outf="opiate_avg_emissivities.fits", field="ems", N_levels=0):
+def save_volume_average(store, outf="gasspy_avg_emissivities.fits", field="ems", N_levels=0):
     """ 
     take a profile with independent axis X and values Y, and calculate N averages
     """

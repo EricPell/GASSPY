@@ -34,14 +34,14 @@ dd = ds.all_data()
 
 # raw_input("Now load combined ems table from file")
 try:
-    em_table = Table.read(myconfig.opiate_library,format='ascii')
+    em_table = Table.read(myconfig.gasspy_library,format='ascii')
 except:
-    raise Exception("A problem occured loading the OPIATE library")
+    raise Exception("A problem occured loading the gasspy library")
 em_table.sort("ID")
 
 # raw_input("Now ready unique parameters table")
 try:
-    unique_table = Table.read(myconfig.opiate_lookup,format='ascii')
+    unique_table = Table.read(myconfig.gasspy_lookup,format='ascii')
 except:
     raise Exception("Problem loading unique parameters lookup table")
 

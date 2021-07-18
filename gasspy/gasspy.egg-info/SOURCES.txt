@@ -1,10 +1,10 @@
 README.md
 setup.cfg
 setup.py
-./OPIATE.egg-info/PKG-INFO
-./OPIATE.egg-info/SOURCES.txt
-./OPIATE.egg-info/dependency_links.txt
-./OPIATE.egg-info/top_level.txt
+./gasspy.egg-info/PKG-INFO
+./gasspy.egg-info/SOURCES.txt
+./gasspy.egg-info/dependency_links.txt
+./gasspy.egg-info/top_level.txt
 ./physical_branches/__init__.py
 ./physical_branches/decision.py
 ./radiations_fields/Hion_excessE_bands.py

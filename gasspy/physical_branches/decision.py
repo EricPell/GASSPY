@@ -1,4 +1,4 @@
-""" OPIATE DECISION TREE """
+""" gasspy DECISION TREE """
 import astropy.units as u
 class tree(object):
     def __init(self):

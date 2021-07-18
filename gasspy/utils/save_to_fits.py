@@ -1,12 +1,12 @@
 from astropy.io import fits
 import yaml
 import numpy as np
-from opiate.utils import savename
+from gasspy.utils import savename
 
 def run(simdata, obsplane, config_yaml=None, overwrite=True, saveprefix = None):
     if config_yaml is None:
         """ Use a default file name, assumed to be in datadir"""
-        config_yaml = "opiate_config.yaml"
+        config_yaml = "gasspy_config.yaml"
     with open(r'%s/%s'%(simdata.datadir,config_yaml)) as file:
         # The FullLoader parameter handles the conversion from YAML
         # scalar values to Python the dictionary format
@@ -14,8 +14,8 @@ def run(simdata, obsplane, config_yaml=None, overwrite=True, saveprefix = None):
 
     for line_label in config_yaml["line_labels"]:
         name = savename.get_filename(line_label, simdata, obsplane, saveprefix=saveprefix)
-        data = np.load("%s/glowviz_output/%s.npy"%(simdata.datadir,name))
+        data = np.load("%s/gasspy_output/%s.npy"%(simdata.datadir,name))
         hdu = fits.PrimaryHDU(data)
         hdul = fits.HDUList([hdu])
-        hdul.writeto("%s/glowviz_output/%s.fits"%(simdata.datadir,name), overwrite=overwrite)
+        hdul.writeto("%s/gasspy_output/%s.fits"%(simdata.datadir,name), overwrite=overwrite)
 

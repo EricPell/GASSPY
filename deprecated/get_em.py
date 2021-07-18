@@ -23,13 +23,13 @@ ds = yt.load(myconfig.inFile)
 dd = ds.all_data()
 
 try:
-    em_table = Table.read(myconfig.opiate_library,format='ascii')
+    em_table = Table.read(myconfig.gasspy_library,format='ascii')
 except:
-    raise Exception("A problem loading the OPIATE library")
+    raise Exception("A problem loading the gasspy library")
 em_table.sort("ID")
 
 try:
-    unique_table = Table.read(myconfig.opiate_lookup,format='ascii')
+    unique_table = Table.read(myconfig.gasspy_lookup,format='ascii')
 except:
     raise Exception("Problem loading parameters lookup table")
 

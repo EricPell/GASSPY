@@ -1,5 +1,5 @@
 import numpy as np
-from opiate.utils import opiate_io
+from gasspy.utils import gasspy_io
 import pandas
 import yaml
 import sys
@@ -8,7 +8,7 @@ class subcell_model_class :
     def __init__(self, datadir, disableAutoloader=False):
         """ Load a subcell model from datadir"""
         self.datadir = datadir
-        self.model_dict = opiate_io.read_dict(datadir+"/opiate.indexed_avg_em")
+        self.model_dict = gasspy_io.read_dict(datadir+"/gasspy.indexed_avg_em")
         
 
     def DF_from_dict(self, labels, missing = 0.0):
@@ -40,7 +40,7 @@ class simulation_data_class:
     
         if config_yaml is None:
             """ Use a default file name, assumed to be in datadir"""
-            config_yaml = "opiate_config.yaml"
+            config_yaml = "gasspy_config.yaml"
         with open(r'%s/%s'%(datadir,config_yaml)) as file:
             # The FullLoader parameter handles the conversion from YAML
             # scalar values to Python the dictionary format
@@ -66,5 +66,5 @@ class simulation_data_class:
     
     def get_subcell_model_id(self):
         if self.subcell_model_id is None:
-            self.subcell_model_id = np.load(self.datadir+"opiate_indices3d.npy")
+            self.subcell_model_id = np.load(self.datadir+"gasspy_indices3d.npy")
         return self.subcell_model_id

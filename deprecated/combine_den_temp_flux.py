@@ -9,7 +9,7 @@ sys.path.append(os.getcwd())
 LastModDate = "24.05.2016.EWP"
 
 """ Import default and model specific settings """
-import opiate_defaults as defaults
+import gasspy_defaults as defaults
 import myconfig
 
 def data_path(root,field,N,zero_padding=5):
@@ -232,17 +232,17 @@ live_line("Finished %i cells"%(Ncells)+"\n")
 
 """ Check if we are creating or appending to a data base. Set write mode and initialize uniqueID accordingly."""
 if append_db is True:
-    if not os.path.exists(myconfig.opiate_lookup):
-        sys.stderr.write('You have selected to append to an existing database %s, but I could not find the file. I will make a new database.'%myconfig.opiate_lookup)
+    if not os.path.exists(myconfig.gasspy_lookup):
+        sys.stderr.write('You have selected to append to an existing database %s, but I could not find the file. I will make a new database.'%myconfig.gasspy_lookup)
         append_db = False
     else:
         uniqueID0 = 0
-        outFile = open(myconfig.opiate_lookup, 'a')
+        outFile = open(myconfig.gasspy_lookup, 'a')
                
 if append_db is False:
     """ If we are not appending to an existing database set the uniqueIDs to 0 and open the database for writing"""
     uniqueID0 = 0        
-    outFile = open(myconfig.opiate_lookup, 'w')
+    outFile = open(myconfig.gasspy_lookup, 'w')
     """ Add a header row to the database """
     outFile.write("\t".join(["UniqID"]+cloudyfields)+"\tN\n")
 

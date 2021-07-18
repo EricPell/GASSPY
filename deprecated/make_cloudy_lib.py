@@ -7,6 +7,6 @@ import sys
 import pickle
 import compress
 import numpy as np
-import opiate_defaults as defaults
+import gasspy_defaults as defaults
 sys.path.append(os.getcwd())
 

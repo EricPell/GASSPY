@@ -1,6 +1,6 @@
 #%%
 from numpy.lib.function_base import average
-from opiate.utils import opiate_io
+from gasspy.utils import gasspy_io
 import numpy as np
 import pickle as pkl
 
@@ -16,20 +16,20 @@ assert(rmm.is_initialized())
 indir = "/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/"
 
 ### TODO:
-# SAVE PARAM_TO_INDEX which is the original opiate index idea. (should be generated when creating unique)
+# SAVE PARAM_TO_INDEX which is the original gasspy index idea. (should be generated when creating unique)
 # Save index_to_param: used if recreating a new grid with different values. (Should be generated when creating unique)
 # Save indexed_avg_em (should be generated using avg_em)
 
 # Create the lookup index, and store in both directions if you want to recover cell-params from index
 try:
-    param_to_index = opiate_io.read_dict(indir+"opiate.param_to_index")
-    param_to_index = opiate_io.read_dict(indir+"opiate.index_to_param")
-    indexed_avg_em = opiate_io.read_dict(indir+"opiate.indexed_avg_em")
+    param_to_index = gasspy_io.read_dict(indir+"gasspy.param_to_index")
+    param_to_index = gasspy_io.read_dict(indir+"gasspy.index_to_param")
+    indexed_avg_em = gasspy_io.read_dict(indir+"gasspy.indexed_avg_em")
     emlines = [line for line in indexed_avg_em]
 
 except:
     # Clean the emissivity dictionary of bad values
-    avg_em = opiate_io.read_avg_em(indir+"opiate_unique_avg_emissivity_dictionary.pkl")
+    avg_em = gasspy_io.read_avg_em(indir+"gasspy_unique_avg_emissivity_dictionary.pkl")
     emlines = [line for line in avg_em]
 
     for emline in emlines:
@@ -56,17 +56,17 @@ except:
         for line in emlines:
             indexed_avg_em[line][i] = avg_em[line][key]
 
-    opiate_io.write_dict(param_to_index, indir+"opiate.param_to_index")
-    opiate_io.write_dict(param_to_index, indir+"opiate.index_to_param")
-    opiate_io.write_dict(indexed_avg_em, indir+"opiate.indexed_avg_em")
+    gasspy_io.write_dict(param_to_index, indir+"gasspy.param_to_index")
+    gasspy_io.write_dict(param_to_index, indir+"gasspy.index_to_param")
+    gasspy_io.write_dict(indexed_avg_em, indir+"gasspy.indexed_avg_em")
 
 #%%
 try:
     # Try and load an exisiting simulation
-    index3d = np.load(indir+"opiate_indices3d.npy")
+    index3d = np.load(indir+"gasspy_indices3d.npy")
     Nx,Ny,Nz,Nd = index3d.shape
 except:
-    comp3d= opiate_io.read_compressed3d(indir+"opiate_compressed3d.npy")
+    comp3d= gasspy_io.read_compressed3d(indir+"gasspy_compressed3d.npy")
     index3d = np.ndarray(shape=comp3d.shape[:-1],dtype="int32")
     
     Nx,Ny,Nz,Nd = comp3d.shape
@@ -75,13 +75,13 @@ except:
             for iz in range(Nz):
                 index3d[ix,iy,iz] = param_to_index[tuple(comp3d[ix,iy,iz,:])]
 
-    np.save(indir+"opiate_indices3d.npy",index3d)
+    np.save(indir+"gasspy_indices3d.npy",index3d)
     del(comp3d)
 
 
 #%%
 df = cudf.DataFrame()
-df["opiate_index"] = index3d.ravel()
+df["gasspy_index"] = index3d.ravel()
 
 #%%
 xx,yy,zz = np.meshgrid(np.arange(Nx),np.arange(Ny),np.arange(Nz))
