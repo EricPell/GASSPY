@@ -16,6 +16,7 @@
     - Emax: maximum bin energy in eV
     - shape: currently supported is a Cloudy compatible sed file, with energy or wave units specified, and Fnu or nuFnu
     Shape files may also be very simple flat bins, but still need to be defined in the file format.
+
     Shape is the name of the sed for reading.
     - 'FUV':{'Emax': 13.59844, 'Emin': 0.1, 'shape': 'specFUV.sed'}
     - 'HII':{'Emax': 24.58741, 'Emin': 13.59844, 'shape': 'specHII.sed'}
