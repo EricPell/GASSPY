@@ -250,10 +250,40 @@ def traceRays_by_slab_step(sim_data, obsplane, line_labels=None, ray_substep_par
 
         current_coordinates = None
 
+        row: ip(i_xp,j_up), i_xp, j_yp, k_zp, em, op, n_zps, RL
+
+        for ip in Nzp:
+            if Nzp > len(em[i_ray]):
+                big_flag = True
+                tau_ip = cupy.zeros(n_zps[ip])
+
+        for row in DF:
+            tau[i_ray][k_zp] = row[tau]
+            em[i_ray][k_zp] =  row[em]
+
+            if (finshed):
+                detec[i_ray] = cupy.sumproduct(em,tau)
+                if big_flag:
+                    em_ip = cupy.zeros(unrefined_Nzp)
+                    tau_ip = cupy.zeros(unrefined_Nzp)
+
         coordinate_transform(raydf, obsplane.rotation_matrix, ray_parameters_df = ray_parameters_df)
 
         raydf = path_rayCell(raydf, ray_parameters_df = ray_parameters_df)
 
+        # (xp0,yp0) ----------------> = Nz=64 -> CuPy array 64 long
+        # (xp0,yp1) ___.___.___.___.> = Nz=4  -> CuPy array 4 long
+        #            0   1   2   3
+        # row entry: For each rowwise element, put em,tau into array, at correct index
+
+        # row: 
+
+        # 1) for each zp in {xp, yp, ray_index} cum_opac + cumsum opac                                               : total_opac[xp, yp, ray_index, zp]
+        # 2) for each zp in {xp, yp, ray_index} exp(-total_opac[xp,yp, ray_index, zp]) * emis[xp, yp, ray_index, zp] : total_emis[xp, yp, ray_index, zp]
+        # 3) for each ray_index in {xp, yp}     sum total_emis                                                       : flux[xp, yp, ray_index]
+        # 4) for each ray_index in {xp, yp}     sum total_opac                                                       : cum_opac[xp, yp, ray_index]
+        
+        
         raydf.dropna(inplace = True)
 
         if len(raydf) == 0:
@@ -271,7 +301,7 @@ def traceRays_by_slab_step(sim_data, obsplane, line_labels=None, ray_substep_par
         raydf.set_index(["xp","yp"], inplace=True)
         raydf[line_labels] = cudf.DataFrame(data = avg_em_df.iloc[subphys_id_cudf.iloc[raydf["index1D"]].values].values, index = raydf.index)
 
-
+        
         fluxes_df[line_labels] = fluxes_df[line_labels].add(raydf[line_labels].groupby([cudf.Grouper(level = 'xp'), cudf.Grouper(level = 'yp')]).sum(), fill_value = 0.0)
 
         del(raydf)    
