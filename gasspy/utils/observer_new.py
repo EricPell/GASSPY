@@ -96,7 +96,7 @@ class observer_plane_class:
             self.xps = np.arange(0, self.Nxp)
             self.yps = np.arange(0, self.Nyp)
 
-            #Introduce scale factor here which is a scaled normal vector to change detector size.
+            #Introduce scale factor here which is a scaled normal vector to change detector size. x, y, z are in observer frame,  i, j, k in simulation frame
             self.nx_i = float(rotation_matrix[0][0])
             self.nx_j = float(rotation_matrix[1][0])
             self.nx_k = float(rotation_matrix[2][0])
