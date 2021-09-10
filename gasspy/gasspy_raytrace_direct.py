@@ -6,13 +6,13 @@ import gasspy.utils.save_to_fits
 import numpy as np
 import cProfile 
 
-datadir = "/home/loke/SanDiskSSD/Documents/PhD/GRASS_test/"
+datadir = "/home/loki/Runs/GASSPY_test/"
 sim_data = simulation_data_class(datadir = datadir)
-raytracer = raytracer_class(sim_data, savefiles = True)
+raytracer = raytracer_class(sim_data, savefiles = True, NcellBuff = 64)
 
-Nframes = 10
-pitch = np.linspace(0,90,Nframes)
-yaw   = np.linspace(0,90,Nframes) 
+Nframes = 1000
+pitch = np.linspace(0,360,Nframes)
+yaw   = np.linspace(0,360,Nframes) 
 #yaw[len(pitch)//4:] = np.linspace(0,180,len(pitch) - len(pitch)//4)[:]
 # yaw = np.logspace(-2,0,Nframes//2)*180
 # yaw = np.append(yaw,yaw[::-1])
@@ -20,9 +20,9 @@ yaw   = np.linspace(0,90,Nframes)
 roll = np.zeros(Nframes)
 
 rotangles = np.vstack([pitch, yaw, roll]).T
-print(rotangles.shape)
 pr = cProfile.Profile()
 pr.enable()
+
 for irot, rot in enumerate(rotangles):
     prefix="%06i"%irot
     pitch, yaw, roll = rot
