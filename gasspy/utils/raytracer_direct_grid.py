@@ -11,58 +11,50 @@ from gasspy.utils.savename import get_filename
 def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
     # check if inside the box, otherwise return 0
     for i, (x,y,z) in enumerate(zip(xi, yi, zi)):
+        # if we know we are outside the box domain set index1D to NULL value (TODO: fix this value in parameters)
         if x < 0:
-            pathlength[i] = 0
             index1D[i] = 0
-            continue
-        if y < 0:
-            pathlength[i] = 0
+        elif y < 0:
             index1D[i] = 0
-            continue
-        if z < 0:
-            pathlength[i] = 0
+        elif z < 0:
             index1D[i] = 0
-            continue
-
-        if x >= Nmax[0]:
-            pathlength[i] = 0
+        elif x >= Nmax[0]:
             index1D[i] = 0
-            continue
-        if y >= Nmax[1]:
-            pathlength[i] = 0
+        elif y >= Nmax[1]:
             index1D[i] = 0
-            continue
-        if z >= Nmax[2]:
-            pathlength[i] = 0
+        elif z >= Nmax[2]:
             index1D[i] = 0
-            continue
-
-        index1D[i] = int(z) + Nmax[2]*int(y) + Nmax[1]*Nmax[2]*int(x)
+        else:
+            index1D[i] = int(z) + Nmax[2]*int(y) + Nmax[1]*Nmax[2]*int(x)
 
         # init to unreasonably high number
-        pathlength[i] = 1e10
+        pathlength[i] = 1e30
         mindir = -1
-        # check for closest distance to cell boundary
+        # check for closest distance to cell boundary by looking for the closest int in all directions
+        # a thousand of a cell width is added as padding such that the math is (almost) always correct
+        # NOTE: this could be wrong if a ray is very close to an interface. So depending on the angle of raydir
+        # With respect to the cells, errors can occur
+
         # in x
         if(raydir[0] > 0):
-            newpath = (math.ceil(x+0.001) - x)/raydir[0]
+            newpath = (math.ceil(x + 0.001) - x)/raydir[0]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 0
         elif(raydir[0] < 0):
-            newpath = (math.floor(x-0.001)-x)/raydir[0]
+            newpath = (math.floor(x - 0.001)-x)/raydir[0]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 0
         
         # in y
         if(raydir[1] > 0):
-            newpath = (math.ceil(y +0.001) - y)/raydir[1]
+            newpath = (math.ceil(y + 0.001) - y)/raydir[1]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 1
         elif(raydir[1] < 0):
-            newpath = (math.floor(y-0.001) - y)/raydir[1]
+            newpath = (math.floor(y - 0.001) - y)/raydir[1]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 1
@@ -74,7 +66,7 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
                 pathlength[i] = newpath
                 mindir = 2
         elif(raydir[2] < 0):
-            newpath = (math.floor(z-0.001) - z)/raydir[2]
+            newpath = (math.floor(z - 0.001) - z)/raydir[2]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 2
@@ -84,9 +76,7 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
             
             if(raydir[0] > 0):
                 xi[i] = math.ceil(x+0.001)
-                #print("xceil", xi[i], math.ceil(x+0.001), yi[i], yi[i] + pathlength[i]*raydir[1], zi[i], zi[i] + pathlength[i]*raydir[2])
             else:
-                #print("xfloor", xi[i], math.floor(x+0.001), yi[i], yi[i] + pathlength[i]*raydir[1], zi[i], zi[i] + pathlength[i]*raydir[2])
                 xi[i] = math.floor(x-0.001)
             yi[i] = yi[i] + pathlength[i]*raydir[1]
             zi[i] = zi[i] + pathlength[i]*raydir[2]
@@ -95,10 +85,8 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
         if(mindir == 1):
             # move to next int
             if(raydir[1] > 0):
-                #print("yceil", yi[i], math.ceil(y+0.001), xi[i], xi[i] + pathlength[i]*raydir[0], zi[i], zi[i] + pathlength[i]*raydir[2])
                 yi[i] = math.ceil(y+0.001)
             else:
-                #print("yfloor", yi[i], math.ceil(y+0.001), xi[i], xi[i] + pathlength[i]*raydir[0], zi[i], zi[i] + pathlength[i]*raydir[2])
                 yi[i] = math.floor(y-0.001)
             xi[i] = xi[i] + pathlength[i]*raydir[0]
             zi[i] = zi[i] + pathlength[i]*raydir[2]
@@ -107,10 +95,8 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
         if(mindir == 2):
             # move to next int
             if(raydir[2] > 0):
-                #print("zceil", zi[i], math.ceil(z+0.001), xi[i], xi[i] + pathlength[i]*raydir[0], yi[i], yi[i] + pathlength[i]*raydir[1])
                 zi[i] = math.ceil(z+0.001)
             else:
-                #print("zfloor", zi[i], math.ceil(z+0.001), xi[i], xi[i] + pathlength[i]*raydir[0], yi[i], yi[i] + pathlength[i]*raydir[1])
                 zi[i] = math.floor(z-0.001)
             xi[i] = xi[i] + pathlength[i]*raydir[0]
             yi[i] = yi[i] + pathlength[i]*raydir[1]
@@ -118,16 +104,25 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
 
 
 class raytracer_class:
-    def __init__(self, sim_data, obs_plane = None, line_lables = None, savefiles = True):
+    def __init__(self, sim_data, obs_plane = None, line_lables = None, savefiles = True, NcellBuff  = 64):
         self.set_new_sim_data(sim_data, line_lables)
-
+        """
+            Input:
+                sim_data, required - simulation_data_class object containing the needed data from the simulation
+                obs_plane          - initial obs_plane definition, can be set later 
+                line_labels        - Names of the wanted lines
+                savefiles          - Boolean flag if user wants to save the resulting fluxes or not as fits and npys
+                NcellBuff          - integer describing the number of cells a ray will hold in the buffer before
+                                     before it calculates the cumulative emissions and opacities
+        """
         if obs_plane is not None:
             self.set_obsplane(obs_plane)
         else:
             self.set_empty() 
     
         self.savefiles = savefiles
-        self.NcellBuff = 64
+        self.NcellBuff = NcellBuff
+
     """
         Externally used methods    
     """
@@ -139,28 +134,23 @@ class raytracer_class:
 
         assert (self.xps is not None) and (self.yps is not None), "ERROR: and observer needs to be set before you can run ray tracing"
         assert self.rays is not None, "ERROR: ray's have not been generated. Use defined functions" 
-        # start by moving all cells outside of box to the first intersecting cell
-        self.move_to_first_intersection()
 
-        # transport rays until all rays are outside the box
-        self.prune_outside_sim()
-
-        #if any direction is zero, set their temporary array to zero
-        #for i, ix in enumerate(["xi", "yi", "zi"]):
-        #    self.rays["tmp_"+ix] = cupy.full(len(self.rays), 1e30)
-        
         #reset fluxes
         for line in self.line_lables :
             self.fluxes[line] = 0
+        # start by moving all cells outside of box to the first intersecting cell
+        self.move_to_first_intersection()
+        
+        # Do a soft pruning outside of the box
+        self.prune_outside_sim(soft = True)
+        
         
         self.ibuff = 0
         self.alloc_buffer()
          
+        # transport rays until all rays are outside the box
         i = 0
-        #while(self.get_remaining() > 0):
         while(len(self.rays) > 0):
-            #print("\t %i %i"%(i,len(self.rays)))
-        
             # transport the rays through the current cell
             self.raytrace_onestep()
             # advance buffer
@@ -169,25 +159,14 @@ class raytracer_class:
             if self.ibuff == self.NcellBuff:
                 # if we are out of space, gather cells subphysics and reset buffer
                 self.get_subphysics_cells()
-           
-                # reset buffers to zero
-                #self.reset_buffer()
                 self.prune_outside_sim()
                 self.alloc_buffer()
-                #print(self.rays[["xi", "yi", "zi", "pathlength"]])
-                #print(self.raydir)
-                # reset index
+                # reset buffer index
                 self.ibuff = 0
+
         # at the end, if there are still things in the buffer, save them
         if self.ibuff > 0:
-            # if we are out of space, gather cells subphysics and reset buffer
             self.get_subphysics_cells()
-        
-            # reset buffers to zero
-            self.reset_buffer()
-        
-            # reset index
-            self.ibuff = 0
         
         # save fluxes to the files
         if self.savefiles:
@@ -213,7 +192,8 @@ class raytracer_class:
         self.Nmax = cupy.array(sim_data.Ncells)
         
         # query string used for dropping rays outside bounds 
-        self.inside_query_string  = "(xi >= 0 and xi < {0} and yi >= 0 and yi < {1} and zi >= 0 and zi < {2})".format(int(self.Nmax[0]),int(self.Nmax[1]), int(self.Nmax[2]))
+        self.inside_query_string  = "(xi >= 0 and xi <= {0} and yi >= 0 and yi <= {1} and zi >= 0 and zi <= {2})".format(int(self.Nmax[0]),int(self.Nmax[1]), int(self.Nmax[2]))
+        self.inside_soft_query_string  = "(xi > -1 and xi < {0} and yi > -1 and yi < {1} and zi > -1 and zi < {2})".format(int(self.Nmax[0]+1),int(self.Nmax[1]+1), int(self.Nmax[2]+1))
         # save reference to sim_data
         self.sim_data = sim_data  
 
@@ -374,9 +354,9 @@ class raytracer_class:
             if align == 0:
                 continue
             # find the pathlength to the points where the rays intersect the plane
-            pathlength = ((p0[0] - self.rays["xi"].values) * nplane[0] + 
-                          (p0[1] - self.rays["yi"].values) * nplane[1] + 
-                          (p0[2] - self.rays["zi"].values) * nplane[2])/align
+            pathlength = cupy.abs(((p0[0] - self.rays["xi"].values) * nplane[0] + 
+                                   (p0[1] - self.rays["yi"].values) * nplane[1] + 
+                                   (p0[2] - self.rays["zi"].values) * nplane[2])/align)
             
             if cupy.sum(~cupy.isinf(pathlength)) == 0:
                 print( "no intersect found with plane with non parallell normal vector", plane, align )
@@ -398,15 +378,15 @@ class raytracer_class:
             min_pathlength[mask] = pathlength[mask]
         
         # if rays not already in the box,  move rays. If the ray does not intersect the box, it will be put outside and pruned in later stages
-        inbox = ((self.rays["xi"] >= 0) & (self.rays["xi"] < int(self.Nmax[0])) &
-                 (self.rays["yi"] >= 0) & (self.rays["yi"] < int(self.Nmax[1])) &
-                 (self.rays["zi"] >= 0) & (self.rays["zi"] < int(self.Nmax[2])))
+        inbox = ((self.rays["xi"] >= 0) & (self.rays["xi"] <= int(self.Nmax[0])) &
+                 (self.rays["yi"] >= 0) & (self.rays["yi"] <= int(self.Nmax[1])) &
+                 (self.rays["zi"] >= 0) & (self.rays["zi"] <= int(self.Nmax[2])))
 
         # move rays outside of box. cudf where replaces where false     
         for i, ix in enumerate(["xi", "yi", "zi"]):
             self.rays[ix].where(inbox, self.rays[ix] + cudf.Series(self.raydir[i] * (min_pathlength + 0.001*cupy.sign(min_pathlength)), index = self.rays.index), inplace = True) # some padding to ensure cell boundarys are crossed
         
-    def prune_outside_sim(self):
+    def prune_outside_sim(self, soft = False):
         """
             Removes all rays that are outside the box 
         """
@@ -417,7 +397,10 @@ class raytracer_class:
 
                
         #self.rays.drop(outbox.loc[outbox == True].index, inplace = True)
-        self.rays = self.rays.query(self.inside_query_string)
+        if(soft) :
+            self.rays = self.rays.query(self.inside_soft_query_string)
+        else:
+            self.rays = self.rays.query(self.inside_query_string)
 
         #self.tmp_3d_df.drop(outbox.loc[outbox == True].index, inplace = True)
         #del(outbox)
