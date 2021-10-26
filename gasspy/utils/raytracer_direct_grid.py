@@ -30,7 +30,7 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
         # init to unreasonably high number
         pathlength[i] = 1e30
         mindir = -1
-        # check for closest distance to cell boundary by looking for the closest int in all directions
+        # check for closest distance to cell boundary by looking for the closest int in each cardinal axis away from the current position
         # a thousand of a cell width is added as padding such that the math is (almost) always correct
         # NOTE: this could be wrong if a ray is very close to an interface. So depending on the angle of raydir
         # With respect to the cells, errors can occur
