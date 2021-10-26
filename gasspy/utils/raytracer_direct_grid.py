@@ -37,36 +37,36 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
 
         # in x
         if(raydir[0] > 0):
-            newpath = (math.ceil(x + 0.001) - x)/raydir[0]
+            newpath = (math.floor(x) + 1 - x)/raydir[0]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 0
         elif(raydir[0] < 0):
-            newpath = (math.floor(x - 0.001)-x)/raydir[0]
+            newpath = (math.ceil(x) - 1 - x)/raydir[0]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 0
         
         # in y
         if(raydir[1] > 0):
-            newpath = (math.ceil(y + 0.001) - y)/raydir[1]
+            newpath = (math.floor(y) + 1 - y)/raydir[1]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 1
         elif(raydir[1] < 0):
-            newpath = (math.floor(y - 0.001) - y)/raydir[1]
+            newpath = (math.ceil(y) - 1 - y)/raydir[1]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 1
 
         # in z
         if(raydir[2] > 0):
-            newpath = (math.ceil(z + 0.001) - z)/raydir[2]
+            newpath = (math.floor(z) + 1 - z)/raydir[2]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 2
         elif(raydir[2] < 0):
-            newpath = (math.floor(z - 0.001) - z)/raydir[2]
+            newpath = (math.ceil(z) - 1 - z)/raydir[2]
             if(pathlength[i] > newpath):
                 pathlength[i] = newpath
                 mindir = 2
@@ -75,9 +75,9 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
             # move to next int
             
             if(raydir[0] > 0):
-                xi[i] = math.ceil(x+0.001)
+                xi[i] = math.floor(x) + 1
             else:
-                xi[i] = math.floor(x-0.001)
+                xi[i] = math.ceil(x) - 1
             yi[i] = yi[i] + pathlength[i]*raydir[1]
             zi[i] = zi[i] + pathlength[i]*raydir[2]
             continue 
@@ -85,9 +85,9 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
         if(mindir == 1):
             # move to next int
             if(raydir[1] > 0):
-                yi[i] = math.ceil(y+0.001)
+                yi[i] = math.floor(y) + 1
             else:
-                yi[i] = math.floor(y-0.001)
+                yi[i] = math.ceil(y) - 1
             xi[i] = xi[i] + pathlength[i]*raydir[0]
             zi[i] = zi[i] + pathlength[i]*raydir[2]
             continue
@@ -95,9 +95,9 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
         if(mindir == 2):
             # move to next int
             if(raydir[2] > 0):
-                zi[i] = math.ceil(z+0.001)
+                zi[i] = math.floor(z) + 1
             else:
-                zi[i] = math.floor(z-0.001)
+                zi[i] = math.ceil(z) - 1
             xi[i] = xi[i] + pathlength[i]*raydir[0]
             yi[i] = yi[i] + pathlength[i]*raydir[1]
             continue
