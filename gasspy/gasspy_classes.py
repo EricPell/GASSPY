@@ -422,7 +422,7 @@ class gasspy_to_cloudy(object):
         """Write command to cloudy input file to set hydrogen density"""
         self.outfile.write("hden %s\n"%(model_hden))
 
-    def set_nend(self, model_is_ionization_front):
+    def set_nend(self, model_is_ionization_front,shallow_nend=10):
         """Write command to cloudy input file to set number of zones to simulate"""
         if model_is_ionization_front is True:
             #Do not set constant temperature if IF exists
@@ -430,7 +430,7 @@ class gasspy_to_cloudy(object):
 
         if model_is_ionization_front is False:
             #Set constant temperature if IF does not exist
-            self.outfile.write("set nend 1\n")
+            self.outfile.write("set nend %i\n"%(shallow_nend))
 
     def set_temperature(self, log10_temperature, is_ionization_front, force_Teq=False, force_Tconst=False, T_law=False):
         """Set constant temperature if not modeling the actual ionization front temp gradients"""
@@ -481,6 +481,7 @@ class gasspy_to_cloudy(object):
                     _phi_ih += 10**model[radfield]
                 
             isIF = self.check_for_if(model["dx"], model["dens"], _phi_ih)
+        ### This is a debug hack to not not enforce full depth.
         else:
             isIF = False
 
