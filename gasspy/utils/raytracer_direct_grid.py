@@ -7,25 +7,32 @@ import os
 import math
 from gasspy.utils.savename import get_filename 
 
-
-def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax):
+def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax, first_step):
+    # raytrace kernel is the fuction called by cudf.DataFrame.apply_rows
+    # xi, yi, zi are the inpuyt columns from a DataFrame
+    # pathlength, index1D are the output columns 
     # check if inside the box, otherwise return 0
+    Nx = Nmax[0]
+    Ny = Nmax[1]
+    Nz = Nmax[2]
+    
+    Nxhalf = Nx/2
+    Nyhalf = Ny/2
+    Nzhalf = Nz/2
+
     for i, (x,y,z) in enumerate(zip(xi, yi, zi)):
         # if we know we are outside the box domain set index1D to NULL value (TODO: fix this value in parameters)
-        if x < 0:
-            index1D[i] = 0
-        elif y < 0:
-            index1D[i] = 0
-        elif z < 0:
-            index1D[i] = 0
-        elif x >= Nmax[0]:
-            index1D[i] = 0
-        elif y >= Nmax[1]:
-            index1D[i] = 0
-        elif z >= Nmax[2]:
-            index1D[i] = 0
+
+        # Wow, ok, so this line is an if statement to determine if a coordinate position is outside of the simulation domain.
+        # It returns 1 if inside the rectangle defined by Nx,Ny,Nz, and 0 if outside, no matter the direction.
+        if (1-int((x-Nxhalf)/Nxhalf)) * (1-int((y-Nyhalf)/Nyhalf)) *  (1-int((z-Nzhalf)/Nzhalf)):
+            index1D[i] = int(z) + Nz*int(y) + Ny*Nz*int(x)
         else:
-            index1D[i] = int(z) + Nmax[2]*int(y) + Nmax[1]*Nmax[2]*int(x)
+            #print(x,y,z)
+            index1D[i] = 0
+            if first_step[0] == 0 :
+                pathlength[i] = -1
+                continue
 
         # init to unreasonably high number
         pathlength[i] = 1e30
@@ -150,6 +157,7 @@ class raytracer_class:
          
         # transport rays until all rays are outside the box
         i = 0
+        self.first_step = cupy.ones(1)
         while(len(self.rays) > 0):
             # transport the rays through the current cell
             self.raytrace_onestep()
@@ -164,6 +172,8 @@ class raytracer_class:
                 # reset buffer index
                 self.ibuff = 0
 
+            # Turn off flag for first step
+            self.first_step[0] = 0
         # at the end, if there are still things in the buffer, save them
         if self.ibuff > 0:
             self.get_subphysics_cells()
@@ -171,7 +181,7 @@ class raytracer_class:
         # save fluxes to the files
         if self.savefiles:
             self.save_lines_fluxes(saveprefix=saveprefix)
-        
+     
     
     def set_new_sim_data(self, sim_data, line_lables = None):
         """
@@ -192,7 +202,9 @@ class raytracer_class:
         self.Nmax = cupy.array(sim_data.Ncells)
         
         # query string used for dropping rays outside bounds 
-        self.inside_query_string  = "(xi >= 0 and xi <= {0} and yi >= 0 and yi <= {1} and zi >= 0 and zi <= {2})".format(int(self.Nmax[0]),int(self.Nmax[1]), int(self.Nmax[2]))
+        # self.inside_query_string  = "(xi >= 0 and xi <= {0} and yi >= 0 and yi <= {1} and zi >= 0 and zi <= {2})".format(int(self.Nmax[0]),int(self.Nmax[1]), int(self.Nmax[2]))
+        self.inside_query_string  = "(pathlength >= 0)"
+
         self.inside_soft_query_string  = "(xi > -1 and xi < {0} and yi > -1 and yi < {1} and zi > -1 and zi < {2})".format(int(self.Nmax[0]+1),int(self.Nmax[1]+1), int(self.Nmax[2]+1))
         # save reference to sim_data
         self.sim_data = sim_data  
@@ -441,7 +453,7 @@ class raytracer_class:
         self.rays = self.rays.apply_rows(__raytrace_kernel__,
                 incols = ["xi", "yi", "zi"],
                 outcols = dict( pathlength = np.float64, index1D=np.int32),
-                kwargs = dict(raydir = self.raydir, Nmax = self.Nmax))
+                kwargs = dict(raydir = self.raydir, Nmax = self.Nmax, first_step = self.first_step))
         # store in buffers
         self.buff_index1D[:,self.ibuff]    = self.rays["index1D"].values[:]
         self.buff_pathlength[:,self.ibuff] = self.rays["pathlength"].values[:]
