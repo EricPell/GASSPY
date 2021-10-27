@@ -6,11 +6,11 @@ import gasspy.utils.save_to_fits
 import numpy as np
 import cProfile 
 
-datadir = "/home/loki/Runs/GASSPY_test/"
+datadir = "/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/"
 sim_data = simulation_data_class(datadir = datadir)
 raytracer = raytracer_class(sim_data, savefiles = True, NcellBuff = 64)
 
-Nframes = 1000
+Nframes = 10
 pitch = np.linspace(0,360,Nframes)
 yaw   = np.linspace(0,360,Nframes) 
 #yaw[len(pitch)//4:] = np.linspace(0,180,len(pitch) - len(pitch)//4)[:]

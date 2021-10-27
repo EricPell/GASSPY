@@ -111,7 +111,7 @@ def __raytrace_kernel__(xi, yi, zi, pathlength, index1D, raydir, Nmax, first_ste
 
 
 class raytracer_class:
-    def __init__(self, sim_data, obs_plane = None, line_lables = None, savefiles = True, raytraceBufferSize_GB = 4, NrayBuff  = 1048576):
+    def __init__(self, sim_data, obs_plane = None, line_lables = None, savefiles = True, NcellBuff  = 64):
         self.set_new_sim_data(sim_data, line_lables)
         """
             Input:
@@ -126,18 +126,8 @@ class raytracer_class:
             self.set_obsplane(obs_plane)
         else:
             self.set_empty() 
+    
         self.savefiles = savefiles
-
-        # How much memory (in bits) is one element (eg one cell for one ray) in the buffer
-        # Bit size per buffer element:
-        #   refinement_level : 8 bit int
-        #   cell_index       : 64b bit int to describe highly sims with some safety index
-        #   path_length      : 64b or... 8 bit in log if someone wants to sacrifies a flop for a lot of memory
-        oneRayCell = 136
-        # Use this to determine the number of buffer cells we can afford for a given total memory and number of buffered rays.
-        self.NcellBuff = int(raytraceBufferSize_GB * 1024**3 / (oneRayCell * NrayBuff))
-        self.NrayBuff = NrayBuff
-
         self.NcellBuff = NcellBuff
 
     """
@@ -290,38 +280,29 @@ class raytracer_class:
             self.fluxes.set_index(["xp", "yp"], inplace = True) 
             #self.opacity.set_index(["xp", "yp"], inplace = True) 
 
-        # Trace status key: 0 is unstarted; 1 is active, 2 is finished
-        # Rays terminating because of AMR splitting will have children linked to an "split event" which is the child id.
-        # Rays originating in an AMR split will have a "split event" which is the parent id.
-        self.global_Nrays = len(self.xp)
-        self.global_Nsplit_events = -1
-        self.global_index_of_last_ray_added = -1
-        self.global_rayDF = cudf.DataFrame({"xp" : self.xp, "yp" : self.yp, 
-                                    "xi" : cupy.zeros(self.global_Nrays),
-                                    "yi" : cupy.zeros(self.global_Nrays),
-                                    "zi" : cupy.zeros(self.global_Nrays),
-                                    "globalrayid":cupy.arange(self.global_Nrays ),
-                                    "trace_status":cupy.zeros(self.global_Nrays ),
-                                    "pid":cupy.full(self.global_Nrays , self.global_Nsplit_events),
-                                    "cid":cupy.full(self.global_Nrays , self.global_Nsplit_events)})
-        
+
+        # TODO: explore if we can save an original reduxed frame of rays
+        #if self.rays is not None:
+        #    del(self.rays)
+        self.rays = cudf.DataFrame({"xp" : self.xp, "yp" : self.yp, 
+                                    "xi" : cupy.zeros(self.xp.shape), "yi" : cupy.zeros(self.xp.shape), "zi" : cupy.zeros(self.xp.shape),
+                                    "tmp_xi" : cupy.zeros(self.xp.shape), "tmp_yi" : cupy.zeros(self.xp.shape), "tmp_zi" : cupy.zeros(self.xp.shape),
+                                    "pathlength": cupy.zeros(self.xp.shape), "index1D" : cupy.zeros(self.xp.shape, dtype = int)})
+
+
         # we assume that everything else has been modified, so ray rotation + translation + first hits are recalculated
         for i, xi in enumerate(["xi", "yi", "zi"]) :
 
-            self.global_rayDF[xi] = cupy.full(len(self.global_rayDF),  obs_plane.xp0_r * float(obs_plane.rotation_matrix[i][0]) +
+            self.rays[xi] = cupy.full(len(self.rays),  obs_plane.xp0_r * float(obs_plane.rotation_matrix[i][0]) +
                                                        obs_plane.yp0_r * float(obs_plane.rotation_matrix[i][1]) + 
                                                        obs_plane.zp0_r * float(obs_plane.rotation_matrix[i][2]) + obs_plane.rot_origin[i])
 
-            self.global_rayDF[xi] += (self.global_rayDF["xp"] * float(obs_plane.rotation_matrix[i][0]) + 
-                                      self.global_rayDF["yp"] * float(obs_plane.rotation_matrix[i][1]) )
+            self.rays[xi] += (self.rays["xp"] * float(obs_plane.rotation_matrix[i][0]) + 
+                              self.rays["yp"] * float(obs_plane.rotation_matrix[i][1]) )
 
         # rotate direction
-        #TODO: merging different codes, we can encompass the non-planar detector by assigning a per-ray-ray-direction where the normal of each ray is 
-        #TODO: contained inside the globl_rayDF.
         self.raydir     = cupy.zeros(3)
         self.raydir_inv = cupy.zeros(3)
-        #TODO: End
-        ####
         for i in range(3):
             # self.raydir[i] = (obs_plane.view_dir[0] * float(obs_plane.rotation_matrix[i][0]) +
             #                   obs_plane.view_dir[1] * float(obs_plane.rotation_matrix[i][1]) +
@@ -338,63 +319,6 @@ class raytracer_class:
     """
         Internally used methods    
     """
-
-    def init_active_rays(self):
-        self.Nactive = min(self.NrayBuff, self.global_Nrays)
-        self.active_rayDF = cudf.DataFrame({"globalrayid":cupy.zeros(self.Nactive), 'rayrefinelevel' : cupy.zeros(self.Nactive),
-                          "xi" : cupy.zeros(self.Nactive), "yi" : cupy.zeros(self.Nactive), "zi" : cupy.zeros(self.Nactive),
-                          "pathlength": cupy.zeros(self.Nactive), "index1D" : cupy.zeros(self.Nactive, dtype = int), "ray_status" : cupy.zeros(self.Nactive)})
-        # This fills the initially empty "list" of active rays from global DF which is all inactive.
-        # The number of initial rays is the len of the ray buffer 
-        self.global_index_of_last_ray_added += 1
-        # Save the new rays into a separate dataframe to easily access them
-        
-        shared_column_keys = ['xi','yi', 'zi', 'globalrayid', 'rayrefinelevel']
-        newRays = self.global_rayDF.iloc[self.global_index_of_last_ray_added: self.global_index_of_last_ray_added + newRays,shared_column_keys] 
-        
-
-        # Set the shared columns 
-        for key in ["xi","yi","zi"]:
-            self.active_rayDF[key] = newRays[key+"0"].values
-        self.active_rayDF['globalrayid']    = newRays['globalrayid'].values
-        self.active_rayDF['rayrefinelevel'] = newRays['rayrefinelevel'].values
-
-        # update the last added ray
-        self.global_index_of_last_ray_added += Nactive - 1
-        
-
-    def update_rays(self):
-
-        # Get list of deactivated ray from the list in the activate data frame called "to_be_deactivated"
-        # 
-        # set deactivated in global
-        # 
-        # split rays that have encountered a higher AMR level 
-        # and prune from active_rayDF and set number of available slots
-        
-
-        # self.global_index_of_last_ray_added+=1
-        # and get more using self.global_index_of_last_ray_added:self.global_index_of_last_ray_added+Navail
-        # self.global_index_of_last_ray_added+=Navail
-        pass
-
-    def prune_outside_sim(self, soft = False):
-        """
-            Removes all rays that are outside the box 
-            DEPRICATED
-        """
-        if(soft) :
-            self.rays = self.rays.query(self.inside_soft_query_string)
-        else:
-            self.rays = self.rays.query(self.inside_query_string)
-
-    def prune_active_rays(self, soft = False):
-        """
-            Gather all rays that need to be deactivated. 
-        """
-
-    def get_remaining(self):
-        return len(self.rays.query(self.inside_query_string))
 
     def save_lines_fluxes(self, saveprefix = None):
         os.makedirs("%s/gasspy_output/"%(self.sim_data.datadir), exist_ok=True)
@@ -419,6 +343,8 @@ class raytracer_class:
         self.observer = None
 
 
+    
+    
     def move_to_first_intersection(self):
         """
             finds the closest intersection to the simulation cube for each ray outside the cube
@@ -440,22 +366,22 @@ class raytracer_class:
             if align == 0:
                 continue
             # find the pathlength to the points where the rays intersect the plane
-            pathlength = cupy.abs(((p0[0] - self.global_rayDF["xi"].values) * nplane[0] + 
-                                   (p0[1] - self.global_rayDF["yi"].values) * nplane[1] + 
-                                   (p0[2] - self.global_rayDF["zi"].values) * nplane[2])/align)
+            pathlength = cupy.abs(((p0[0] - self.rays["xi"].values) * nplane[0] + 
+                                   (p0[1] - self.rays["yi"].values) * nplane[1] + 
+                                   (p0[2] - self.rays["zi"].values) * nplane[2])/align)
             
             if cupy.sum(~cupy.isinf(pathlength)) == 0:
                 print( "no intersect found with plane with non parallell normal vector", plane, align )
                 sys.exit() 
             
-            self.global_rayDF["tmp_xi"] = self.global_rayDF["xi"] + cudf.Series(self.raydir[0] * pathlength*1.001, index = self.global_rayDF.index)
-            self.global_rayDF["tmp_yi"] = self.global_rayDF["yi"] + cudf.Series(self.raydir[1] * pathlength*1.001, index = self.global_rayDF.index)
-            self.global_rayDF["tmp_zi"] = self.global_rayDF["zi"] + cudf.Series(self.raydir[2] * pathlength*1.001, index = self.global_rayDF.index)
+            self.rays["tmp_xi"] = self.rays["xi"] + cudf.Series(self.raydir[0] * pathlength*1.001, index = self.rays.index)
+            self.rays["tmp_yi"] = self.rays["yi"] + cudf.Series(self.raydir[1] * pathlength*1.001, index = self.rays.index)
+            self.rays["tmp_zi"] = self.rays["zi"] + cudf.Series(self.raydir[2] * pathlength*1.001, index = self.rays.index)
 
             # identify all intersection outside of the simulation domain
-            mask = ((self.global_rayDF["tmp_xi"].values < 0) | (self.global_rayDF["tmp_xi"].values >= self.Nmax[0]) |
-                    (self.global_rayDF["tmp_yi"].values < 0) | (self.global_rayDF["tmp_yi"].values >= self.Nmax[1]) | 
-                    (self.global_rayDF["tmp_zi"].values < 0) | (self.global_rayDF["tmp_zi"].values >= self.Nmax[2]))
+            mask = ((self.rays["tmp_xi"].values < 0) | (self.rays["tmp_xi"].values >= self.Nmax[0]) |
+                    (self.rays["tmp_yi"].values < 0) | (self.rays["tmp_yi"].values >= self.Nmax[1]) | 
+                    (self.rays["tmp_zi"].values < 0) | (self.rays["tmp_zi"].values >= self.Nmax[2]))
             # set these to an unreasonable high number
             pathlength[mask] = 1e30
         
@@ -464,19 +390,34 @@ class raytracer_class:
             min_pathlength[mask] = pathlength[mask]
         
         # if rays not already in the box,  move rays. If the ray does not intersect the box, it will be put outside and pruned in later stages
-        #TODO: This inbox flag should be set with the "domain_check" logic
-        inbox = ((self.global_rayDF["xi"] >= 0) & (self.global_rayDF["xi"] <= int(self.Nmax[0])) &
-                 (self.global_rayDF["yi"] >= 0) & (self.global_rayDF["yi"] <= int(self.Nmax[1])) &
-                 (self.global_rayDF["zi"] >= 0) & (self.global_rayDF["zi"] <= int(self.Nmax[2])))
+        inbox = ((self.rays["xi"] >= 0) & (self.rays["xi"] <= int(self.Nmax[0])) &
+                 (self.rays["yi"] >= 0) & (self.rays["yi"] <= int(self.Nmax[1])) &
+                 (self.rays["zi"] >= 0) & (self.rays["zi"] <= int(self.Nmax[2])))
 
-        # Identify rays which start outside of the box, and move their position to the box edge, with a buffer for floating point rounding errors.
-        # This is for Loke to remember how "where" works: move rays outside of box. cudf where replaces where false     
+        # move rays outside of box. cudf where replaces where false     
         for i, ix in enumerate(["xi", "yi", "zi"]):
-            self.global_rayDF[ix].where(inbox, self.global_rayDF[ix] + cudf.Series(self.raydir[i] * (min_pathlength + 0.001*cupy.sign(min_pathlength)), index = self.global_rayDF.index), inplace = True) # some padding to ensure cell boundarys are crossed
+            self.rays[ix].where(inbox, self.rays[ix] + cudf.Series(self.raydir[i] * (min_pathlength + 0.001*cupy.sign(min_pathlength)), index = self.rays.index), inplace = True) # some padding to ensure cell boundarys are crossed
         
-        # Now we clean the data frame of temporary lists we no longer need.
-        self.global_rayDF.drop(columns=["tmp_xi","tmp_yi","tmp_zi"])
+    def prune_outside_sim(self, soft = False):
+        """
+            Removes all rays that are outside the box 
+        """
+        #inbox =  ((self.rays["xi"] >= 0) | (self.rays["xi"] < int(self.Nmax[0])) |
+        #          (self.rays["yi"] >= 0) | (self.rays["yi"] < int(self.Nmax[1])) |
+        #          (self.rays["zi"] >= 0) | (self.rays["zi"] < int(self.Nmax[2])))
+        
 
+               
+        #self.rays.drop(outbox.loc[outbox == True].index, inplace = True)
+        if(soft) :
+            self.rays = self.rays.query(self.inside_soft_query_string)
+        else:
+            self.rays = self.rays.query(self.inside_query_string)
+
+        #self.tmp_3d_df.drop(outbox.loc[outbox == True].index, inplace = True)
+        #del(outbox)
+    def get_remaining(self):
+        return len(self.rays.query(self.inside_query_string))
 
     def alloc_buffer(self):
         """
@@ -484,20 +425,11 @@ class raytracer_class:
             This allows for fewer calls where we add to the fluxes arrays, 
             so less time spent on finding the correct indices
         """
-        # Array to store the occupancy, and inversly the availablity of a buffer
-        self.buff_slot_occupied = cupy.zeros(self.NrayBuff, dtype = int)
-
-        # Buffer to store the ray id, since these will become unordered as random rays are added and removed
-        self.buff_slot_rayid     = cupy.full(self.NrayBuff, -1, dtype = int)
-
-        # only occupy available buffers with rays to create new buffer
-        self.buff_index1D    = cupy.zeros(self.NrayBuff, self.NcellBuff, dtype = int)
-        self.buff_pathlength = cupy.zeros(self.NrayBuff, self.NcellBuff)
-    
-    def occupy_buffer(self):
-        pass
-
-    def i_dont_know(self):
+        # only use remaining rays to create new buffer
+        self.buff_index      = self.rays.index.values
+        self.buff_index1D    = cupy.zeros((len(self.rays),self.NcellBuff), dtype = int)
+        self.buff_pathlength = cupy.zeros((len(self.rays),self.NcellBuff))
+            
         # Dataframe to save physical values to
         self.rays.reset_index(inplace = True)
         self.ray_buff = cudf.DataFrame({"xp" : self.rays.xp.repeat(self.NcellBuff), "yp" : self.rays.yp.repeat(self.NcellBuff)})
@@ -509,8 +441,6 @@ class raytracer_class:
         #   self.ray_buff[opac] = 0.0
         self.rays.set_index(["xp", "yp"], inplace = True)
         self.ray_buff.set_index(["xp", "yp","ibuff"], inplace = True)
-
-
     def reset_buffer(self):
         self.buff_pathlength[:,:] = 0
         self.buff_index1D[:,:] = 1
