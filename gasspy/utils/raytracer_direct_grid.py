@@ -340,6 +340,7 @@ class raytracer_class:
     """
 
     def init_active_rays(self):
+        # Ray status key: 0 unfinished; 1 end of box, 2 refined
         self.Nactive = min(self.NrayBuff, self.global_Nrays)
         self.active_rayDF = cudf.DataFrame({"globalrayid":cupy.zeros(self.Nactive), 'rayrefinelevel' : cupy.zeros(self.Nactive),
                           "xi" : cupy.zeros(self.Nactive), "yi" : cupy.zeros(self.Nactive), "zi" : cupy.zeros(self.Nactive),
@@ -350,7 +351,7 @@ class raytracer_class:
         # Save the new rays into a separate dataframe to easily access them
         
         shared_column_keys = ['xi','yi', 'zi', 'globalrayid', 'rayrefinelevel']
-        newRays = self.global_rayDF.iloc[self.global_index_of_last_ray_added: self.global_index_of_last_ray_added + newRays,shared_column_keys] 
+        newRays = self.global_rayDF.iloc[self.global_index_of_last_ray_added: self.global_index_of_last_ray_added + self.Nactive, shared_column_keys] 
         
 
         # Set the shared columns 
@@ -360,7 +361,7 @@ class raytracer_class:
         self.active_rayDF['rayrefinelevel'] = newRays['rayrefinelevel'].values
 
         # update the last added ray
-        self.global_index_of_last_ray_added += Nactive - 1
+        self.global_index_of_last_ray_added += self.Nactive - 1
         
 
     def update_rays(self):
@@ -390,8 +391,16 @@ class raytracer_class:
 
     def prune_active_rays(self, soft = False):
         """
-            Gather all rays that need to be deactivated. 
+            Gather all rays that need to be deactivated.
+            Deactivate them in the active and global rayDFs
         """
+        # Use flag to delete part of the buffers
+        # get globalIDs of rays to be deactivated.
+        self.active_rayDF["ray_status"].where(self.active_rayDF["ray_status"]>0)
+        self.self.global_rayDF["trace_status"]
+
+
+
 
     def get_remaining(self):
         return len(self.rays.query(self.inside_query_string))
@@ -493,6 +502,7 @@ class raytracer_class:
         # only occupy available buffers with rays to create new buffer
         self.buff_index1D    = cupy.zeros(self.NrayBuff, self.NcellBuff, dtype = int)
         self.buff_pathlength = cupy.zeros(self.NrayBuff, self.NcellBuff)
+        
     
     def occupy_buffer(self):
         pass
