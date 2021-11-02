@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../../cinn3d/inputs/ramses/SHELL_CDMASK2"
+		},
+		{
+			"path": "../../stream"
 		}
 	],
 	"settings": {}
