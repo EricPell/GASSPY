@@ -68,10 +68,10 @@ class store(object):
         # See: __push2cpu__
         self.__dict__["stream_%i"%(self.next_swap_buffer_index)].synchronize()
 
-        # point active buffer to the new swap_buffer
+        # change the refernce of the active-buffer to the next swap-buffer-pointer
         self.active_buffer = self.__dict__["buffer_%i"%(self.next_swap_buffer_index)]
 
-        # reset counter
+        # reset the "active-swap-buffer" element/index/position and capacity.
         self.buffer_capcity_avail = self.buff_size
         self.current_buffer_index = 0
 
@@ -85,8 +85,10 @@ class store(object):
         self.buffer_capcity_avail = self.buff_size
         self.active_swap_buffer_index = 0
 
-        # set ut labels for 
+        # Create stream labels 
         self.stream_labels = np.arange(0, self.Nswap_buffers)
+
+        # Create streams and initialize swap buffer
         for i in self.stream_labels:
             self.__dict__["stream_%i"%(i)] = cupy.cuda.stream.Stream()
             self.__dict__["buffer_%i"%(i)] = cupy.zeros(self.buff_size, dtype = self.buff_type)
@@ -94,7 +96,9 @@ class store(object):
         pass
 
     def __alloc_out__(self):
+        # Create a numpy array on pinned system memorry that the GPU will write to directly
         self.output_array = cupyx.zeros_pinned(self.buffer_dump_size, dtype = self.buff_type)
+        # Current element/index/position of data in the pinned memory array.
         self.current_output_index = 0
         pass
 
