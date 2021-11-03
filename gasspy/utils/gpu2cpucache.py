@@ -47,6 +47,9 @@ class store(object):
         self.next_output_index = self.current_output_index + self.buff_size
         # move the data within the corresponding stream of the previous buffer
         with self.__dict__["stream_%i"%(self.previous_buffer_index)]:
+            # Here in the swap buffers dedicated stream we initalize a copy to the host memory.
+            # In the same stream/queue we also reinitalize the buffer, with an order such that
+            # the copy will finish, then the reinitialization will occur, making the buffer read.
             self.output_array[self.current_output_index: self.next_output_index] = self.__dict__["buffer_%i"%(self.previous_buffer_index)]
             self.__dict__["buffer_%i"%(self.previous_buffer_index)][:] = 0
         # set the next index
@@ -61,10 +64,10 @@ class store(object):
         self.next_swap_buffer_index = (self.active_swap_buffer_index + 1)%self.Nswap_buffers
 
         # make sure the next stream is synchronized to ensure that it is 
-        # done copying its content to system memory before we start reinitialize its values on the GPU 
+        # done copying its content to system memory and reinitialized on the GPU 
+        # See: __push2cpu__
         self.__dict__["stream_%i"%(self.next_swap_buffer_index)].synchronize()
 
-        # clear the next buffer
         # point active buffer to the new swap_buffer
         self.active_buffer = self.__dict__["buffer_%i"%(self.next_swap_buffer_index)]
 
