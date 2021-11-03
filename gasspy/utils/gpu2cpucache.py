@@ -22,10 +22,14 @@ class store(object):
         pass
 
     def push(self, incoming_data, target="cpu", *args, **kwargs):
+        # Get incoming data length to buffer
         N_incoming = len(incoming_data)
+
+        # Check that the size of incoming data is smaller than total allocated buffer, or throw an exception
         assert N_incoming <= self.buff_size, "Get fucked, you overflowed the intermediate buffer: Increase the buffer size or send less data"
         #TODO: write a while loop instead of assert failure
 
+        # If incombing data is greater than available buffer capacity, dump the buffer data
         if N_incoming > self.buffer_capcity_avail:
             self.__switchbuffer__()
 
@@ -36,9 +40,11 @@ class store(object):
                 self.__push2directstorage__()
 
         
-        # add to buffer
+        # Insert incoming data into the buffer
         self.active_buffer[self.active_buffer_label_index : self.active_buffer_label_index + N_incoming] = incoming_data
+        # reduce available buffer capcity
         self.buffer_capcity_avail -= N_incoming
+        # Set next available buffer index for next push
         self.current_buffer_index += N_incoming
         pass
 
@@ -50,6 +56,7 @@ class store(object):
             # Here in the swap buffers dedicated stream we initalize a copy to the host memory.
             # In the same stream/queue we also reinitalize the buffer, with an order such that
             # the copy will finish, then the reinitialization will occur, making the buffer read.
+            # TODO: what do we do if self.next_output_index is greater than the output_array? Append?
             self.output_array[self.current_output_index: self.next_output_index] = self.__dict__["buffer_%i"%(self.previous_buffer_index)]
             self.__dict__["buffer_%i"%(self.previous_buffer_index)][:] = 0
         # set the next index
@@ -103,6 +110,7 @@ class store(object):
         pass
 
     def get_output_array(self):
+        # Before we can return the output array, make sure that all streams are done writing to it.
         for i in self.stream_labels:
             self.__dict__["stream_%i"%(i)].synchronize()
         return self.output_array
