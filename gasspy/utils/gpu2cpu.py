@@ -2,8 +2,8 @@ import cupy
 import cupyx
 import numpy as np
 
-class store(object):
-    def __init__(self, buff_size, buff_type, buffer_dump_size, Nswap_buffers = 2, outdiskref=None):
+class pipeline(object):
+    def __init__(self, buff_size, buff_type, buffer_dump_size, Nswap_buffers = 3, outdiskref=None):
         # Size of buffer in elements
         self.buff_size = buff_size
         # Data type of buffer
