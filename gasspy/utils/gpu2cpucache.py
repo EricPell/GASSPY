@@ -48,7 +48,7 @@ class store(object):
         # move the data within the corresponding stream of the previous buffer
         with self.__dict__["stream_%i"%(self.previous_buffer_index)]:
             self.output_array[self.current_output_index: self.next_output_index] = self.__dict__["buffer_%i"%(self.previous_buffer_index)]
-            
+            self.__dict__["buffer_%i"%(self.previous_buffer_index)][:] = 0
         # set the next index
         self.current_output_index = self.next_output_index
 
@@ -67,9 +67,6 @@ class store(object):
         # clear the next buffer
         # point active buffer to the new swap_buffer
         self.active_buffer = self.__dict__["buffer_%i"%(self.next_swap_buffer_index)]
-
-        # reinitialize the buffer
-        self.active_buffer[:] = 0
 
         # reset counter
         self.buffer_capcity_avail = self.buff_size
@@ -99,4 +96,6 @@ class store(object):
         pass
 
     def get_output_array(self):
+        for i in self.stream_labels:
+            self.__dict__["stream_%i"%(i)].synchronize()
         return self.output_array
