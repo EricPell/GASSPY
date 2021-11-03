@@ -50,14 +50,14 @@ class pipeline(object):
 
     def __push2cpu__(self):
         # figure out end point of current dump in the output_array
-        self.next_output_index = self.current_output_index + self.buff_size
+        self.next_output_index = self.current_output_index + self.current_buffer_index
         # move the data within the corresponding stream of the previous buffer
         with self.__dict__["stream_%i"%(self.previous_buffer_index)]:
             # Here in the swap buffers dedicated stream we initalize a copy to the host memory.
             # In the same stream/queue we also reinitalize the buffer, with an order such that
             # the copy will finish, then the reinitialization will occur, making the buffer read.
             # TODO: what do we do if self.next_output_index is greater than the output_array? Append?
-            self.output_array[self.current_output_index: self.next_output_index] = self.__dict__["buffer_%i"%(self.previous_buffer_index)]
+            self.output_array[self.current_output_index: self.next_output_index] = self.__dict__["buffer_%i"%(self.previous_buffer_index)][:self]
             self.__dict__["buffer_%i"%(self.previous_buffer_index)][:] = 0
         # set the next index
         self.current_output_index = self.next_output_index

@@ -36,7 +36,8 @@ def __raytrace_kernel__(xi, yi, zi, ray_status, pathlength, index1D, raydir, Nma
             index1D[i] = 0
             if first_step[0] == 0 :
                 pathlength[i] = -1
-                ray_status[i] = 1
+                # Ray status 2 is domain exit
+                ray_status[i] = 2
                 continue
 
         # init to unreasonably high number
@@ -133,6 +134,12 @@ class raytracer_class:
             self.set_empty() 
         self.savefiles = savefiles
 
+        ## Keys and dtypes of the columns in active_rayDF
+        # These keys need to be intialized at the transfer of an array from the gloal_rayDF to the active_rayDF
+        self.new_keys_for_active_rayDF = ["pathlength", "ray_status", "buffer_current_step", "index1D"]
+        
+        ## TODO: do this for global_rayDF
+
         # How much memory (in bits) is one element (eg one cell for one ray) in the buffer
         # Bit size per buffer element:
         #   refinement_level : 8 bit int
@@ -144,11 +151,6 @@ class raytracer_class:
         self.NrayBuff = NrayBuff
 
         self.Nraytot_est = 4**(sim_data.maxRef - sim_data.minRef) * (sim_data.Nx * sim_data.Ny * sim_data.Nz)**(2/3) * raster
-
-        self.system_buffer_pathlength = cupyx.zeros_pinned(self.NrayBuff * self.NcellBuff * NsysBuff)
-        self.system_buffer_index1d    = cupyx.zeros_pinned(self.NrayBuff * self.NcellBuff * NsysBuff)
-        #self.system_buffer_amr_lref = cupyx.zeros_pinned(self.NrayBuff * self.NcellBuff * NsysBuff)
-
 
     """
         Externally used methods    
@@ -358,32 +360,21 @@ class raytracer_class:
     """
 
     def init_active_rays(self):
-        # Ray status key: 0 unfinished; 1 end of box, 2 refined
-        self.Nactive = min(self.NrayBuff, self.global_Nrays)
-        self.active_rayDF = cudf.DataFrame({
-            "globalrayid":cupy.zeros(self.Nactive),
-            'rayrefinelevel' : cupy.zeros(self.Nactive),
-            "xi" : cupy.zeros(self.Nactive), "yi" : cupy.zeros(self.Nactive), "zi" : cupy.zeros(self.Nactive),
-            "index1D" : cupy.zeros(self.Nactive, dtype = int),
-            "pathlength": cupy.zeros(self.Nactive), 
-            "ray_status" : cupy.zeros(self.Nactive),
-            "active_rayDF_to_buffer_map" : cupy.arange(self.Nactive, dtype=cupy.int32),
-            "buffer_current_step" : cupy.zeros(self.Nactive, dtype=cupy.int16)}
-        )
+        self.active_rayDF = cudf.DataFrame()
+        for key, val in self.active_ray_dtypes:
+            self.active_rayDF[key] = cupy.zeros(self.Nactive, dtype = val)
+        self.active_rayDF["active_rayDF_to_buffer_map"] = cupy.arange(self.Nactive, dtype=cupy.int32)
+
         # This fills the initially empty "list" of active rays from global DF which is all inactive.
         # The number of initial rays is the len of the ray buffer 
         self.global_index_of_last_ray_added += 1
         # Save the new rays into a separate dataframe to easily access them
         
-        shared_column_keys = ['xi','yi', 'zi', 'globalrayid', 'rayrefinelevel']
-        newRays = self.global_rayDF.iloc[self.global_index_of_last_ray_added: self.global_index_of_last_ray_added + self.Nactive, shared_column_keys] 
-        
+        newRays = self.global_rayDF.iloc[self.global_index_of_last_ray_added: self.global_index_of_last_ray_added + self.Nactive, self.shared_column_keys] 
 
         # Set the shared columns 
-        for key in ["xi","yi","zi"]:
-            self.active_rayDF[key] = newRays[key+"0"].values
-        self.active_rayDF['globalrayid']    = newRays['globalrayid'].values
-        self.active_rayDF['rayrefinelevel'] = newRays['rayrefinelevel'].values
+        for key in self.shared_column_keys:
+            self.active_rayDF[key] = newRays[key].values
 
         # update the last added ray
         self.global_index_of_last_ray_added += self.Nactive - 1
@@ -395,40 +386,75 @@ class raytracer_class:
         # 
         # split rays that have encountered a higher AMR level 
         # and prune from active_rayDF and set number of available slots
+
+        # Get all rays that need to have their buffers dumped, regardles of whether the ray has filled its buffer or is just done
+        active_rayDF_indexes_todump   = self.active_rayDF.query("ray_status > 0").index
+        # Dump these rays to the system memory using the gpu2cpu_pipeline objects
+        self.dump_buff(active_rayDF_indexes_todump)
+
+        split_termination = self.active_rayDF["globalrayid"].loc(self.active_rayDF["ray_status"]==3)
+
+        if len(split_termination) > 0:
+           self.split_rays() # whatever it is
+           
+        finished_active_rayDF_indexes = self.active_rayDF.query("ray_status > 1").index
+        Navail = len(finished_active_rayDF_indexes)
         
-
-        # self.global_index_of_last_ray_added+=1
-        # and get more using self.global_index_of_last_ray_added:self.global_index_of_last_ray_added+Navail
-        # self.global_index_of_last_ray_added+=Navail
-
-        finished_active_rayDF_indexes = self.active_rayDF.query("ray_status == 1").index
-
-        self.prune_active_rays()
-        self.top_off_buffer(finished_active_rayDF_indexes)
-
-        split_termination = self.active_rayDF["globalrayid"].loc(self.active_rayDF["ray_status"]==2)
-
-        self.deactivate_global(split_termination)        
-
-        self.global_index_of_last_ray_added += len(finished_active_rayDF_indexes)
-
-        self.deactive_finished_rays_in_global()
-
+        # Set the status in the global dataframe of the rays that are to be dropped from the active data frame to finished
+        self.global_rayDF["trace_status"].loc(self.active_rayDF["globalrayid"].loc[finished_active_rayDF_indexes]) = 2
+        
+        self.prune_active_rays(finished_active_rayDF_indexes)
+        self.top_off_buffer(N=Navail)
         pass
+    
+    def top_off_buffer(self, N=None):
+        if self.global_index_of_last_ray_added + N > len(self.global_rayDF):
+            # and get more using self.global_index_of_last_ray_added:self.global_index_of_last_ray_added+Navail
+            N = len(self.global_rayDF) - self.global_index_of_last_ray_added
 
-    def dump_buff(self, finished_active_rayDF_indexes):
+        # Save the new rays into a separate dataframe to easily access them
+        newRays = self.global_rayDF.iloc[self.global_index_of_last_ray_added+1:self.global_index_of_last_ray_added+N, self.shared_column_keys]
+
+        for key in self.new_keys_for_active_rayDF:
+            self.new[key] = cupy.zeros(N, dtype = self.active_ray_dtypes[key])
+
+        # Get information of where in the buffer these rays will write to
+        available_buffer_slot_index = cupy.where(self.buff_slot_occupied == 0)[:N]
+
+        # Put buffer slot information into the newRays to be added to the active_rayDF
+        newRays["active_rayDF_to_buffer_map"] = available_buffer_slot_index.astype(self.active_ray_dtypes["active_rayDF_to_buffer_map"])
+
+        # Set occupation status of the buffer
+        self.buff_slot_occupied[available_buffer_slot_index] = 1
+
+        # Append newrays to activeDF and save result
+        self.active_rayDF = self.active_rayDF.append(newRays)
+        
+        # update the last added ray
+        self.global_index_of_last_ray_added+=N
+
+    def dump_buff(self, active_rayDF_indexes_todump):
         ## Gather the data from the active_rayDF that is to be piped to system memory
-        indexes_in_buffer = self.active_rayDF.self.active_rayDF["active_rayDF_to_buffer_map"].loc[finished_active_rayDF_indexes]
+        # Get get buffer indexes of finished rays
+        indexes_in_buffer = self.active_rayDF["active_rayDF_to_buffer_map"].loc[active_rayDF_indexes_todump]
+
+        # Extract pathlength and cell 1Dindex from buffer
         tmp_pathlength = self.buff_pathlength[indexes_in_buffer,:]
         tmp_index1D = self.buff_index1D[indexes_in_buffer,:]
+
+        # get global rayid of rays that are in the current dump
         transfered_globalrayid = cupy.array(self.buff_slot_globalrayid[indexes_in_buffer,:].values)
-        Ntransfered= self.active_rayDF["buffer_current_step"].loc[finished_active_rayDF_indexes].values
-        NraysInDump = len(self.finished_active_rayDF_indexes)
+
+        # How many cells each ray has traced in the dump
+        Ntransfered= cupy.array(self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump].values)
+
+        # How many rays we have in this dump
+        NraysInDump = len(active_rayDF_indexes_todump)
 
         # ravel the arrays to be transfered into 1d
         tmp_pathlength = tmp_pathlength.ravel()
         tmp_index1D = tmp_index1D.ravel()
- 
+
         # get the filled portion of the buffer
         mask = tmp_pathlength > 0
 
@@ -436,12 +462,22 @@ class raytracer_class:
         tmp_pathlength = tmp_pathlength[mask]
         tmp_index1D = tmp_index1D[mask]
 
-        # save endpoints
+        # Start and end of the current ray dump
         end_dump  = self.start_dump + len(tmp_index1D)
         ray_start = cupy.cumsum(Ntransfered) + self.start_dump
+        
+        # save the information of the dumped ray segments into the table of contents
+        # each ray segment is saved with the following information
+        # 1) transfered_globalrayid: The global ray ID of the ray
+        # 2) ray_start: The start index of this segment in the final output arrays on the host memory
+        # 3) ray_start + Ntransfered: The end index of this segment in the final output arrays on the host memory 
         self.aggregate_toc[self.toc_length: self.toc_length + NraysInDump, :] = cupy.array([transfered_globalrayid, ray_start, ray_start + Ntransfered]).transpose()
         self.toc_length += NraysInDump
 
+        # Dump into the raytrace data into the pipelines which then will put it on host memory
+        self.pathlength_pipe.push(tmp_pathlength)
+        self.index1D_pipe.push(tmp_index1D)
+        #self.lrefine_pipe.push(tmp_lrefine)
         
         pass
 
@@ -455,7 +491,7 @@ class raytracer_class:
         else:
             self.rays = self.rays.query(self.inside_query_string)
 
-    def prune_active_rays(self, indexes_to_drops):
+    def prune_active_rays(self, indexes_to_drop):
         """
             Gather all rays that need to be deactivatd.
             Deactivate them in the active and global rayDFs
@@ -465,21 +501,17 @@ class raytracer_class:
         # These rays are DONE, no need to refine
 
         # Newlly opened, but not cleaned slots in the buffer
-        buff_slot_newly_freed
+        buff_slot_newly_freed = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].loc(indexes_to_drop).values)
 
-        self.buff_slot_occupied[self.buff_slot_occupied] = 0
+        self.buff_slot_occupied[buff_slot_newly_freed] = 0
         # Buffer to store the ray id, since these will become unordered as random rays are added and removed
-        self.buff_slot_rayid[self.buff_slot_occupied] = -1
+        self.buff_slot_rayid[buff_slot_newly_freed] = -1
 
         # only occupy available buffers with rays to create new buffer
-        self.buff_index1D[self.buff_slot_occupied]    = 0
-        self.buff_pathlength[self.buff_slot_occupied] = 0 
+        self.buff_index1D[buff_slot_newly_freed, :]    = 0
+        self.buff_pathlength[buff_slot_newly_freed, :] = 0 
 
-        self.active_rayDF.drop(index=indexes_to_drops, inplace=True)
-
-        self.global_rayDF["trace_status"].iloc(domain_termination) = 2
-
-
+        self.active_rayDF.drop(index=indexes_to_drop, inplace=True)
 
 
     def get_remaining(self):
