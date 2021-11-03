@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import sys
 import os
 import math
+from gasspy.utils.gpu2cpu import pipeline as gpu2cpu_pipeline
 from gasspy.utils.savename import get_filename 
 
 def __raytrace_kernel__(xi, yi, zi, ray_status, pathlength, index1D, raydir, Nmax, first_step):
@@ -115,7 +116,7 @@ def __raytrace_kernel__(xi, yi, zi, ray_status, pathlength, index1D, raydir, Nma
 
 
 class raytracer_class:
-    def __init__(self, sim_data, obs_plane = None, line_lables = None, savefiles = True, raytraceBufferSize_GB = 4, NrayBuff  = 1048576, NsysBuff = 10):
+    def __init__(self, sim_data, obs_plane = None, line_lables = None, savefiles = True, raytraceBufferSize_GB = 4, NrayBuff  = 1048576, NsysBuff = 10, raster=1):
         self.set_new_sim_data(sim_data, line_lables)
         """
             Input:
@@ -141,6 +142,8 @@ class raytracer_class:
         # Use this to determine the number of buffer cells we can afford for a given total memory and number of buffered rays.
         self.NcellBuff = int(raytraceBufferSize_GB * 1024**3 / (oneRayCell * NrayBuff))
         self.NrayBuff = NrayBuff
+
+        self.Nraytot_est = 4**(sim_data.maxRef - sim_data.minRef) * (sim_data.Nx * sim_data.Ny * sim_data.Nz)**(2/3) * raster
 
         self.system_buffer_pathlength = cupyx.zeros_pinned(self.NrayBuff * self.NcellBuff * NsysBuff)
         self.system_buffer_index1d    = cupyx.zeros_pinned(self.NrayBuff * self.NcellBuff * NsysBuff)
@@ -210,7 +213,7 @@ class raytracer_class:
         """
         self.line_lables = line_lables
         if self.line_lables is None:
-            """Try and read from simdata config"""
+            """Try and read from sim_data config"""
             self.line_lables = sim_data.config_yaml["line_labels"]
 
         self.subphys_id_df = cudf.DataFrame(sim_data.get_subcell_model_id().ravel())
@@ -407,40 +410,39 @@ class raytracer_class:
 
         self.deactivate_global(split_termination)        
 
-        self.global_index_of_last_ray_added += len(domain_termination)
+        self.global_index_of_last_ray_added += len(finished_active_rayDF_indexes)
 
         self.deactive_finished_rays_in_global()
 
         pass
 
     def dump_buff(self, finished_active_rayDF_indexes):
-        ## Gather the data from the active_rayDF that is to be transfered to system memory
+        ## Gather the data from the active_rayDF that is to be piped to system memory
         indexes_in_buffer = self.active_rayDF.self.active_rayDF["active_rayDF_to_buffer_map"].loc[finished_active_rayDF_indexes]
         tmp_pathlength = self.buff_pathlength[indexes_in_buffer,:]
         tmp_index1D = self.buff_index1D[indexes_in_buffer,:]
-        transfered_globalrayid = self.buff_slot_globalrayid[indexes_in_buffer,:]
+        transfered_globalrayid = cupy.array(self.buff_slot_globalrayid[indexes_in_buffer,:].values)
         Ntransfered= self.active_rayDF["buffer_current_step"].loc[finished_active_rayDF_indexes].values
-        
-        ## Compress information to remove empty spots
-        # ravel the arrays
+        NraysInDump = len(self.finished_active_rayDF_indexes)
+
+        # ravel the arrays to be transfered into 1d
         tmp_pathlength = tmp_pathlength.ravel()
         tmp_index1D = tmp_index1D.ravel()
-        # grab the non empty cells
+ 
+        # get the filled portion of the buffer
         mask = tmp_pathlength > 0
-        # mask them out
+
+        # mask them out the unfilled
         tmp_pathlength = tmp_pathlength[mask]
         tmp_index1D = tmp_index1D[mask]
 
         # save endpoints
         end_dump  = self.start_dump + len(tmp_index1D)
-        ray_start = cupy.cumsum(Ntransfered) + self.start_dump   
+        ray_start = cupy.cumsum(Ntransfered) + self.start_dump
+        self.aggregate_toc[self.toc_length: self.toc_length + NraysInDump, :] = cupy.array([transfered_globalrayid, ray_start, ray_start + Ntransfered]).transpose()
+        self.toc_length += NraysInDump
 
-        self.system_buffer_pathlength[self.start_dump : end_dump]
-        self.system_buffer_index1d[self.start_dump : end_dump]
-        self.start_dump = end_dump
-        for i, rayid in enumerate(transfered_globalrayid):
-            self.system_buffer_lookuptable[rayid][self.idump] = [ray_start[i], ray_start[i]+Ntransfered[i]]
-        self.idump += 1
+        
         pass
 
     def prune_outside_sim(self, soft = False):
@@ -581,6 +583,11 @@ class raytracer_class:
         # only occupy available buffers with rays to create new buffer
         self.buff_index1D    = cupy.zeros(self.NrayBuff, self.NcellBuff, dtype = int)
         self.buff_pathlength = cupy.zeros(self.NrayBuff, self.NcellBuff)
+
+        # create gpu2cache pipeline objects
+        self.pathlength_pipe  = gpu2cpu_pipeline(self.NrayBuff*self.NcellBuff, float)
+        self.index1D_pipe     = gpu2cpu_pipeline(self.NrayBuff*self.NcellBuff, int)
+        #self.lrefine         = gpu2cpu_pineline(self.NrayBuff*self.NcellBuff, cupy.int16)
     
     def occupy_buffer(self):
         pass
