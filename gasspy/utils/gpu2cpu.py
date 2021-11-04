@@ -110,6 +110,8 @@ class pipeline(object):
         pass
 
     def get_output_array(self):
+        # Make sure that the active swap buffer pushes its data to the cpu
+        self.__push2cpu__()
         # Before we can return the output array, make sure that all streams are done writing to it.
         for i in self.stream_labels:
             self.__dict__["stream_%i"%(i)].synchronize()
