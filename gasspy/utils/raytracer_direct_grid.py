@@ -33,7 +33,7 @@ def __raytrace_kernel__(xi, yi, zi, ray_status, pathlength, index1D, raydir, Nma
             index1D[i] = int(z) + Nz*int(y) + Ny*Nz*int(x)
         else:
             #print(x,y,z)
-            index1D[i] = 0
+            index1D[i] = -1
             if first_step[0] == 0 :
                 pathlength[i] = -1
                 # Ray status 2 is domain exit
@@ -175,6 +175,8 @@ class raytracer_class:
         self.NrayBuff = NrayBuff
 
         self.Nraytot_est = 4**(sim_data.maxRef - sim_data.minRef) * (sim_data.Nx * sim_data.Ny * sim_data.Nz)**(2/3) * raster
+        # Call the method to allocate the buffers and the gpu2cpu pipes
+        self.alloc_buffer()
 
     """
         Externally used methods    
@@ -191,15 +193,13 @@ class raytracer_class:
         #reset fluxes
         for line in self.line_lables :
             self.fluxes[line] = 0
+
         # start by moving all cells outside of box to the first intersecting cell
         self.move_to_first_intersection()
         
         # Do a soft pruning outside of the box
         self.prune_outside_sim(soft = True)
         
-        
-        self.ibuff = 0
-        self.alloc_buffer()
         # (re)set system memory buffer and counter
         self.system_buffer_pathlength[:] = 0
         self.system_buffer_index1d[:]
@@ -212,18 +212,12 @@ class raytracer_class:
         while(len(self.rays) > 0):
             # transport the rays through the current cell
             self.raytrace_onestep()
-
+            # update the active_rayDF if needed
+            self.update_rays()
             i+=1
-            if self.ibuff == self.NcellBuff:
-                # if we are out of space, gather cells subphysics and reset buffer
-                self.get_subphysics_cells()
-                self.prune_outside_sim()
-                self.alloc_buffer()
-                # reset buffer index
-                self.ibuff = 0
-
             # Turn off flag for first step
             self.first_step[0] = 0
+        
         # at the end, if there are still things in the buffer, save them
         if self.ibuff > 0:
             self.get_subphysics_cells()
@@ -403,6 +397,9 @@ class raytracer_class:
         # update the last added ray
         self.global_index_of_last_ray_added += self.Nactive - 1
 
+    def split_rays(self):
+        pass
+
     def update_rays(self):
         # Get list of deactivated ray from the list in the activate data frame called "to_be_deactivated"
         # 
@@ -489,14 +486,13 @@ class raytracer_class:
         tmp_index1D = tmp_index1D[mask]
 
         # Start and end of the current ray dump
-        end_dump  = self.start_dump + len(tmp_index1D)
         ray_start = cupy.cumsum(Ntransfered) + self.start_dump
         
         # save the information of the dumped ray segments into the table of contents
         # each ray segment is saved with the following information
         # 1) transfered_global_rayid: The global ray ID of the ray
         # 2) ray_start: The start index of this segment in the final output arrays on the host memory
-        # 3) ray_start + Ntransfered: The end index of this segment in the final output arrays on the host memory 
+        # 3) ray_end: = ray_start + Ntransfered: The end index of this segment in the final output arrays on the host memory 
         self.aggregate_toc[self.toc_length: self.toc_length + NraysInDump, :] = cupy.array([transfered_global_rayid, ray_start, ray_start + Ntransfered]).transpose()
         self.toc_length += NraysInDump
 
@@ -636,27 +632,31 @@ class raytracer_class:
             "buff_slot_occupied":cupy.int8,
             "buff_slot_global_rayid":self.global_ray_dtypes["global_rayid"],
             "buff_index1D": self.global_ray_dtypes["index1D"],
-            "buff_pathlength":self.global_ray_dtypes["pathlength"]
+            "buff_pathlength":self.global_ray_dtypes["pathlength"],
+            "aggregate_toc" : cupy.int64
         }
 
         # Array to store the occupancy, and inversly the availablity of a buffer
-        self.buff_slot_occupied = cupy.zeros(self.NrayBuff, dtype= int)
+        self.buff_slot_occupied = cupy.zeros(self.NrayBuff, dtype=dtype_dict["buff_slot_occupied"])
 
         # Buffer to store the ray id, since these will become unordered as random rays are added and removed
-        self.buff_slot_global_rayid      = cupy.full(self.NrayBuff, -1, dtype= int)
+        self.buff_slot_global_rayid      = cupy.full(self.NrayBuff, -1, dtype=dtype_dict["buff_slot_global_rayid"])
 
         # only occupy available buffers with rays to create new buffer
-        self.buff_index1D    = cupy.zeros(self.NrayBuff, self.NcellBuff, dtype= int)
-        self.buff_pathlength = cupy.zeros(self.NrayBuff, self.NcellBuff)
+        self.buff_index1D    = cupy.zeros(self.NrayBuff, self.NcellBuff, dtype=dtype_dict["buff_index1D"])
+        self.buff_pathlength = cupy.zeros(self.NrayBuff, self.NcellBuff, dtype=dtype_dict["buff_pathlength"])
 
         # create gpu2cache pipeline objects
         # Instead of calling the internal dtype dictionary, explicitly call the global_ray_dtype to ensure a match.  
         self.pathlength_pipe  = gpu2cpu_pipeline(self.NrayBuff*self.NcellBuff, self.global_ray_dtypes["pathlength"])
         self.index1D_pipe     = gpu2cpu_pipeline(self.NrayBuff*self.NcellBuff, self.global_ray_dtypes["index1D"])
         #self.lrefine         = gpu2cpu_pineline(self.NrayBuff*self.NcellBuff, cupy.int16)
-    
-    def occupy_buffer(self):
-        pass
+
+        # Number of ray segments that have been pushed to the cpug2pu pipes
+        self.toc_length = 0
+        # Information of where ray segments have been pushed in the cpu2gpu pipes
+        self.aggregate_toc = cupy.zeros((self.Nraytot_est*4, 3), dtype=dtype_dict["aggregate_toc"])
+
 
     def i_dont_know(self):
         # Dataframe to save physical values to
@@ -672,23 +672,20 @@ class raytracer_class:
         self.ray_buff.set_index(["xp", "yp","ibuff"], inplace = True)
 
 
-    def reset_buffer(self):
-        self.buff_pathlength[:,:] = 0
-        self.buff_index1D[:,:] = 1
-        self.ray_buff["pathlength"] = 0
-        self.ray_buff[self.line_lables] = 0
-
-
     def raytrace_onestep(self):
         # find the next intersection to a cell boundary by finding the closest distance to an integer for all directions
         self.active_rayDF = self.active_rayDF.apply_rows(__raytrace_kernel__,
                 incols = ["xi", "yi", "zi","ray_status"],
                 outcols = dict( pathlength = np.float64, index1D=np.int32),
                 kwargs = dict(raydir = self.raydir, Nmax = self.Nmax, first_step = self.first_step))
+        # self.findrefined()
+
+        
         # store in buffer
         self.buff_index1D   [self.active_rayDF["active_rayDF_to_buffer_map"].values, self.active_rayDF["buffer_current_step"].values]    = self.active_rayDF["index1D"].values[:]
         self.buff_pathlength[self.active_rayDF["active_rayDF_to_buffer_map"].values, self.active_rayDF["buffer_current_step"].values]    = self.active_rayDF["pathlength"].values[:]
-
+        self.active_rayDF["buffer_current_step"] += 1
+        self.active_rayDF["ray_status"][self.active_rayDF["buffer_current_step"]==self.NcellBuff] = 1
     
     def setBufferDF(self):
         """
