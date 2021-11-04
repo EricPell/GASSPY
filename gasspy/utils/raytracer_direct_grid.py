@@ -412,10 +412,10 @@ class raytracer_class:
         # and prune from active_rayDF and set number of available slots
 
         # Get all rays that need to have their buffers dumped, regardles of whether the ray has filled its buffer or is just done
-        active_rayDF_indexes_todump   = self.active_rayDF.query("ray_status > 0").index
-        # Dump these rays to the system memory using the gpu2cpu_pipeline objects
-        self.dump_buff(active_rayDF_indexes_todump)
+        # and dump these rays to the system memory using the gpu2cpu_pipeline objects
+        self.dump_buff(self.active_rayDF.query("ray_status > 0").index)
 
+        # Get all rays which end where a segement interesects a cell which causes the ray to refine
         split_termination = self.active_rayDF["global_rayid"].loc(self.active_rayDF["ray_status"]==3)
 
         if len(split_termination) > 0:
