@@ -8,7 +8,7 @@ import cProfile
 
 datadir = "/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/"
 sim_data = simulation_data_class(datadir = datadir)
-raytracer = raytracer_class(sim_data, savefiles = True, NcellBuff = 64)
+raytracer = raytracer_class(sim_data, savefiles = True, raytraceBufferSize_GB = 4, NrayBuff  = 1048576, NsysBuff = 10, raster=1)
 
 Nframes = 10
 pitch = np.linspace(0,360,Nframes)
