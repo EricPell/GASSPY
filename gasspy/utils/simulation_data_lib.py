@@ -47,14 +47,16 @@ class simulation_data_class:
             self.config_yaml = yaml.load(file, Loader=yaml.FullLoader)
 
         try:
-            self.Ncells = self.config_yaml["Ncells"]
-            self.Ncells = np.array(self.Ncells,dtype="int")
+            Ncells = self.config_yaml["Ncells"]
+            
+            for i, N in enumerate(np.array(Ncells,dtype="int")):
+                self.__dict__[["Nx", "Ny", "Nz"][i]] = N
         except:
             sys.exit("YOU FUCKED UP 1")
 
         try:
-            self.origin = self.config_yaml["origin"]
-            self.origin = np.array(self.origin,dtype="float")
+            origin = self.config_yaml["origin"]
+            self.config_yaml["origin"] = np.array(origin,dtype="float")
         except:
             sys.exit("YOU FUCKED UP 2")
     
