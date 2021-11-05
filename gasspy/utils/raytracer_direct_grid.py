@@ -117,7 +117,7 @@ def __raytrace_kernel__(xi, yi, zi, ray_status, pathlength, index1D, raydir, Nma
 
 
 class raytracer_class:
-    def __init__(self, sim_data, obs_plane = None, line_lables = None, savefiles = True, raytraceBufferSize_GB = 4, NrayBuff  = 1048576, NsysBuff = 10, raster=1):
+    def __init__(self, sim_data, obs_plane = None, line_lables = None, savefiles = True, raytraceBufferSize_GB = 4, NrayBuff  = 1048576, NsysBuff = 4, raster=1):
         self.set_new_sim_data(sim_data, line_lables)
         """
             Input:
@@ -171,12 +171,13 @@ class raytracer_class:
         #   path_length      : 64b or... 8 bit in log if someone wants to sacrifies a flop for a lot of memory
         oneRayCell = 136
         # Use this to determine the number of buffer cells we can afford for a given total memory and number of buffered rays.
-        self.NcellBuff = int(raytraceBufferSize_GB * 1024**3 / (oneRayCell * NrayBuff))
+        self.NcellBuff = int(raytraceBufferSize_GB * 1024**3 / (oneRayCell * NrayBuff)/NsysBuff)
         self.NrayBuff = NrayBuff
 
-        self.Nraytot_est = 4**(sim_data.maxRef - sim_data.minRef) * (sim_data.Nx * sim_data.Ny * sim_data.Nz)**(2/3) * raster
+        self.Nraytot_est = 4**(sim_data.maxRef - sim_data.minRef) * int((sim_data.Nx * sim_data.Ny * sim_data.Nz)**(2/3)) * raster
+        
         # Call the method to allocate the buffers and the gpu2cpu pipes
-        self.alloc_buffer()
+        self.init_active_rays()
 
     """
         Externally used methods    
@@ -188,7 +189,6 @@ class raytracer_class:
         """
 
         assert (self.xps is not None) and (self.yps is not None), "ERROR: and observer needs to be set before you can run ray tracing"
-        assert self.rays is not None, "ERROR: ray's have not been generated. Use defined functions" 
 
         #reset fluxes
         for line in self.line_lables :
@@ -200,16 +200,13 @@ class raytracer_class:
         # Do a soft pruning outside of the box
         self.prune_outside_sim(soft = True)
         
-        # (re)set system memory buffer and counter
-        self.system_buffer_pathlength[:] = 0
-        self.system_buffer_index1d[:]
-        self.start_dump = 0
-        self.idump = 0
+        # Send as many rays as possible to the active_rayDF and associated buffers
+        self.activate_new_rays(N = min(self.NrayBuff, self.global_Nrays))
 
         # transport rays until all rays are outside the box
         i = 0
         self.first_step = cupy.ones(1)
-        while(len(self.rays) > 0):
+        while(len(self.global_rayDF["trace_status"] == 0) > 0):
             # transport the rays through the current cell
             self.raytrace_onestep()
             # update the active_rayDF if needed
@@ -218,15 +215,17 @@ class raytracer_class:
             # Turn off flag for first step
             self.first_step[0] = 0
         
-        # at the end, if there are still things in the buffer, save them
-        if self.ibuff > 0:
-            self.get_subphysics_cells()
-        
-        # save fluxes to the files
-        if self.savefiles:
-            self.save_lines_fluxes(saveprefix=saveprefix)
-     
-    
+        self.dump_buff(self.active_rayDF.index)
+        pathlengths = self.pathlength_pipe.get_output_array()
+        index1D     = self.index1D_pipe.get_output_array()
+        print(pathlengths.shape)
+        print(np.sum(pathlengths > 0))
+        print(index1D.shape)
+        print(self.aggregate_toc)
+
+        pass
+
+        return 
     def set_new_sim_data(self, sim_data, line_lables = None):
         """
             Method to take an observer plane set internal values 
@@ -255,53 +254,16 @@ class raytracer_class:
 
     def set_obsplane(self, obs_plane):
         """
-            Method to take an observer plane set internal values 
+            Method to take an observer plane set global_rayDF
         """
-        self.xps = obs_plane.xps
-        self.yps = obs_plane.xps
+        self.xps = 0
+        self.yps = 0
 
-        self.xp, self.yp = np.meshgrid(self.xps, self.yps)
-        self.xp = self.xp.ravel()
-        self.yp = self.yp.ravel()
-        
-
-        # initialize rays data frame, pre allocate as much as possible (possible extensions to rayspliting might brake this)
-        self.rays = cudf.DataFrame({"xp" : self.xp, "yp" : self.yp, 
-                                    "xi" : np.zeros(self.xp.shape), "yi" : np.zeros(self.xp.shape), "zi" : np.zeros(self.xp.shape),
-                                    "tmp_xi" : np.zeros(self.xp.shape), "tmp_yi" : np.zeros(self.xp.shape), "tmp_zi" : np.zeros(self.xp.shape),
-                                    "pathlength": np.zeros(self.xp.shape), "index1D" : np.zeros(self.xp.shape, dtype= int), "ibuff" : np.zeros(self.xp.shape, dtype= int)})
-
-
-
-
-
-        self.fluxes   = cudf.DataFrame({"xp": self.xp, "yp" : self.yp})
-        #self.opacity = cudf.DataFrame({"xp": xp.ravel(), "yp" : yp.ravel()})
-        for line_lable in self.line_lables :
-            self.fluxes[line_lable] = cupy.zeros(self.xp.shape)
-            #opacity[line_lable] = cupy.zeros(self.xp.shape)
-        self.fluxes.set_index(["xp", "yp"], inplace = True) 
-        #self.opacity.set_index(["xp", "yp"], inplace = True) 
-
-
-        for i, xi in enumerate(["xi", "yi", "zi"]) :
-
-            self.rays[xi] = cupy.full(len(self.rays), (self.rays["xp"].values + 0.5 + obs_plane.xp0_r ) * float(obs_plane.rotation_matrix[i][0]) + 
-                                                 (self.rays["yp"].values + 0.5 + obs_plane.yp0_r ) * float(obs_plane.rotation_matrix[i][1]) +
-                                                  obs_plane.zp0_r * float(obs_plane.rotation_matrix[i][2]) + obs_plane.rot_origin[i])
-        # rotate direction
-        self.raydir = cupy.zeros(3)
-        for i in range(3):
-            self.raydir[i] = (obs_plane.view_dir[0] * float(obs_plane.rotation_matrix[i][0]) +
-                              obs_plane.view_dir[1] * float(obs_plane.rotation_matrix[i][1]) +
-                              obs_plane.view_dir[2] * float(obs_plane.rotation_matrix[i][2]))
-
-        # save reference to observer plane
-        self.obs_plane =  obs_plane
+        self.update_obsplane(obs_plane)
 
     def update_obsplane(self, obs_plane, prefix = None):
         """
-            Method to take an observer plane and updates internal values that needs to be updated
+            Method to take an observer plane and set global_rayDF if the observer has changed
         """
 
         # if the xps and yps arrays have changed, we need to regenerate everything since the xp yp indices are everywhere
@@ -341,7 +303,8 @@ class raytracer_class:
                                     "trace_status":cupy.zeros(self.global_Nrays, dtype=self.global_ray_dtypes["trace_status"]),
                                     "pid":cupy.full(self.global_Nrays , self.global_Nsplit_events, dtype=self.global_ray_dtypes["pid"]),
                                     "pevid":cupy.full(self.global_Nrays , self.global_Nsplit_events, dtype=self.global_ray_dtypes["pevid"]),
-                                    "cevid":cupy.full(self.global_Nrays , self.global_Nsplit_events, dtype=self.global_ray_dtypes["cevid"])})
+                                    "cevid":cupy.full(self.global_Nrays , self.global_Nsplit_events, dtype=self.global_ray_dtypes["cevid"]),
+                                    "refinement_level":cupy.full(self.global_Nrays, self.sim_data.minRef, dtype=self.global_ray_dtypes["refinement_level"])})
         
         # we assume that everything else has been modified, so ray rotation + translation + first hits are recalculated
         for i, xi in enumerate(["xi", "yi", "zi"]) :
@@ -372,32 +335,22 @@ class raytracer_class:
         # save reference to observer plane
         self.obs_plane = obs_plane
 
+        
+
 
     """
         Internally used methods    
     """
 
     def init_active_rays(self):
+        """
+            super call to initialize the active_rayDF and allocate the buffers and pipes for GPU2CPU transfer and storage
+        """
+
         self.active_rayDF = cudf.DataFrame()
-        for key, val in self.active_ray_dtypes:
-            self.active_rayDF[key] = cupy.zeros(self.Nactive, dtype = val)
-        self.active_rayDF["active_rayDF_to_buffer_map"] = cupy.arange(self.Nactive, dtype=self.active_ray_dtypes["active_rayDF_to_buffer_map"])
+        self.alloc_buffer()
 
-        # This fills the initially empty "list" of active rays from global DF which is all inactive.
-        # The number of initial rays is the len of the ray buffer 
-        self.global_index_of_last_ray_added += 1
-        # Save the new rays into a separate dataframe to easily access them
-        
-        newRays = self.global_rayDF.iloc[self.global_index_of_last_ray_added: self.global_index_of_last_ray_added + self.Nactive, self.shared_column_keys] 
-
-        # Set the shared columns 
-        for key in self.shared_column_keys:
-            self.active_rayDF[key] = newRays[key].values
-
-        # update the last added ray
-        self.global_index_of_last_ray_added += self.Nactive - 1
-
-    def split_rays(self):
+    def split_rays(self,split_termination_indexes):
         pass
 
     def update_rays(self):
@@ -413,34 +366,34 @@ class raytracer_class:
         self.dump_buff(self.active_rayDF.query("ray_status > 0").index)
 
         # Get all rays which end where a segement interesects a cell which causes the ray to refine
-        split_termination = self.active_rayDF["global_rayid"].loc(self.active_rayDF["ray_status"]==3)
+        split_termination_indexes = self.active_rayDF.query("ray_status == 3").index
 
-        if len(split_termination) > 0:
-           self.split_rays() # whatever it is
+        if len(split_termination_indexes) > 0:
+           self.split_rays(split_termination_indexes) # whatever it is
            
         finished_active_rayDF_indexes = self.active_rayDF.query("ray_status > 1").index
         Navail = len(finished_active_rayDF_indexes)
         
         # Set the status in the global dataframe of the rays that are to be dropped from the active data frame to finished
-        self.global_rayDF["trace_status"].loc(self.active_rayDF["global_rayid"].loc[finished_active_rayDF_indexes]) = 2
+        self.global_rayDF["trace_status"].loc[self.active_rayDF["global_rayid"].loc[finished_active_rayDF_indexes]] = 2
         
         self.prune_active_rays(finished_active_rayDF_indexes)
-        self.top_off_buffer(N=Navail)
+        self.activate_new_rays(N=Navail)
         pass
     
-    def top_off_buffer(self, N=None):
+    def activate_new_rays(self, N=None):
         if self.global_index_of_last_ray_added + N > len(self.global_rayDF):
             # and get more using self.global_index_of_last_ray_added:self.global_index_of_last_ray_added+Navail
             N = len(self.global_rayDF) - self.global_index_of_last_ray_added
 
         # Save the new rays into a separate dataframe to easily access them
-        newRays = self.global_rayDF.iloc[self.global_index_of_last_ray_added+1:self.global_index_of_last_ray_added+N, self.shared_column_keys]
+        newRays = self.global_rayDF[self.shared_column_keys].iloc[self.global_index_of_last_ray_added+1:self.global_index_of_last_ray_added+N+1]
 
         for key in self.new_keys_for_active_rayDF:
-            self.new[key] = cupy.zeros(N, dtype= self.active_ray_dtypes[key])
+            newRays[key] = cupy.zeros(N, dtype= self.active_ray_dtypes[key])
 
         # Get information of where in the buffer these rays will write to
-        available_buffer_slot_index = cupy.where(self.buff_slot_occupied == 0)[:N]
+        available_buffer_slot_index = cupy.where(self.buff_slot_occupied == 0)[0][:N]
 
         # Put buffer slot information into the newRays to be added to the active_rayDF
         # Returned indexes of where by default will have ... a type that probably is int64, but could change.
@@ -459,14 +412,14 @@ class raytracer_class:
     def dump_buff(self, active_rayDF_indexes_todump):
         ## Gather the data from the active_rayDF that is to be piped to system memory
         # Get get buffer indexes of finished rays
-        indexes_in_buffer = self.active_rayDF["active_rayDF_to_buffer_map"].loc[active_rayDF_indexes_todump]
+        indexes_in_buffer = self.active_rayDF["active_rayDF_to_buffer_map"].loc[active_rayDF_indexes_todump].values
 
         # Extract pathlength and cell 1Dindex from buffer
         tmp_pathlength = self.buff_pathlength[indexes_in_buffer,:]
         tmp_index1D = self.buff_index1D[indexes_in_buffer,:]
 
         # get global rayid of rays that are in the current dump
-        transfered_global_rayid = cupy.array(self.buff_slot_global_rayid[indexes_in_buffer,:].values)
+        transfered_global_rayid = cupy.array(self.buff_slot_global_rayid[indexes_in_buffer])
 
         # How many cells each ray has traced in the dump
         Ntransfered= cupy.array(self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump].values)
@@ -509,9 +462,9 @@ class raytracer_class:
             DEPRICATED
         """
         if(soft) :
-            self.rays = self.rays.query(self.inside_soft_query_string)
+            self.global_rayDF = self.global_rayDF.query(self.inside_soft_query_string)
         else:
-            self.rays = self.rays.query(self.inside_query_string)
+            self.global_rayDF = self.global_rayDF.query(self.inside_query_string)
 
     def prune_active_rays(self, indexes_to_drop):
         """
@@ -523,7 +476,7 @@ class raytracer_class:
         # These rays are DONE, no need to refine
 
         # Newlly opened, but not cleaned slots in the buffer
-        buff_slot_newly_freed = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].loc(indexes_to_drop).values)
+        buff_slot_newly_freed = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].loc[indexes_to_drop].values)
 
         self.buff_slot_occupied[buff_slot_newly_freed] = 0
         # Buffer to store the ray id, since these will become unordered as random rays are added and removed
@@ -556,10 +509,6 @@ class raytracer_class:
         """
         self.xps = None
         self.yps = None
-        self.rays = None
-        self.pathlength = None
-        self.raydir = None
-        self.observer = None
 
 
     def move_to_first_intersection(self):
@@ -623,9 +572,7 @@ class raytracer_class:
 
     def alloc_buffer(self):
         """
-            Allocates buffer to store cells and their pathlength
-            This allows for fewer calls where we add to the fluxes arrays, 
-            so less time spent on finding the correct indices
+            Allocate buffers and pipes to store and transfer the ray-trace from the GPU to the CPU.
         """
         
         dtype_dict = {
@@ -643,19 +590,25 @@ class raytracer_class:
         self.buff_slot_global_rayid      = cupy.full(self.NrayBuff, -1, dtype=dtype_dict["buff_slot_global_rayid"])
 
         # only occupy available buffers with rays to create new buffer
-        self.buff_index1D    = cupy.zeros(self.NrayBuff, self.NcellBuff, dtype=dtype_dict["buff_index1D"])
-        self.buff_pathlength = cupy.zeros(self.NrayBuff, self.NcellBuff, dtype=dtype_dict["buff_pathlength"])
+        self.buff_index1D    = cupy.zeros((self.NrayBuff, self.NcellBuff), dtype=dtype_dict["buff_index1D"])
+        self.buff_pathlength = cupy.zeros((self.NrayBuff, self.NcellBuff), dtype=dtype_dict["buff_pathlength"])
+
+        #TODO The following "*4" is a total crap shoot. It's a guess for the typical number of times a ray dumpts it's temp buffer while tracing]
+        self.guess_ray_dumps = 4
+
+        buff_elements = self.NrayBuff * self.NcellBuff
 
         # create gpu2cache pipeline objects
         # Instead of calling the internal dtype dictionary, explicitly call the global_ray_dtype to ensure a match.  
-        self.pathlength_pipe  = gpu2cpu_pipeline(self.NrayBuff*self.NcellBuff, self.global_ray_dtypes["pathlength"])
-        self.index1D_pipe     = gpu2cpu_pipeline(self.NrayBuff*self.NcellBuff, self.global_ray_dtypes["index1D"])
-        #self.lrefine         = gpu2cpu_pineline(self.NrayBuff*self.NcellBuff, cupy.int16)
+        self.pathlength_pipe  = gpu2cpu_pipeline(buff_elements, self.global_ray_dtypes["pathlength"], buff_elements*self.guess_ray_dumps)
+        self.index1D_pipe     = gpu2cpu_pipeline(buff_elements, self.global_ray_dtypes["index1D"], buff_elements*self.guess_ray_dumps)
+        #self.lrefine         = gpu2cpu_pineline(buff_elements, cupy.int16)
 
         # Number of ray segments that have been pushed to the cpug2pu pipes
         self.toc_length = 0
         # Information of where ray segments have been pushed in the cpu2gpu pipes
-        self.aggregate_toc = cupy.zeros((self.Nraytot_est*4, 3), dtype=dtype_dict["aggregate_toc"])
+
+        self.aggregate_toc = cupy.zeros((self.Nraytot_est*self.guess_ray_dumps, 3), dtype=dtype_dict["aggregate_toc"])
 
 
     def i_dont_know(self):
