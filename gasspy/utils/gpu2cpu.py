@@ -19,6 +19,10 @@ class pipeline(object):
         self.__alloc_in__()
         self.__alloc_out__()
 
+        # LOKE DEBUG: point the active swap buffer to first swap buffer
+        self.active_buffer = self.__dict__["buffer_%i"%(self.stream_labels[0])]
+        # LOKE DEBUG: set the index in the active swap buffer
+        self.current_buffer_index = 0
         pass
 
     def push(self, incoming_data, target="cpu", *args, **kwargs):
@@ -41,7 +45,7 @@ class pipeline(object):
 
         
         # Insert incoming data into the buffer
-        self.active_buffer[self.active_buffer_label_index : self.active_buffer_label_index + N_incoming] = incoming_data
+        self.active_buffer[self.current_buffer_index : self.current_buffer_index + N_incoming] = incoming_data
         # reduce available buffer capcity
         self.buffer_capcity_avail -= N_incoming
         # Set next available buffer index for next push
@@ -50,14 +54,14 @@ class pipeline(object):
 
     def __push2cpu__(self):
         # figure out end point of current dump in the output_array
-        self.next_output_index = self.current_output_index + self.current_buffer_index
+        self.next_output_index = self.current_output_index + self.previous_buffer_size
         # move the data within the corresponding stream of the previous buffer
         with self.__dict__["stream_%i"%(self.previous_buffer_index)]:
             # Here in the swap buffers dedicated stream we initalize a copy to the host memory.
             # In the same stream/queue we also reinitalize the buffer, with an order such that
             # the copy will finish, then the reinitialization will occur, making the buffer read.
             # TODO: what do we do if self.next_output_index is greater than the output_array? Append?
-            self.output_array[self.current_output_index: self.next_output_index] = self.__dict__["buffer_%i"%(self.previous_buffer_index)][:self]
+            self.output_array[self.current_output_index: self.next_output_index] = self.__dict__["buffer_%i"%(self.previous_buffer_index)][:self.previous_buffer_size].get()
             self.__dict__["buffer_%i"%(self.previous_buffer_index)][:] = 0
         # set the next index
         self.current_output_index = self.next_output_index
@@ -67,6 +71,8 @@ class pipeline(object):
         pass
 
     def __switchbuffer__(self):
+        # LOKE DEBUG: save the size of the last buffer (discuss ordering of push2cpu and switch buffer....)
+        self.previous_buffer_size = self.current_buffer_index
         # Determine the next swap buffer to use
         self.next_swap_buffer_index = (self.active_swap_buffer_index + 1)%self.Nswap_buffers
 
@@ -111,8 +117,10 @@ class pipeline(object):
 
     def get_output_array(self):
         # Make sure that the active swap buffer pushes its data to the cpu
+        # LOKE DEBUG: need to tell the last buffer to start swapping
+        self.__switchbuffer__()
         self.__push2cpu__()
         # Before we can return the output array, make sure that all streams are done writing to it.
         for i in self.stream_labels:
             self.__dict__["stream_%i"%(i)].synchronize()
-        return self.output_array
+        return self.output_array[:self.current_output_index]

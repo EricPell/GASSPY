@@ -8,6 +8,7 @@ import os
 import math
 from gasspy.utils.gpu2cpu import pipeline as gpu2cpu_pipeline
 from gasspy.utils.savename import get_filename 
+from gasspy.utils.reconstructor_test import plot_rays
 
 def __raytrace_kernel__(xi, yi, zi, ray_status, pathlength, index1D, raydir, Nmax, first_step):
     # raytrace kernel is the fuction called by cudf.DataFrame.apply_rows
@@ -29,7 +30,8 @@ def __raytrace_kernel__(xi, yi, zi, ray_status, pathlength, index1D, raydir, Nma
         # It returns 1 if inside the rectangle defined by Nx,Ny,Nz, and 0 if outside, no matter the direction.
         if ray_status[i] > 0:
             continue
-        if (1-int((x-Nxhalf)/Nxhalf)) * (1-int((y-Nyhalf)/Nyhalf)) *  (1-int((z-Nzhalf)/Nzhalf)):
+        #LOKE DEBUG: added absolute values as otherwise it fails for x < xmin
+        if (1-int(abs(x-Nxhalf)/Nxhalf)) * (1-int(abs(y-Nyhalf)/Nyhalf)) *  (1-int(abs(z-Nzhalf)/Nzhalf)):
             index1D[i] = int(z) + Nz*int(y) + Ny*Nz*int(x)
         else:
             #print(x,y,z)
@@ -206,7 +208,8 @@ class raytracer_class:
         # transport rays until all rays are outside the box
         i = 0
         self.first_step = cupy.ones(1)
-        while(len(self.global_rayDF["trace_status"] == 0) > 0):
+        #LOKE DEBUG: changed to an any as otherwise this does not work
+        while((self.global_rayDF["trace_status"] == 0).any()):
             # transport the rays through the current cell
             self.raytrace_onestep()
             # update the active_rayDF if needed
@@ -222,7 +225,6 @@ class raytracer_class:
         print(np.sum(pathlengths > 0))
         print(index1D.shape)
         print(self.aggregate_toc)
-
         pass
 
         return 
@@ -373,15 +375,21 @@ class raytracer_class:
            
         finished_active_rayDF_indexes = self.active_rayDF.query("ray_status > 1").index
         Navail = len(finished_active_rayDF_indexes)
-        
+        # LOKE DEBUG: if no rays are split or finished, there is nothing left to do
+        if Navail == 0:
+            return
+
         # Set the status in the global dataframe of the rays that are to be dropped from the active data frame to finished
         self.global_rayDF["trace_status"].loc[self.active_rayDF["global_rayid"].loc[finished_active_rayDF_indexes]] = 2
-        
+
         self.prune_active_rays(finished_active_rayDF_indexes)
         self.activate_new_rays(N=Navail)
         pass
     
     def activate_new_rays(self, N=None):
+        # LOKE DEBUG: If there are no more rays to add, dont add empty arrays (NaN-tastic)
+        if self.global_index_of_last_ray_added + 1 == len(self.global_rayDF):
+            return
         if self.global_index_of_last_ray_added + N > len(self.global_rayDF):
             # and get more using self.global_index_of_last_ray_added:self.global_index_of_last_ray_added+Navail
             N = len(self.global_rayDF) - self.global_index_of_last_ray_added
@@ -402,24 +410,33 @@ class raytracer_class:
 
         # Set occupation status of the buffer
         self.buff_slot_occupied[available_buffer_slot_index] = 1
-
+        
+        # LOKE DEBUG: set the global_rayid of the buffer slot
+        self.buff_slot_global_rayid[available_buffer_slot_index] = cupy.array(newRays["global_rayid"].values)
         # Append newrays to activeDF and save result
         self.active_rayDF = self.active_rayDF.append(newRays)
         
         # update the last added ray
         self.global_index_of_last_ray_added+=N
 
+
     def dump_buff(self, active_rayDF_indexes_todump):
         ## Gather the data from the active_rayDF that is to be piped to system memory
         # Get get buffer indexes of finished rays
-        indexes_in_buffer = self.active_rayDF["active_rayDF_to_buffer_map"].loc[active_rayDF_indexes_todump].values
+        # LOKE DEBUG: needed to be made into a cupy array
+        indexes_in_buffer = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].loc[active_rayDF_indexes_todump].values)
 
+        # LOKE DEBUG: if nothing to dump, dont dump
+        if len(indexes_in_buffer) == 0:
+            return
         # Extract pathlength and cell 1Dindex from buffer
         tmp_pathlength = self.buff_pathlength[indexes_in_buffer,:]
         tmp_index1D = self.buff_index1D[indexes_in_buffer,:]
 
         # get global rayid of rays that are in the current dump
-        transfered_global_rayid = cupy.array(self.buff_slot_global_rayid[indexes_in_buffer])
+        # LOKE DEBUG: this used to be explicitly cupy.array(self.buff_slot_global...)
+        # this is unecessary as buff_slot_global_rayid is already a cupy array
+        transfered_global_rayid = self.buff_slot_global_rayid[indexes_in_buffer]
 
         # How many cells each ray has traced in the dump
         Ntransfered= cupy.array(self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump].values)
@@ -438,22 +455,36 @@ class raytracer_class:
         tmp_pathlength = tmp_pathlength[mask]
         tmp_index1D = tmp_index1D[mask]
 
+        # LOKE DEBUG: some rays might be dumped but still have no values (eg. already out of the boundary)
+        # So if no cells are there to dump, just return
+        if(len(tmp_pathlength) == 0):
+            return
+
         # Start and end of the current ray dump
         ray_start = cupy.cumsum(Ntransfered) + self.start_dump
-        
+        # LOKE DEBUG: explicitly calculate ray_end here as it is used in multiple locations
+        ray_end = ray_start + Ntransfered
         # save the information of the dumped ray segments into the table of contents
         # each ray segment is saved with the following information
         # 1) transfered_global_rayid: The global ray ID of the ray
         # 2) ray_start: The start index of this segment in the final output arrays on the host memory
         # 3) ray_end: = ray_start + Ntransfered: The end index of this segment in the final output arrays on the host memory 
-        self.aggregate_toc[self.toc_length: self.toc_length + NraysInDump, :] = cupy.array([transfered_global_rayid, ray_start, ray_start + Ntransfered]).transpose()
+        self.aggregate_toc[self.toc_length: self.toc_length + NraysInDump, :] = cupy.array([transfered_global_rayid, ray_start, ray_end]).transpose()
         self.toc_length += NraysInDump
 
         # Dump into the raytrace data into the pipelines which then will put it on host memory
         self.pathlength_pipe.push(tmp_pathlength)
         self.index1D_pipe.push(tmp_index1D)
         #self.lrefine_pipe.push(tmp_lrefine)
-        
+
+        # LOKE DEBUG: added forgotten counter for how many cells we have dumped in total
+        # The next index in the dump will be were the last ray ended
+        self.start_dump = ray_end[-1]
+
+        # LOKE DEBUG: rays that are not pruned but are dumped due to filling their buffer has to have their status updated somewhere
+        # reset the buffer index of the rays that have been dumped
+        self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump] = 0
+        self.active_rayDF["ray_status"].mask(self.active_rayDF["ray_status"] == self.active_ray_dtypes["ray_status"](1), self.active_ray_dtypes["ray_status"](0), inplace = True)
         pass
 
     def prune_outside_sim(self, soft = False):
@@ -480,14 +511,14 @@ class raytracer_class:
 
         self.buff_slot_occupied[buff_slot_newly_freed] = 0
         # Buffer to store the ray id, since these will become unordered as random rays are added and removed
-        self.buff_slot_rayid[buff_slot_newly_freed] = -1
+        self.buff_slot_global_rayid[buff_slot_newly_freed] = -1
 
         # only occupy available buffers with rays to create new buffer
         self.buff_index1D[buff_slot_newly_freed, :]    = 0
         self.buff_pathlength[buff_slot_newly_freed, :] = 0 
 
+        # Remove rays that have terminated
         self.active_rayDF.drop(index=indexes_to_drop, inplace=True)
-
 
     def get_remaining(self):
         return len(self.rays.query(self.inside_query_string))
@@ -594,7 +625,8 @@ class raytracer_class:
         self.buff_pathlength = cupy.zeros((self.NrayBuff, self.NcellBuff), dtype=dtype_dict["buff_pathlength"])
 
         #TODO The following "*4" is a total crap shoot. It's a guess for the typical number of times a ray dumpts it's temp buffer while tracing]
-        self.guess_ray_dumps = 4
+        # LOKE DEBUG: for non AMR this was considerably higher
+        self.guess_ray_dumps = 30
 
         buff_elements = self.NrayBuff * self.NcellBuff
 
@@ -607,9 +639,11 @@ class raytracer_class:
         # Number of ray segments that have been pushed to the cpug2pu pipes
         self.toc_length = 0
         # Information of where ray segments have been pushed in the cpu2gpu pipes
+        # LOKE DEBUG: init to negative so that we can easily remove empty values
+        self.aggregate_toc = cupy.full((self.Nraytot_est*self.guess_ray_dumps, 3), -1, dtype=dtype_dict["aggregate_toc"])
 
-        self.aggregate_toc = cupy.zeros((self.Nraytot_est*self.guess_ray_dumps, 3), dtype=dtype_dict["aggregate_toc"])
-
+        # LOKE DEBUG: Index to keep track of how many ray-cell intersection we have sent to the pipe buffers
+        self.start_dump = 0
 
     def i_dont_know(self):
         # Dataframe to save physical values to
@@ -638,8 +672,9 @@ class raytracer_class:
         self.buff_index1D   [self.active_rayDF["active_rayDF_to_buffer_map"].values, self.active_rayDF["buffer_current_step"].values]    = self.active_rayDF["index1D"].values[:]
         self.buff_pathlength[self.active_rayDF["active_rayDF_to_buffer_map"].values, self.active_rayDF["buffer_current_step"].values]    = self.active_rayDF["pathlength"].values[:]
         self.active_rayDF["buffer_current_step"] += 1
-        self.active_rayDF["ray_status"][self.active_rayDF["buffer_current_step"]==self.NcellBuff] = 1
-    
+        # LOKE DEBUG: made into a mask instead of flawed syntax used before, and explicitly treat typing as otherwise warnings are thrown everywhere
+        self.active_rayDF["ray_status"].mask(self.active_rayDF["buffer_current_step"] == self.active_ray_dtypes["buffer_current_step"](self.NcellBuff), self.active_ray_dtypes["ray_status"](1), inplace = True)
+
     def setBufferDF(self):
         """
             Gathers the data stored in the buff arrays. gets their subphysics d
