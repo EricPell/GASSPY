@@ -208,8 +208,8 @@ class raytracer_class:
         # transport rays until all rays are outside the box
         i = 0
         self.first_step = cupy.ones(1)
-        #LOKE DEBUG: changed to an any as otherwise this does not work
-        while((self.global_rayDF["trace_status"] == 0).any()):
+        #LOKE DEBUG: changed to a wrapper method call for easier optmization
+        while(self.check_trace_status()):
             # transport the rays through the current cell
             self.raytrace_onestep()
             # update the active_rayDF if needed
@@ -343,7 +343,12 @@ class raytracer_class:
     """
         Internally used methods    
     """
-
+    def check_trace_status(self):
+        """
+            Method to check if we are done with the raytrace
+        """
+        #LOKE DEBUG: changed to an any as otherwise this does not work
+        return self.global_rayDF["trace_status"] == 0).any()
     def init_active_rays(self):
         """
             super call to initialize the active_rayDF and allocate the buffers and pipes for GPU2CPU transfer and storage
@@ -412,7 +417,8 @@ class raytracer_class:
         self.buff_slot_occupied[available_buffer_slot_index] = 1
         
         # LOKE DEBUG: set the global_rayid of the buffer slot
-        self.buff_slot_global_rayid[available_buffer_slot_index] = cupy.array(newRays["global_rayid"].values)
+        rayids = cupy.array(newRays["global_rayid"].values)
+        self.buff_global_rayid[available_buffer_slot_index,:] = cupy.vstack((rayids for i in range(self.NcellBuff))).T
         # Append newrays to activeDF and save result
         self.active_rayDF = self.active_rayDF.append(newRays)
         
@@ -432,13 +438,15 @@ class raytracer_class:
         # Extract pathlength and cell 1Dindex from buffer
         tmp_pathlength = self.buff_pathlength[indexes_in_buffer,:]
         tmp_index1D = self.buff_index1D[indexes_in_buffer,:]
+        tmp_global_rayid = self.buff_global_rayid[indexes_in_buffer,:]
 
         # get global rayid of rays that are in the current dump
         # LOKE DEBUG: this used to be explicitly cupy.array(self.buff_slot_global...)
         # this is unecessary as buff_slot_global_rayid is already a cupy array
-        transfered_global_rayid = self.buff_slot_global_rayid[indexes_in_buffer]
+        transfered_global_rayid = tmp_global_rayid[:, 0]
 
         # How many cells each ray has traced in the dump
+        # LOKE DEBUG: TODO: THIS DOES NOT WORK. WE NEED TO CALCULATE THIS AND REMOVE CELLS THAT ARE MASKED OUT DUE TO BEING EMPTY
         Ntransfered= cupy.array(self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump].values)
 
         # How many rays we have in this dump
@@ -447,6 +455,7 @@ class raytracer_class:
         # ravel the arrays to be transfered into 1d
         tmp_pathlength = tmp_pathlength.ravel()
         tmp_index1D = tmp_index1D.ravel()
+        tmp_global_rayid = tmp_global_rayid.ravel()
 
         # get the filled portion of the buffer
         mask = tmp_pathlength > 0
@@ -454,6 +463,7 @@ class raytracer_class:
         # mask them out the unfilled
         tmp_pathlength = tmp_pathlength[mask]
         tmp_index1D = tmp_index1D[mask]
+        tmp_global_rayid = tmp_global_rayid[mask]
 
         # LOKE DEBUG: some rays might be dumped but still have no values (eg. already out of the boundary)
         # So if no cells are there to dump, just return
@@ -473,6 +483,7 @@ class raytracer_class:
         self.toc_length += NraysInDump
 
         # Dump into the raytrace data into the pipelines which then will put it on host memory
+        self.global_rayid_pipe.push(tmp_global_rayid)
         self.pathlength_pipe.push(tmp_pathlength)
         self.index1D_pipe.push(tmp_index1D)
         #self.lrefine_pipe.push(tmp_lrefine)
@@ -511,10 +522,10 @@ class raytracer_class:
 
         self.buff_slot_occupied[buff_slot_newly_freed] = 0
         # Buffer to store the ray id, since these will become unordered as random rays are added and removed
-        self.buff_slot_global_rayid[buff_slot_newly_freed] = -1
+        self.buff_global_rayid[buff_slot_newly_freed, :] = -1
 
         # only occupy available buffers with rays to create new buffer
-        self.buff_index1D[buff_slot_newly_freed, :]    = 0
+        self.buff_index1D[buff_slot_newly_freed, :]    = -1
         self.buff_pathlength[buff_slot_newly_freed, :] = 0 
 
         # Remove rays that have terminated
@@ -608,7 +619,7 @@ class raytracer_class:
         
         dtype_dict = {
             "buff_slot_occupied":cupy.int8,
-            "buff_slot_global_rayid":self.global_ray_dtypes["global_rayid"],
+            "buff_global_rayid":self.global_ray_dtypes["global_rayid"],
             "buff_index1D": self.global_ray_dtypes["index1D"],
             "buff_pathlength":self.global_ray_dtypes["pathlength"],
             "aggregate_toc" : cupy.int64
@@ -618,10 +629,12 @@ class raytracer_class:
         self.buff_slot_occupied = cupy.zeros(self.NrayBuff, dtype=dtype_dict["buff_slot_occupied"])
 
         # Buffer to store the ray id, since these will become unordered as random rays are added and removed
-        self.buff_slot_global_rayid      = cupy.full(self.NrayBuff, -1, dtype=dtype_dict["buff_slot_global_rayid"])
+        # LOKE DEBUG: changed to a 2D array such that each ray-cell-intersection has a rayID assosiated with it
+        self.buff_global_rayid = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_global_rayid"])
 
         # only occupy available buffers with rays to create new buffer
-        self.buff_index1D    = cupy.zeros((self.NrayBuff, self.NcellBuff), dtype=dtype_dict["buff_index1D"])
+        # LOKE DEBUG: changed default index1D to point to the null value (-1)
+        self.buff_index1D    = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_index1D"])
         self.buff_pathlength = cupy.zeros((self.NrayBuff, self.NcellBuff), dtype=dtype_dict["buff_pathlength"])
 
         #TODO The following "*4" is a total crap shoot. It's a guess for the typical number of times a ray dumpts it's temp buffer while tracing]
@@ -632,9 +645,10 @@ class raytracer_class:
 
         # create gpu2cache pipeline objects
         # Instead of calling the internal dtype dictionary, explicitly call the global_ray_dtype to ensure a match.  
-        self.pathlength_pipe  = gpu2cpu_pipeline(buff_elements, self.global_ray_dtypes["pathlength"], buff_elements*self.guess_ray_dumps)
-        self.index1D_pipe     = gpu2cpu_pipeline(buff_elements, self.global_ray_dtypes["index1D"], buff_elements*self.guess_ray_dumps)
-        #self.lrefine         = gpu2cpu_pineline(buff_elements, cupy.int16)
+        self.global_rayid_pipe = gpu2cpu_pipeline(buff_elements, self.global_ray_dtypes["global_rayid"], buff_elements*self.guess_ray_dumps)
+        self.pathlength_pipe   = gpu2cpu_pipeline(buff_elements, self.global_ray_dtypes["pathlength"], buff_elements*self.guess_ray_dumps)
+        self.index1D_pipe      = gpu2cpu_pipeline(buff_elements, self.global_ray_dtypes["index1D"], buff_elements*self.guess_ray_dumps)
+        #self.lrefine          = gpu2cpu_pineline(buff_elements, cupy.int16)
 
         # Number of ray segments that have been pushed to the cpug2pu pipes
         self.toc_length = 0
