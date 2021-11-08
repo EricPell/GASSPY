@@ -30,8 +30,8 @@ def __raytrace_kernel__(xi, yi, zi, ray_status, pathlength, index1D, raydir, Nma
         # It returns 1 if inside the rectangle defined by Nx,Ny,Nz, and 0 if outside, no matter the direction.
         if ray_status[i] > 0:
             continue
-        #LOKE DEBUG: added absolute values as otherwise it fails for x < xmin
-        if (1-int(abs(x-Nxhalf)/Nxhalf)) * (1-int(abs(y-Nyhalf)/Nyhalf)) *  (1-int(abs(z-Nzhalf)/Nzhalf)):
+        # Domain boundary check using position
+        if (abs(x-Nxhalf) <= Nxhalf) * (abs(y-Nyhalf) <= Nyhalf) *  (abs(z-Nzhalf) <= Nzhalf):
             index1D[i] = int(z) + Nz*int(y) + Ny*Nz*int(x)
         else:
             #print(x,y,z)
@@ -432,7 +432,7 @@ class raytracer_class:
         # LOKE DEBUG: needed to be made into a cupy array
         indexes_in_buffer = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].loc[active_rayDF_indexes_todump].values)
 
-        # LOKE DEBUG: if nothing to dump, dont dump
+        # Check if there are any rays to dump (filled or terminated)
         if len(indexes_in_buffer) == 0:
             return
         # Extract pathlength and cell 1Dindex from buffer
