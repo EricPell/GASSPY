@@ -208,7 +208,7 @@ class raytracer_class:
         # transport rays until all rays are outside the box
         i = 0
         self.first_step = cupy.ones(1)
-        #LOKE DEBUG: changed to a wrapper method call for easier optmization
+        # changed to a wrapper method call for easier optmization
         while(self.check_trace_status()):
             # transport the rays through the current cell
             self.raytrace_onestep()
@@ -295,6 +295,7 @@ class raytracer_class:
         # Rays terminating because of AMR splitting will have children linked to an "split event" which is the child id.
         # Rays originating in an AMR split will have a "split event" which is the parent id.
         self.global_Nrays = len(self.xp)
+        self.global_Nraysfinished = 0
         self.global_Nsplit_events = -1
         self.global_index_of_last_ray_added = -1
         self.global_rayDF = cudf.DataFrame({"xp" : self.xp, "yp" : self.yp, 
@@ -347,8 +348,10 @@ class raytracer_class:
         """
             Method to check if we are done with the raytrace
         """
-        #LOKE DEBUG: changed to an any as otherwise this does not work
-        return self.global_rayDF["trace_status"] == 0).any()
+
+        # See if number of rays finished is less than the number of rays (initial+split) to process
+        return (self.global_Nraysfinished < self.global_Nrays)
+
     def init_active_rays(self):
         """
             super call to initialize the active_rayDF and allocate the buffers and pipes for GPU2CPU transfer and storage
@@ -380,7 +383,7 @@ class raytracer_class:
            
         finished_active_rayDF_indexes = self.active_rayDF.query("ray_status > 1").index
         Navail = len(finished_active_rayDF_indexes)
-        # LOKE DEBUG: if no rays are split or finished, there is nothing left to do
+        # If no rays are split or finished, there is nothing left to do
         if Navail == 0:
             return
 
@@ -392,7 +395,7 @@ class raytracer_class:
         pass
     
     def activate_new_rays(self, N=None):
-        # LOKE DEBUG: If there are no more rays to add, dont add empty arrays (NaN-tastic)
+        # If there are no more rays to add, dont add empty arrays (NaN-tastic)
         if self.global_index_of_last_ray_added + 1 == len(self.global_rayDF):
             return
         if self.global_index_of_last_ray_added + N > len(self.global_rayDF):
@@ -416,7 +419,7 @@ class raytracer_class:
         # Set occupation status of the buffer
         self.buff_slot_occupied[available_buffer_slot_index] = 1
         
-        # LOKE DEBUG: set the global_rayid of the buffer slot
+        # Include the global_rayid of the buffer slot
         rayids = cupy.array(newRays["global_rayid"].values)
         self.buff_global_rayid[available_buffer_slot_index,:] = cupy.vstack((rayids for i in range(self.NcellBuff))).T
         # Append newrays to activeDF and save result
@@ -428,8 +431,7 @@ class raytracer_class:
 
     def dump_buff(self, active_rayDF_indexes_todump):
         ## Gather the data from the active_rayDF that is to be piped to system memory
-        # Get get buffer indexes of finished rays
-        # LOKE DEBUG: needed to be made into a cupy array
+        # Get get buffer indexes of finished rays into a cupy array
         indexes_in_buffer = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].loc[active_rayDF_indexes_todump].values)
 
         # Check if there are any rays to dump (filled or terminated)
@@ -440,13 +442,13 @@ class raytracer_class:
         tmp_index1D = self.buff_index1D[indexes_in_buffer,:]
         tmp_global_rayid = self.buff_global_rayid[indexes_in_buffer,:]
 
-        # get global rayid of rays that are in the current dump
-        # LOKE DEBUG: this used to be explicitly cupy.array(self.buff_slot_global...)
-        # this is unecessary as buff_slot_global_rayid is already a cupy array
+        # get global rayid of rays that are in the current dumps
         transfered_global_rayid = tmp_global_rayid[:, 0]
 
         # How many cells each ray has traced in the dump
         # LOKE DEBUG: TODO: THIS DOES NOT WORK. WE NEED TO CALCULATE THIS AND REMOVE CELLS THAT ARE MASKED OUT DUE TO BEING EMPTY
+        # reality check: There is no reason we have to cut or mask out the last empties. In a ray with multiple dumps, only the last dump will have any padding. That's an acceptable amount of trimming to fix later
+        # for the benefit of dumping uniform buffer sections. Those can be dealt with in ray-reconstruction, or never, using the index to for the null-physics cell.
         Ntransfered= cupy.array(self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump].values)
 
         # How many rays we have in this dump
@@ -465,14 +467,17 @@ class raytracer_class:
         tmp_index1D = tmp_index1D[mask]
         tmp_global_rayid = tmp_global_rayid[mask]
 
-        # LOKE DEBUG: some rays might be dumped but still have no values (eg. already out of the boundary)
+        #TODO: Change the raystatus flag to a bitmask (https://www.sdss.org/dr12/algorithms/bitmasks/) so that we can know both if a ray buffer is filled AND terminated due to boundary or refined, terminated for any reason while it's buffer is full
+        # This would be a nice improvement, as the next bit of code would then be removable because we wouldn't need to check for pathlengths when dumping buffers
+        #TODO: If above todo is finished remove next
         # So if no cells are there to dump, just return
         if(len(tmp_pathlength) == 0):
             return
+        ##
 
         # Start and end of the current ray dump
         ray_start = cupy.cumsum(Ntransfered) + self.start_dump
-        # LOKE DEBUG: explicitly calculate ray_end here as it is used in multiple locations
+        # explicitly calculate ray_end here as it is used in multiple locations
         ray_end = ray_start + Ntransfered
         # save the information of the dumped ray segments into the table of contents
         # each ray segment is saved with the following information
@@ -488,11 +493,11 @@ class raytracer_class:
         self.index1D_pipe.push(tmp_index1D)
         #self.lrefine_pipe.push(tmp_lrefine)
 
-        # LOKE DEBUG: added forgotten counter for how many cells we have dumped in total
+        # added forgotten counter for how many cells we have dumped in total
         # The next index in the dump will be were the last ray ended
         self.start_dump = ray_end[-1]
 
-        # LOKE DEBUG: rays that are not pruned but are dumped due to filling their buffer has to have their status updated somewhere
+        # rays that are not pruned but are dumped due to filling their buffer has to have their status updated somewhere
         # reset the buffer index of the rays that have been dumped
         self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump] = 0
         self.active_rayDF["ray_status"].mask(self.active_rayDF["ray_status"] == self.active_ray_dtypes["ray_status"](1), self.active_ray_dtypes["ray_status"](0), inplace = True)
@@ -519,6 +524,8 @@ class raytracer_class:
 
         # Newlly opened, but not cleaned slots in the buffer
         buff_slot_newly_freed = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].loc[indexes_to_drop].values)
+
+        self.global_Nraysfinished += len(buff_slot_newly_freed)
 
         self.buff_slot_occupied[buff_slot_newly_freed] = 0
         # Buffer to store the ray id, since these will become unordered as random rays are added and removed
@@ -603,6 +610,7 @@ class raytracer_class:
                  (self.global_rayDF["yi"] >= 0) & (self.global_rayDF["yi"] <= int(self.Nmax[1])) &
                  (self.global_rayDF["zi"] >= 0) & (self.global_rayDF["zi"] <= int(self.Nmax[2])))
 
+        #TODO: This is an important todo. We must resolve starting rays outside of the box in a graceful manner which allows the remainder of the code to assume that rays are in the box until they leave.
         # Identify rays which start outside of the box, and move their position to the box edge, with a buffer for floating point rounding errors.
         # This is for Loke to remember how "where" works: move rays outside of box. cudf where replaces where false     
         for i, ix in enumerate(["xi", "yi", "zi"]):
@@ -629,16 +637,15 @@ class raytracer_class:
         self.buff_slot_occupied = cupy.zeros(self.NrayBuff, dtype=dtype_dict["buff_slot_occupied"])
 
         # Buffer to store the ray id, since these will become unordered as random rays are added and removed
-        # LOKE DEBUG: changed to a 2D array such that each ray-cell-intersection has a rayID assosiated with it
+        # LOKE finally agreed that Eric was right hahaha: changed to a 2D array such that each ray-cell-intersection has a rayID assosiated with it
         self.buff_global_rayid = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_global_rayid"])
 
         # only occupy available buffers with rays to create new buffer
-        # LOKE DEBUG: changed default index1D to point to the null value (-1)
+        # changed default index1D from 0 to point to the null value (-1)
         self.buff_index1D    = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_index1D"])
         self.buff_pathlength = cupy.zeros((self.NrayBuff, self.NcellBuff), dtype=dtype_dict["buff_pathlength"])
 
-        #TODO The following "*4" is a total crap shoot. It's a guess for the typical number of times a ray dumpts it's temp buffer while tracing]
-        # LOKE DEBUG: for non AMR this was considerably higher
+        #TODO The following is a total crap shoot. It's a guess for the typical number of times a ray dumpts it's temp buffer while tracing]
         self.guess_ray_dumps = 30
 
         buff_elements = self.NrayBuff * self.NcellBuff
@@ -653,10 +660,10 @@ class raytracer_class:
         # Number of ray segments that have been pushed to the cpug2pu pipes
         self.toc_length = 0
         # Information of where ray segments have been pushed in the cpu2gpu pipes
-        # LOKE DEBUG: init to negative so that we can easily remove empty values
+        # Init to negative so that we can easily remove empty values
         self.aggregate_toc = cupy.full((self.Nraytot_est*self.guess_ray_dumps, 3), -1, dtype=dtype_dict["aggregate_toc"])
 
-        # LOKE DEBUG: Index to keep track of how many ray-cell intersection we have sent to the pipe buffers
+        # Index to keep track of how many ray-cell intersection we have sent to the pipe buffers
         self.start_dump = 0
 
     def i_dont_know(self):
@@ -686,7 +693,8 @@ class raytracer_class:
         self.buff_index1D   [self.active_rayDF["active_rayDF_to_buffer_map"].values, self.active_rayDF["buffer_current_step"].values]    = self.active_rayDF["index1D"].values[:]
         self.buff_pathlength[self.active_rayDF["active_rayDF_to_buffer_map"].values, self.active_rayDF["buffer_current_step"].values]    = self.active_rayDF["pathlength"].values[:]
         self.active_rayDF["buffer_current_step"] += 1
-        # LOKE DEBUG: made into a mask instead of flawed syntax used before, and explicitly treat typing as otherwise warnings are thrown everywhere
+        # Use a mask, and explicitly set mask dtype. This prevents creating a mask value with the default cudf/cupy dtypes, and saving them to arrays with different dtypes.
+        # Currently this just throws warnings if they are different dtypes, but this behavior could be subject to change which may produce errors or worse...
         self.active_rayDF["ray_status"].mask(self.active_rayDF["buffer_current_step"] == self.active_ray_dtypes["buffer_current_step"](self.NcellBuff), self.active_ray_dtypes["ray_status"](1), inplace = True)
 
     def setBufferDF(self):

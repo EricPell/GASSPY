@@ -19,9 +19,9 @@ class pipeline(object):
         self.__alloc_in__()
         self.__alloc_out__()
 
-        # LOKE DEBUG: point the active swap buffer to first swap buffer
+        # Initialize the active_buffer pointer to the first swap buffer
         self.active_buffer = self.__dict__["buffer_%i"%(self.stream_labels[0])]
-        # LOKE DEBUG: set the index in the active swap buffer
+        # Intialize the index in the active swap buffer
         self.current_buffer_index = 0
         pass
 
@@ -73,6 +73,7 @@ class pipeline(object):
     def __switchbuffer__(self):
         # LOKE DEBUG: save the size of the last buffer (discuss ordering of push2cpu and switch buffer....)
         self.previous_buffer_size = self.current_buffer_index
+        
         # Determine the next swap buffer to use
         self.next_swap_buffer_index = (self.active_swap_buffer_index + 1)%self.Nswap_buffers
 
