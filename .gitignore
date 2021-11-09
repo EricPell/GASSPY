@@ -7,3 +7,5 @@ cloudy-output/*.in
 cloudy-output/*.sed
 cloudy-output/*
 cloudy-output 
+gasspy/scratch
+gasspy/scratch/**
