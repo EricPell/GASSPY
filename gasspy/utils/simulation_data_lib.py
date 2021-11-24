@@ -63,10 +63,17 @@ class simulation_data_class:
         # will be a class
         self.subcell_models = subcell_model_class(datadir)
         self.subcell_model_id = None
-
+        
         self.__dict__.update(self.config_yaml)
     
     def get_subcell_model_id(self):
         if self.subcell_model_id is None:
             self.subcell_model_id = np.load(self.datadir+"gasspy_indices3d.npy")
         return self.subcell_model_id
+
+    def get_index1D(self):
+        fname = self.datadir + "/index1D.npy"
+        return np.load(fname)
+    def get_amr_lrefine(self):
+        fname = self.datadir + "/amr_lrefine.npy"
+        return np.load(fname)
