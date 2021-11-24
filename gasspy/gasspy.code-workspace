@@ -4,10 +4,10 @@
 			"path": ".."
 		},
 		{
-			"path": "../../cinn3d/inputs/ramses/SHELL_CDMASK2"
+			"path": "../../stream"
 		},
 		{
-			"path": "../../stream"
+			"path": "../../cinn3d/inputs/ramses/SEED1_35MSUN_CDMASK_WINDUV"
 		}
 	],
 	"settings": {}
