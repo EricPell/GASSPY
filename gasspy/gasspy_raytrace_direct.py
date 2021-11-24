@@ -8,14 +8,11 @@ import cProfile
 
 datadir = "/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/"
 sim_data = simulation_data_class(datadir = datadir)
-raytracer = raytracer_class(sim_data, savefiles = True, raytraceBufferSize_GB = 4, NrayBuff  = 1048576, NsysBuff = 10, raster=1)
+raytracer = raytracer_class(sim_data, savefiles = True, raytraceBufferSize_GB = 4, NrayBuff  = 512*512, NsysBuff = 4, raster=1)
 
-Nframes = 10
+Nframes = 1
 pitch = np.linspace(0,360,Nframes)
 yaw   = np.linspace(0,360,Nframes) 
-#yaw[len(pitch)//4:] = np.linspace(0,180,len(pitch) - len(pitch)//4)[:]
-# yaw = np.logspace(-2,0,Nframes//2)*180
-# yaw = np.append(yaw,yaw[::-1])
 
 roll = np.zeros(Nframes)
 
@@ -33,6 +30,6 @@ for irot, rot in enumerate(rotangles):
     
     raytracer.raytrace_run(saveprefix = prefix)
 
-    gasspy.utils.save_to_fits.run(sim_data, obsplane, saveprefix=prefix)
+    #gasspy.utils.save_to_fits.run(sim_data, obsplane, saveprefix=prefix)
 pr.disable()
 pr.dump_stats('profile_rays')
