@@ -3,26 +3,35 @@ import cupyx
 import numpy as np
 
 class pipeline(object):
-    def __init__(self, buff_size, buff_type, buffer_dump_size, Nswap_buffers = 3, outdiskref=None):
-        # Size of buffer in elements
-        self.buff_size = buff_size
+    def __init__(self, buff_NraySegs, buff_type, NcellPerRaySeg, varname, traced_rays, Nswap_buffers = 3, outdiskref=None):
+        # Number of ray segments stored in a buffer
+        self.buff_NraySegs = buff_NraySegs
+        
+        # Number of cells one ray segment consists of
+        self.NcellPerRaySeg = NcellPerRaySeg
+
         # Data type of buffer
         self.buff_type = buff_type
-
-        # size of output array buffer
-        self.buffer_dump_size = buffer_dump_size
-
+        
         # Number of buffers we swap between
         self.Nswap_buffers = Nswap_buffers
 
-        # Allocate swap buffers and output array 
+        # Allocate swap buffers
         self.__alloc_in__()
-        self.__alloc_out__()
 
         # Initialize the active_buffer pointer to the first swap buffer
         self.active_buffer = self.__dict__["buffer_%i"%(self.stream_labels[0])]
         # Intialize the index in the active swap buffer
         self.current_buffer_index = 0
+
+        # save pointer to the traced rays object
+        self.traced_rays = traced_rays
+
+        # variable name associated with the pipe
+        self.varname = varname
+
+        # Counter of how many raysegments have been pushed to the traced rays output object
+        self.current_output_index = 0
         pass
 
     def push(self, incoming_data, target="cpu", *args, **kwargs):
@@ -30,7 +39,7 @@ class pipeline(object):
         N_incoming = len(incoming_data)
 
         # Check that the size of incoming data is smaller than total allocated buffer, or throw an exception
-        assert N_incoming <= self.buff_size, "Get fucked, you overflowed the intermediate buffer: Increase the buffer size or send less data"
+        assert N_incoming <= self.buff_NraySegs, "Get fucked, you overflowed the intermediate buffer: Increase the buffer size or send less data"
         #TODO: write a while loop instead of assert failure
 
         # If incombing data is greater than available buffer capacity, dump the buffer data
@@ -45,7 +54,7 @@ class pipeline(object):
 
         
         # Insert incoming data into the buffer
-        self.active_buffer[self.current_buffer_index : self.current_buffer_index + N_incoming] = incoming_data
+        self.active_buffer[self.current_buffer_index : self.current_buffer_index + N_incoming, :] = incoming_data[:,:]
         # reduce available buffer capcity
         self.buffer_capcity_avail -= N_incoming
         # Set next available buffer index for next push
@@ -57,12 +66,18 @@ class pipeline(object):
         self.next_output_index = self.current_output_index + self.previous_buffer_size
         # move the data within the corresponding stream of the previous buffer
         with self.__dict__["stream_%i"%(self.previous_buffer_index)]:
-            # Here in the swap buffers dedicated stream we initalize a copy to the host memory.
+            # Here in the swap buffers dedicated stream we call the transfer of the data to the traced_rays cpu memory.
             # In the same stream/queue we also reinitalize the buffer, with an order such that
             # the copy will finish, then the reinitialization will occur, making the buffer read.
             # TODO: what do we do if self.next_output_index is greater than the output_array? Append?
-            self.output_array[self.current_output_index: self.next_output_index] = self.__dict__["buffer_%i"%(self.previous_buffer_index)][:self.previous_buffer_size].get()
-            self.__dict__["buffer_%i"%(self.previous_buffer_index)][:] = 0
+            self.traced_rays.data_from_cupy(
+                                            self.varname,
+                                            self.__dict__["buffer_%i"%(self.previous_buffer_index)][:self.previous_buffer_size],
+                                            self.current_output_index,
+                                            self.previous_buffer_size,
+                                            stream = self.__dict__["stream_%i"%(self.previous_buffer_index)]
+                                            )
+            self.__dict__["buffer_%i"%(self.previous_buffer_index)][:,:] = 0
         # set the next index
         self.current_output_index = self.next_output_index
 
@@ -86,7 +101,7 @@ class pipeline(object):
         self.active_buffer = self.__dict__["buffer_%i"%(self.next_swap_buffer_index)]
 
         # reset the "active-swap-buffer" element/index/position and capacity.
-        self.buffer_capcity_avail = self.buff_size
+        self.buffer_capcity_avail = self.buff_NraySegs
         self.current_buffer_index = 0
 
         # roll over swap_buffer indices
@@ -96,7 +111,7 @@ class pipeline(object):
 
     def __alloc_in__(self):
         # (re)set the capacity and current index in the active buffer
-        self.buffer_capcity_avail = self.buff_size
+        self.buffer_capcity_avail = self.buff_NraySegs
         self.active_swap_buffer_index = 0
 
         # Create stream labels 
@@ -105,10 +120,11 @@ class pipeline(object):
         # Create streams and initialize swap buffer
         for i in self.stream_labels:
             self.__dict__["stream_%i"%(i)] = cupy.cuda.stream.Stream()
-            self.__dict__["buffer_%i"%(i)] = cupy.zeros(self.buff_size, dtype = self.buff_type)
+            self.__dict__["buffer_%i"%(i)] = cupy.zeros((self.buff_NraySegs, self.NcellPerRaySeg), dtype = self.buff_type)
         
         pass
-
+'''
+    NO LONGER USED HERE
     def __alloc_out__(self):
         # Create a numpy array on pinned system memorry that the GPU will write to directly
         self.output_array = cupyx.zeros_pinned(self.buffer_dump_size, dtype = self.buff_type)
@@ -125,3 +141,4 @@ class pipeline(object):
         for i in self.stream_labels:
             self.__dict__["stream_%i"%(i)].synchronize()
         return self.output_array[:self.current_output_index]
+'''

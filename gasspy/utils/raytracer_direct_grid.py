@@ -8,7 +8,9 @@ import os
 import math
 from gasspy.utils.gpu2cpu import pipeline as gpu2cpu_pipeline
 from gasspy.utils.savename import get_filename 
-from gasspy.utils.reconstructor_test import plot_rays
+from ..raystructures.traced_rays import cpu_traced_rays
+from ..settings.defaults import ray_dtypes
+#from gasspy.utils.reconstructor_test import plot_rays
 
 def __raytrace_kernel__(xi, yi, zi, ray_status, pathlength, index1D, raydir, Nmax, first_step):
     # raytrace kernel is the fuction called by cudf.DataFrame.apply_rows
@@ -136,33 +138,36 @@ class raytracer_class:
             self.set_empty() 
         self.savefiles = savefiles
 
-        self.global_ray_dtypes = {
-            "xp" : cupy.float64, "yp" : cupy.float64, 
-            "xi" : cupy.float64, "yi" : cupy.float64, "zi" : cupy.float64,
-            "global_rayid" : cupy.int32,
-            "trace_status": cupy.int8,
-            "index1D"     : cupy.int64,
-            "pathlength"  : cupy.float64,
-            "pid"         : cupy.int32,
-            "pevid"       : cupy.int32,
-            "cevid"       : cupy.int32,
-            "refinement_level": cupy.int8
-        }
+        ## Keys and dtypes of the columns in global_rayDF
+        self.global_ray_vars = ["xp", "yp", 
+            "xi", "yi", "zi",
+            "global_rayid",
+            "trace_status",
+            "index1D",     
+            "pathlength",  
+            "pid",         
+            "pevid",       
+            "cevid",      
+            "refinement_level"
+        ]
+        self.global_ray_dtypes = { var: ray_dtypes[var] for var in self.global_ray_vars }
 
         ## Keys and dtypes of the columns in active_rayDF
-        self.active_ray_dtypes = {
-            "global_rayid": self.global_ray_dtypes["global_rayid"],
-            "xi" : self.global_ray_dtypes["xi"], "yi" : self.global_ray_dtypes["yi"], "zi" : self.global_ray_dtypes["zi"],
-            "index1D" : cupy.int64,
-            "refinement_level": self.global_ray_dtypes["refinement_level"],
-            "pathlength": cupy.float64,
-            "ray_status": cupy.int8,
-            "active_rayDF_to_buffer_map" : cupy.int32,
-            "buffer_current_step": cupy.int16
-        }
+        self.active_ray_vars = [
+            "global_rayid",
+            "xi", "yi", "zi",
+            "index1D",
+            "refinement_level",
+            "pathlength",
+            "ray_status",
+            "active_rayDF_to_buffer_map",
+            "buffer_current_step",
+            "dump_number" 
+        ]
+        self.active_ray_dtypes = { var: ray_dtypes[var] for var in self.active_ray_vars }
 
         # These keys need to be intialized at the transfer of an array from the gloal_rayDF to the active_rayDF
-        self.new_keys_for_active_rayDF = ["pathlength", "ray_status", "buffer_current_step", "index1D"]
+        self.new_keys_for_active_rayDF = ["pathlength", "ray_status", "buffer_current_step", "index1D", "dump_number"]
         # These keys are shared between the global and active rayDF's
         self.shared_column_keys = ["xi", "yi", "zi", "global_rayid", "refinement_level"]
         
@@ -172,6 +177,7 @@ class raytracer_class:
         #   cell_index       : 64b bit int to describe highly sims with some safety index
         #   path_length      : 64b or... 8 bit in log if someone wants to sacrifies a flop for a lot of memory
         oneRayCell = 136
+
         # Use this to determine the number of buffer cells we can afford for a given total memory and number of buffered rays.
         self.NcellBuff = int(raytraceBufferSize_GB * 1024**3 / (oneRayCell * NrayBuff)/NsysBuff)
         self.NrayBuff = NrayBuff
@@ -219,12 +225,7 @@ class raytracer_class:
             self.first_step[0] = 0
         
         self.dump_buff(self.active_rayDF.index)
-        pathlengths = self.pathlength_pipe.get_output_array()
-        index1D     = self.index1D_pipe.get_output_array()
-        print(pathlengths.shape)
-        print(np.sum(pathlengths > 0))
-        print(index1D.shape)
-        print(self.aggregate_toc)
+        self.traced_rays.create_mapping_dict(self.global_Nrays)
         pass
 
         return 
@@ -433,80 +434,44 @@ class raytracer_class:
         ## Gather the data from the active_rayDF that is to be piped to system memory
         # Get get buffer indexes of finished rays into a cupy array
         indexes_in_buffer = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].loc[active_rayDF_indexes_todump].values)
+        
+        # How many ray segments we have in this dump
+        NraySegInDump = len(active_rayDF_indexes_todump)
 
         # Check if there are any rays to dump (filled or terminated)
-        if len(indexes_in_buffer) == 0:
+        if NraySegInDump== 0:
             return
+        # dump number and global_rayid of the dumped rays
+        global_rayids = cupy.array(self.active_rayDF["global_rayid"].loc[active_rayDF_indexes_todump].values)
+        dump_number   = cupy.array(self.active_rayDF["dump_number"].loc[active_rayDF_indexes_todump].values)
+
+        # set the dump number and global_rayid in the traced_rays object
+        self.traced_rays.append_indexes(global_rayids, dump_number, NraySegInDump)
+
         # Extract pathlength and cell 1Dindex from buffer
         tmp_pathlength = self.buff_pathlength[indexes_in_buffer,:]
         tmp_index1D = self.buff_index1D[indexes_in_buffer,:]
-        tmp_global_rayid = self.buff_global_rayid[indexes_in_buffer,:]
-
-        # get global rayid of rays that are in the current dumps
-        transfered_global_rayid = tmp_global_rayid[:, 0]
-
-        # How many cells each ray has traced in the dump
-        # LOKE DEBUG: TODO: THIS DOES NOT WORK. WE NEED TO CALCULATE THIS AND REMOVE CELLS THAT ARE MASKED OUT DUE TO BEING EMPTY
-        # reality check: There is no reason we have to cut or mask out the last empties. In a ray with multiple dumps, only the last dump will have any padding. That's an acceptable amount of trimming to fix later
-        # for the benefit of dumping uniform buffer sections. Those can be dealt with in ray-reconstruction, or never, using the index to for the null-physics cell.
-        Ntransfered= cupy.array(self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump].values)
-
-        # How many rays we have in this dump
-        NraysInDump = len(active_rayDF_indexes_todump)
-
-        # ravel the arrays to be transfered into 1d
-        tmp_pathlength = tmp_pathlength.ravel()
-        tmp_index1D = tmp_index1D.ravel()
-        tmp_global_rayid = tmp_global_rayid.ravel()
-
-        # get the filled portion of the buffer
-        mask = tmp_pathlength > 0
-
-        # mask them out the unfilled
-        tmp_pathlength = tmp_pathlength[mask]
-        tmp_index1D = tmp_index1D[mask]
-        tmp_global_rayid = tmp_global_rayid[mask]
-
-        #TODO: Change the raystatus flag to a bitmask (https://www.sdss.org/dr12/algorithms/bitmasks/) so that we can know both if a ray buffer is filled AND terminated due to boundary or refined, terminated for any reason while it's buffer is full
-        # This would be a nice improvement, as the next bit of code would then be removable because we wouldn't need to check for pathlengths when dumping buffers
-        #TODO: If above todo is finished remove next
-        # So if no cells are there to dump, just return
-        if(len(tmp_pathlength) == 0):
-            return
-        ##
-
-        # Start and end of the current ray dump
-        ray_start = cupy.cumsum(Ntransfered) + self.start_dump
-        # explicitly calculate ray_end here as it is used in multiple locations
-        ray_end = ray_start + Ntransfered
-        # save the information of the dumped ray segments into the table of contents
-        # each ray segment is saved with the following information
-        # 1) transfered_global_rayid: The global ray ID of the ray
-        # 2) ray_start: The start index of this segment in the final output arrays on the host memory
-        # 3) ray_end: = ray_start + Ntransfered: The end index of this segment in the final output arrays on the host memory 
-        self.aggregate_toc[self.toc_length: self.toc_length + NraysInDump, :] = cupy.array([transfered_global_rayid, ray_start, ray_end]).transpose()
-        self.toc_length += NraysInDump
 
         # Dump into the raytrace data into the pipelines which then will put it on host memory
-        self.global_rayid_pipe.push(tmp_global_rayid)
+        #self.global_rayid_pipe.push(tmp_global_rayid)
         self.pathlength_pipe.push(tmp_pathlength)
         self.index1D_pipe.push(tmp_index1D)
         #self.lrefine_pipe.push(tmp_lrefine)
 
-        # added forgotten counter for how many cells we have dumped in total
-        # The next index in the dump will be were the last ray ended
-        self.start_dump = ray_end[-1]
-
+        #TODO: Change the raystatus flag to a bitmask (https://www.sdss.org/dr12/algorithms/bitmasks/) so that we can know both if a ray buffer is filled AND terminated due to boundary or refined, terminated for any reason while it's buffer is full
+        # This would be a nice improvement, as the next bit of code would then be removable because we wouldn't need to check for pathlengths when dumping buffers
+        #TODO: If above todo is finished remove next
         # rays that are not pruned but are dumped due to filling their buffer has to have their status updated somewhere
-        # reset the buffer index of the rays that have been dumped
+        # reset the buffer index of the rays that have been dumped and add one to the number of dumps the ray have done
         self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump] = 0
+        self.active_rayDF["dump_number"].loc[active_rayDF_indexes_todump] += 1 
+        
         self.active_rayDF["ray_status"].mask(self.active_rayDF["ray_status"] == self.active_ray_dtypes["ray_status"](1), self.active_ray_dtypes["ray_status"](0), inplace = True)
         pass
 
     def prune_outside_sim(self, soft = False):
         """
             Removes all rays that are outside the box 
-            DEPRICATED
         """
         if(soft) :
             self.global_rayDF = self.global_rayDF.query(self.inside_soft_query_string)
@@ -626,11 +591,10 @@ class raytracer_class:
         """
         
         dtype_dict = {
-            "buff_slot_occupied":cupy.int8,
-            "buff_global_rayid":self.global_ray_dtypes["global_rayid"],
-            "buff_index1D": self.global_ray_dtypes["index1D"],
-            "buff_pathlength":self.global_ray_dtypes["pathlength"],
-            "aggregate_toc" : cupy.int64
+            "buff_slot_occupied": ray_dtypes["buff_slot_occupied"],
+            "buff_global_rayid":  ray_dtypes["global_rayid"],
+            "buff_index1D":       ray_dtypes["index1D"],
+            "buff_pathlength":    ray_dtypes["pathlength"]
         }
 
         # Array to store the occupancy, and inversly the availablity of a buffer
@@ -650,21 +614,19 @@ class raytracer_class:
 
         buff_elements = self.NrayBuff * self.NcellBuff
 
+
+
+        # LOKE CODING: I HAVE NO IDEA OF WHERE WE WANT TO PUT THIS THING....
+        # initialize the traced_rays object which stores the trace data on the cpu
+        self.traced_rays = cpu_traced_rays(self.Nraytot_est*self.guess_ray_dumps, self.NcellBuff, ["pathlength", "index1D"])
+
         # create gpu2cache pipeline objects
         # Instead of calling the internal dtype dictionary, explicitly call the global_ray_dtype to ensure a match.  
-        self.global_rayid_pipe = gpu2cpu_pipeline(buff_elements, self.global_ray_dtypes["global_rayid"], buff_elements*self.guess_ray_dumps)
-        self.pathlength_pipe   = gpu2cpu_pipeline(buff_elements, self.global_ray_dtypes["pathlength"], buff_elements*self.guess_ray_dumps)
-        self.index1D_pipe      = gpu2cpu_pipeline(buff_elements, self.global_ray_dtypes["index1D"], buff_elements*self.guess_ray_dumps)
+        #self.global_rayid_pipe = gpu2cpu_pipeline(buff_NraySegs, self.global_ray_dtypes["global_rayid"], "global_rayid", buff_elements*self.guess_ray_dumps)
+        self.pathlength_pipe   = gpu2cpu_pipeline(self.NrayBuff, self.global_ray_dtypes["pathlength"], self.NcellBuff, "pathlength", self.traced_rays)
+        self.index1D_pipe      = gpu2cpu_pipeline(self.NrayBuff, self.global_ray_dtypes["index1D"],self.NcellBuff, "index1D", self.traced_rays)
         #self.lrefine          = gpu2cpu_pineline(buff_elements, cupy.int16)
-
-        # Number of ray segments that have been pushed to the cpug2pu pipes
-        self.toc_length = 0
-        # Information of where ray segments have been pushed in the cpu2gpu pipes
-        # Init to negative so that we can easily remove empty values
-        self.aggregate_toc = cupy.full((self.Nraytot_est*self.guess_ray_dumps, 3), -1, dtype=dtype_dict["aggregate_toc"])
-
-        # Index to keep track of how many ray-cell intersection we have sent to the pipe buffers
-        self.start_dump = 0
+        pass
 
     def i_dont_know(self):
         # Dataframe to save physical values to
@@ -712,5 +674,84 @@ class raytracer_class:
     def get_subphysics_cells(self):
         self.setBufferDF()
         self.addToFlux()
+"""
+
+TODO: REMOVE THIS IF ABOVE version IS OK
+    def dump_buff(self, active_rayDF_indexes_todump):
+        ## Gather the data from the active_rayDF that is to be piped to system memory
+        # Get get buffer indexes of finished rays into a cupy array
+        indexes_in_buffer = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].loc[active_rayDF_indexes_todump].values)
+        
+
+        # Check if there are any rays to dump (filled or terminated)
+        if len(indexes_in_buffer) == 0:
+            return
 
 
+        # Extract pathlength and cell 1Dindex from buffer
+        tmp_pathlength = self.buff_pathlength[indexes_in_buffer,:]
+        tmp_index1D = self.buff_index1D[indexes_in_buffer,:]
+        tmp_global_rayid = self.buff_global_rayid[indexes_in_buffer,:]
+
+        # get global rayid of rays that are in the current dumps
+        transfered_global_rayid = tmp_global_rayid[:, 0]
+
+        # How many cells each ray has traced in the dump
+        # LOKE DEBUG: TODO: THIS DOES NOT WORK. WE NEED TO CALCULATE THIS AND REMOVE CELLS THAT ARE MASKED OUT DUE TO BEING EMPTY
+        # reality check: There is no reason we have to cut or mask out the last empties. In a ray with multiple dumps, only the last dump will have any padding. That's an acceptable amount of trimming to fix later
+        # for the benefit of dumping uniform buffer sections. Those can be dealt with in ray-reconstruction, or never, using the index to for the null-physics cell.
+        Ntransfered= cupy.array(self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump].values)
+
+        # How many rays we have in this dump
+        NraysInDump = len(active_rayDF_indexes_todump)
+
+        # ravel the arrays to be transfered into 1d
+        tmp_pathlength = tmp_pathlength.ravel()
+        tmp_index1D = tmp_index1D.ravel()
+        tmp_global_rayid = tmp_global_rayid.ravel()
+
+        # get the filled portion of the buffer
+        mask = tmp_pathlength > 0
+
+        # mask them out the unfilled
+        tmp_pathlength = tmp_pathlength[mask]
+        tmp_index1D = tmp_index1D[mask]
+        tmp_global_rayid = tmp_global_rayid[mask]
+
+        #TODO: Change the raystatus flag to a bitmask (https://www.sdss.org/dr12/algorithms/bitmasks/) so that we can know both if a ray buffer is filled AND terminated due to boundary or refined, terminated for any reason while it's buffer is full
+        # This would be a nice improvement, as the next bit of code would then be removable because we wouldn't need to check for pathlengths when dumping buffers
+        #TODO: If above todo is finished remove next
+        # So if no cells are there to dump, just return
+        if(len(tmp_pathlength) == 0):
+            return
+        ##
+
+        # Start and end of the current ray dump
+        ray_start = cupy.cumsum(Ntransfered) + self.start_dump
+        # explicitly calculate ray_end here as it is used in multiple locations
+        ray_end = ray_start + Ntransfered
+        # save the information of the dumped ray segments into the table of contents
+        # each ray segment is saved with the following information
+        # 1) transfered_global_rayid: The global ray ID of the ray
+        # 2) ray_start: The start index of this segment in the final output arrays on the host memory
+        # 3) ray_end: = ray_start + Ntransfered: The end index of this segment in the final output arrays on the host memory 
+        self.aggregate_toc[self.toc_length: self.toc_length + NraysInDump, :] = cupy.array([transfered_global_rayid, ray_start, ray_end]).transpose()
+        self.toc_length += NraysInDump
+
+        # Dump into the raytrace data into the pipelines which then will put it on host memory
+        self.global_rayid_pipe.push(tmp_global_rayid)
+        self.pathlength_pipe.push(tmp_pathlength)
+        self.index1D_pipe.push(tmp_index1D)
+        #self.lrefine_pipe.push(tmp_lrefine)
+
+        # added forgotten counter for how many cells we have dumped in total
+        # The next index in the dump will be were the last ray ended
+        self.start_dump = ray_end[-1]
+
+        # rays that are not pruned but are dumped due to filling their buffer has to have their status updated somewhere
+        # reset the buffer index of the rays that have been dumped
+        self.active_rayDF["buffer_current_step"].loc[active_rayDF_indexes_todump] = 0
+        self.active_rayDF["ray_status"].mask(self.active_rayDF["ray_status"] == self.active_ray_dtypes["ray_status"](1), self.active_ray_dtypes["ray_status"](0), inplace = True)
+        pass
+
+"""
