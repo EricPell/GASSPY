@@ -4,22 +4,26 @@ import cupy
     This file contains a dictonary specifying variables and their dtypes associated with the raytrace
 """
 
+rayid_dtype = cupy.int32
+default_float = cupy.float32
 # Dtypes
 ray_dtypes = {
     # Variables specific to the ray
     "xp" : cupy.float64, "yp" : cupy.float64,                       # x and y coordinate on the detector plane 
-    "global_rayid" : cupy.int32,                                    # unique id of the ray, common and fixed throughout the code 
+    "global_rayid" : rayid_dtype,                                   # unique id of the ray, common and fixed throughout the code 
     "trace_status": cupy.int8,                                      # flag for if a ray is (0)waiting/(1)active/(2)finished in its raytrace
-    "pid"         : cupy.int32,                                     # unique id of parent ray
-    "pevid"       : cupy.int32,                                     # id of the "parent split event" causing the creation of the ray
-    "cevid"       : cupy.int32,                                     # id of the "child split event" causing the termination of the ray
+    "pid"         : rayid_dtype,                                    # unique id of parent ray
+    "pevid"       : rayid_dtype,                                    # id of the "parent split event" causing the creation of the ray
+    "cevid"       : rayid_dtype,                                    # id of the "child split event" causing the termination of the ray
+    "aid"        : rayid_dtype,                                    # id of the "ancestral" ray, used as the id of the branch 
     "ray_lrefine" : cupy.int16,                                     # ray refinement level
     "refinement_level" : cupy.int8,                                 # TODO: DEPRICATED - REMOVE
     
     # Variables specific to the current location of the ray
-    "xi" : cupy.float64, "yi" : cupy.float64, "zi" : cupy.float64,  # x,y and z coordinates in the simulation domain
-    "index1D"     : cupy.int64,                                     # 1D raveled index of the cell currently containing the ray
-    "amr_lrefine" : cupy.int16,                                  # local amr refinement level
+    "xi" : cupy.float64, "yi" : cupy.float64, "zi" : cupy.float64,                # x,y and z coordinates in the simulation domain
+    "raydir_x": cupy.float64, "raydir_y": cupy.float64, "raydir_z": cupy.float64, # x, y, z normal directions of the ray path
+    "index1D"     : cupy.int64,                                                   # 1D raveled index of the cell currently containing the ray
+    "amr_lrefine" : cupy.int16,                                                   # local amr refinement level
     "pathlength"  : cupy.float64,                                   # the pathlength of the ray through the cell
     "ray_status": cupy.int8,                                        # flag for the ray being (0)fine/(1)filled its buffer/(2)terminated for leaving the domain
                                                                     # /(3)split due to refinement
@@ -41,15 +45,17 @@ ray_defaults = {
     "trace_status": 0,    
     "pid"         : -1,   
     "pevid"       : -1,   
-    "cevid"       : -1,   
+    "cevid"       : -1,  
+    "aid"        : -1,
     "ray_lrefine" : -1,             
     "refinement_level": 0,
 
     # Variables specific to the current location of the ray
     "xi" : -1, "yi" : -1, "zi" : -1,
+    "raydir_x": -1, "raydir_y": -1, "raydir_z": -1,
     "index1D"     : -1,
     "amr_lrefine" : -1,
-    "pathlength"  : -1,
+    "pathlength"  : 0,
     "ray_status": 0,
                                                            
     "active_rayDF_to_buffer_map" : -1,
