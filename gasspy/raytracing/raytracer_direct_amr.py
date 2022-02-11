@@ -4,7 +4,6 @@ import sys
 import h5py
 
 from gasspy.raytracing.utils.gpu2cpu import pipeline as gpu2cpu_pipeline
-from gasspy.utils.savename import get_filename 
 from gasspy.raystructures import active_ray_class, global_rays, traced_ray_class
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
 import gasspy.raytracing.utils.__raw_kernel_utils__ as raw_kernel_utils
