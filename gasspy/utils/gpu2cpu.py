@@ -123,6 +123,24 @@ class pipeline(object):
             self.__dict__["buffer_%i"%(i)] = cupy.zeros((self.buff_NraySegs, self.NcellPerRaySeg), dtype = self.buff_type)
         
         pass
+
+    def pushBuffer(self, target = "cpu"):
+         # If there are any slots occupied, send these to the cpu
+        if self.buffer_capcity_avail < self.buff_NraySegs:
+            self.__switchbuffer__()
+        
+            if "cpu" in target:
+                self.__push2cpu__()
+            
+            if "directstorage" in target:
+                self.__push2directstorage__()       
+
+    def finalize(self, target = "cpu"):
+        self.pushBuffer(target=target)
+        for i in self.stream_labels:
+            self.__dict__["stream_%i"%(i)].synchronize()
+                    
+
 '''
     NO LONGER USED HERE
     def __alloc_out__(self):
