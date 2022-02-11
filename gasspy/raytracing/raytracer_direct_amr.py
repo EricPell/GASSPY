@@ -872,7 +872,7 @@ class raytracer_class:
 
 
 if __name__ == "__main__":
-    from gasspy.shared_utils.debug.simulation_data_lib import simulation_data_class
+    from gasspy.shared_utils.simulation_data_lib import simulation_data_class
     from gasspy.raytracing.observers import observer_plane_class
     import numpy as np
     import cProfile 
