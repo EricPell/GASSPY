@@ -1,5 +1,5 @@
 import numpy as np
-from gasspy.utils import gasspy_io
+from gasspy.io import gasspy_io
 import pandas
 import yaml
 import sys
