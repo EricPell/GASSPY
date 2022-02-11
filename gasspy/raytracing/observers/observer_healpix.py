@@ -5,11 +5,12 @@ from scipy.spatial.transform import Rotation as R
 import cupy
 import cudf
 import healpy as hp
-from ..settings.defaults import ray_dtypes, ray_defaults
+from ...settings.defaults import ray_dtypes, ray_defaults
 import sys
 class observer_healpix_class:
     def __init__(self, sim_data, ray_lrefine_min = None, ray_lrefine_max = None, ipix_lmin = None, **kwargs):
-        
+        print("HEALPIX OBSERVER HAS NOT BEEN UPDATED WITH THE RAYSTRUCTURE. TELL LOKE TO GET HIS ACT TOGETHER")
+        sys.exit(0)
         # Minimum (eg. initial) refinement level of the rays/healpix 
         # If not minimum refinement level is not defined, either in call or in yaml file, 
         # we take it as the lowest possible (eg, 1)

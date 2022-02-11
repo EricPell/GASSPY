@@ -8,4 +8,4 @@ cloudy-output/*.sed
 cloudy-output/*
 cloudy-output 
 gasspy/scratch
-gasspy/scratch/**
+gasspy.egg-info
