@@ -13,13 +13,45 @@ from ..raystructures.traced_rays import cpu_traced_rays
 from ..settings.defaults import ray_dtypes
 #from gasspy.utils.reconstructor_test import plot_rays
 
+
+def sorted_in1d(ar1, ar2, assume_unique=False, invert=False):
+    """Tests whether each element of a 1-D array is also present in a second
+    array.
+    Returns a boolean array the same length as ``ar1`` that is ``True``
+    where an element of ``ar1`` is in ``ar2`` and ``False`` otherwise.
+    Args:
+        ar1 (cupy.ndarray): Input array.
+        ar2 (cupy.ndarray): The values against which to test each value of
+            ``ar1``. SORTED
+        assume_unique (bool, optional): Ignored
+        invert (bool, optional): If ``True``, the values in the returned array
+            are inverted (that is, ``False`` where an element of ``ar1`` is in
+            ``ar2`` and ``True`` otherwise). Default is ``False``.
+    Returns:
+        cupy.ndarray, bool: The values ``ar1[in1d]`` are in ``ar2``.
+    """
+    # Ravel both arrays, behavior for the first array could be different
+    ar1 = ar1.ravel()
+    ar2 = ar2.ravel()
+    if ar1.size == 0 or ar2.size == 0:
+        if invert:
+            return cupy.ones(ar1.shape, dtype=cupy.bool_)
+        else:
+            return cupy.zeros(ar1.shape, dtype=cupy.bool_)
+    # Use brilliant searchsorted trick
+    # https://github.com/cupy/cupy/pull/4018#discussion_r495790724
+    #ar2 = cupy.sort(ar2)
+    v1 = cupy.searchsorted(ar2, ar1, 'left')
+    v2 = cupy.searchsorted(ar2, ar1, 'right')
+    return v1 == v2 if invert else v1 != v2
+
 def __raytrace_kernel__(xi, yi, zi, raydir_x, raydir_y, raydir_z, ray_status, index1D, next_index1D, amr_lrefine, pathlength, sim_size_half, Nmax_lref, dx_lref, amr_lrefine_min, first_step, verbose):
     # raytrace kernel is the fuction called by cudf.DataFrame.apply_rows
     # xi, yi, zi are the inpuyt columns from a DataFrame
     # pathlength, index1D are the output columns 
     # check if inside the box, otherwise return 0
 
-    for i, (x,y,z, dir_x, dir_y, dir_z) in enumerate(zip(xi, yi, zi, raydir_x, raydir_y, raydir_z)):
+    for i, (x, y, z, dir_x, dir_y, dir_z) in enumerate(zip(xi, yi, zi, raydir_x, raydir_y, raydir_z)):
         # if we know we are outside the box domain set index1D to NULL value (TODO: fix this value in parameters)
 
         if ray_status[i] > 0:
@@ -238,6 +270,7 @@ class raytracer_class:
             # Turn off flag for first step
             self.first_step[0] = 0
             print(i, len(self.active_rayDF), self.global_Nraysfinished, self.global_Nrays)
+
         # Dump the buffer one last time. Should be unneccesary depending on the stopping condition
         self.dump_buff(self.active_rayDF.index)
         
@@ -288,7 +321,7 @@ class raytracer_class:
         self.grid_amr_lrefine = cupy.array(sim_data.get_amr_lrefine())
 
         # split up into per level for easier searching
-        self.grid_index1D_lref = [self.grid_index1D[self.grid_amr_lrefine == lref] for lref in range(self.amr_lrefine_min, self.amr_lrefine_max+1)]
+        self.grid_index1D_lref = [cupy.sort(self.grid_index1D[self.grid_amr_lrefine == lref]) for lref in range(self.amr_lrefine_min, self.amr_lrefine_max+1)]
 
         # query string used for dropping rays outside bounds 
         # self.inside_query_string  = "(xi >= 0 and xi <= {0} and yi >= 0 and yi <= {1} and zi >= 0 and zi <= {2})".format(int(self.Nmax[0]),int(self.Nmax[1]), int(self.Nmax[2]))
@@ -378,6 +411,7 @@ class raytracer_class:
         """
 
         self.active_rayDF = cudf.DataFrame()
+        self.Nactive = 0
         self.alloc_buffer()
 
     def allocate_global_rayDF(self, N):
@@ -397,6 +431,28 @@ class raytracer_class:
 
         # increase the global number of rays
         self.global_Nrays += N
+
+    def append_to_global_rayDF(self, new_rayDF):
+        """
+            Method to take a ray dataframe and append it to the global_rayDF
+            Fields missing in new_rayDF are added, and if global_rayid is missing this is also added
+            NOTE: fields in new_rayDF MUST be a subset of global_rayDF
+        """
+        # Number of rays 
+        N = len(new_rayDF)
+        keys_in_df = new_rayDF.keys()
+        # for all keys that are missing, set to default
+        for var in self.global_ray_vars:
+            if var in keys_in_df:
+                continue
+            new_rayDF[var] = cupy.zeros(N, dtype = ray_dtypes[var])
+
+        # If we havent set the global rays id's do that here
+        if "global_rayid" not in keys_in_df:
+            new_rayDF["global_rayid"] = cupy.arange(self.global_Nrays, self.global_Nrays + N)
+
+        self.global_rayDF = self.global_rayDF.append(new_rayDF, ignore_index=True)
+        self.global_Nrays += N
     def update_rays(self):
         # Get list of deactivated ray from the list in the activate data frame called "to_be_deactivated"
         # 
@@ -414,14 +470,16 @@ class raytracer_class:
         self.split_rays() 
            
         finished_active_rayDF_indexes = self.active_rayDF.query("ray_status > 1").index
-        Navail = len(finished_active_rayDF_indexes)
+        self.Nactive -= len(finished_active_rayDF_indexes)
+        Navail = self.NrayBuff - self.Nactive
         # If no rays are split or finished, there is nothing left to do
         if Navail == 0:
             return
 
         # Set the status in the global dataframe of the rays that are to be dropped from the active data frame to finished
-        self.global_rayDF["trace_status"].loc[self.active_rayDF["global_rayid"].loc[finished_active_rayDF_indexes]] = 2
-        self.prune_active_rays(finished_active_rayDF_indexes)
+        finished_active_rayDF_ilocs = cupy.where(cupy.isin(self.active_rayDF.index.values, finished_active_rayDF_indexes.values))[0]
+        self.global_rayDF["trace_status"].iloc[self.active_rayDF["global_rayid"].iloc[finished_active_rayDF_ilocs]] = 2
+        self.prune_active_rays(finished_active_rayDF_indexes, finished_active_rayDF_ilocs)
         self.activate_new_rays(N=Navail)
         pass
     
@@ -461,8 +519,8 @@ class raytracer_class:
         self.buff_slot_occupied[available_buffer_slot_index] = 1
         
         # Include the global_rayid of the buffer slot
-        rayids = cupy.array(newRays["global_rayid"].values)
-        self.buff_global_rayid[available_buffer_slot_index,:] = cupy.vstack((rayids for i in range(self.NcellBuff))).T
+        #rayids = cupy.array(newRays["global_rayid"].values)
+        #self.buff_global_rayid[available_buffer_slot_index,:] = cupy.vstack((rayids for i in range(self.NcellBuff))).T
    
         # validate choice of next index1D
         self.check_amr_level(newRays)
@@ -471,6 +529,9 @@ class raytracer_class:
         
         # update the last added ray
         self.global_index_of_last_ray_added+=N
+
+        # Update total number of active rays
+        self.Nactive += N
 
 
     def dump_buff(self, active_rayDF_indexes_todump):
@@ -507,8 +568,8 @@ class raytracer_class:
         self.amr_lrefine_pipe.push(tmp_amr_lrefine)
 
         # reset the buffers 
-        self.buff_index1D[indexes_in_buffer, :]    = -1
-        self.buff_pathlength[indexes_in_buffer, :] = 0 
+        self.buff_index1D[indexes_in_buffer, :]     = -1
+        self.buff_pathlength[indexes_in_buffer, :]  =  0 
         self.buff_amr_lrefine[indexes_in_buffer, :] = -1
 
         #TODO: Change the raystatus flag to a bitmask (https://www.sdss.org/dr12/algorithms/bitmasks/) so that we can know both if a ray buffer is filled AND terminated due to boundary or refined, terminated for any reason while it's buffer is full
@@ -530,23 +591,26 @@ class raytracer_class:
         else:
             self.global_rayDF = self.global_rayDF.query(self.inside_query_string)
 
-    def prune_active_rays(self, indexes_to_drop):
+    def prune_active_rays(self, indexes_to_drop, ilocs_to_drop):
         """
             Gather all rays that need to be deactivatd.
             Deactivate them in the active and global rayDFs
         """
+        #If no rays deactivated: do nothing
+        if(len(ilocs_to_drop) == 0):
+            return
         # Use flag to delete part of the buffers
         # get globalIDs of rays to be deactivated.
         # These rays are DONE, no need to refine
 
         # Newlly opened, but not cleaned slots in the buffer
-        buff_slot_newly_freed = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].loc[indexes_to_drop].values)
+        buff_slot_newly_freed = cupy.array(self.active_rayDF["active_rayDF_to_buffer_map"].iloc[ilocs_to_drop].values)
 
         self.global_Nraysfinished += len(buff_slot_newly_freed)
 
         self.buff_slot_occupied[buff_slot_newly_freed] = 0
         # Buffer to store the ray id, since these will become unordered as random rays are added and removed
-        self.buff_global_rayid[buff_slot_newly_freed, :] = -1
+        #self.buff_global_rayid[buff_slot_newly_freed, :] = -1
 
         # Remove rays that have terminated
         self.active_rayDF.drop(index=indexes_to_drop, inplace=True)
@@ -667,7 +731,7 @@ class raytracer_class:
 
         # Buffer to store the ray id, since these will become unordered as random rays are added and removed
         # LOKE finally agreed that Eric was right hahaha: changed to a 2D array such that each ray-cell-intersection has a rayID assosiated with it
-        self.buff_global_rayid = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_global_rayid"])
+        #self.buff_global_rayid = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_global_rayid"])
 
         # only occupy available buffers with rays to create new buffer
         # changed default index1D from 0 to point to the null value (-1)
@@ -700,6 +764,8 @@ class raytracer_class:
         # These are (will be) the indexes in the active_rayDF which corresponds to rays that has entered a different amr_lrefine
         index_to_find = cudf.Int64Index(data=[])
 
+        # Grab active indexes
+        active_indexes = rayDF.index
         # Fill the cupy arrays with the current value of the amr_lrefine and index1D
         self.active_index1D     = rayDF["next_index1D"].values
         self.active_amr_lrefine = rayDF["amr_lrefine"].values
@@ -712,12 +778,12 @@ class raytracer_class:
             # Grab the rays at the current refinement level
             # self.active_amr_lrefine is a array of refinement levels for all active arrays, and the comparison produces a mask of True/False values
             at_lref = self.active_amr_lrefine==lref
-            rays_at_lref = rayDF[at_lref]
+            index_at_lref = active_indexes[at_lref]
             # If there are none, skip
-            if len(rays_at_lref) == 0:
+            if len(index_at_lref) == 0:
                 continue
             # grab the indexes of those who we need to find their new amr_lrefine by identifying those that have no matching cell at their current amr_lrefine in the grid
-            index_to_find = index_to_find.append(rays_at_lref[cupy.isin(self.active_index1D[at_lref], self.grid_index1D_lref[lref-self.amr_lrefine_min]) == False].index)
+            index_to_find = index_to_find.append(index_at_lref[sorted_in1d(self.active_index1D[at_lref], self.grid_index1D_lref[lref-self.amr_lrefine_min]) == False])
         
         # If we had no rays wrong, return                                                                                                                               
         if len(index_to_find) == 0:
@@ -753,7 +819,7 @@ class raytracer_class:
             # Determine if this index1D and amr_lrefine has a match in the simulation 
             # From testing it is faster to do the following calculations on all the rays, even if some of them have already been found
             # rather than masking those out before hand. However...
-            matches = cupy.isin(index1D_to_find, self.grid_index1D_lref[lref_new-self.amr_lrefine_min])
+            matches = sorted_in1d(index1D_to_find, self.grid_index1D_lref[lref_new-self.amr_lrefine_min])
             # .. We must make sure that we dont accedentially have a match here as an index1D could exist on multiple refinement levels, 
             # just pointing to different parts of the domain
             matches[~not_found] = False
@@ -812,12 +878,14 @@ class raytracer_class:
         # Advance the ray_lrefine by 1
         childrenDF["ray_lrefine"] += 1
 
-        # allocate new rays to the global ray dataframe
-        self.allocate_global_rayDF(len(parent_rayDF)*4)
+        # append the child dataframe to the global datafram
+        self.append_to_global_rayDF(childrenDF)
+        ## allocate new rays to the global ray dataframe
+        #self.allocate_global_rayDF(len(parent_rayDF)*4)
 
         # Update the keys we calculated
-        for key in childrenDF.keys():
-            self.global_rayDF[key].iloc[children_global_rayid] = childrenDF[key].values
+        #for key in childrenDF.keys():
+        #    self.global_rayDF[key].iloc[children_global_rayid] = childrenDF[key].values
         pass
 
     def split_rays(self):

@@ -2,9 +2,11 @@ import numpy as np
 import cupyx 
 import cupy
 import pickle
-from ..settings.defaults import ray_dtypes
+from gasspy.settings.defaults import ray_dtypes, ray_defaults
 
-class cpu_traced_rays(object):
+debug_ray = 856890
+
+class traced_ray_class(object):
     def __init__(self, NraySegMax, NcellPerRaySeg, traced_vars, pinned=True):
         self.NraySegMax = NraySegMax
         self.NcellPerRaySeg = NcellPerRaySeg
@@ -13,17 +15,6 @@ class cpu_traced_rays(object):
         self.alloc()
         pass
 
-    def save(self, file="traced_rays.ray"):
-        f = open(file, 'wb')
-        pickle.dump(self.__dict__,f)
-        f.close()
-
-    def load(self, file="traced_rays.ray"):
-        with open(file, 'rb') as f:
-            tmp = pickle.load(f)
-        self.__dict__.update(tmp)
-        if self.pinned:
-            self.move_to_pinned_memory()
 
     def alloc(self):
         # For all of the variable that are traced (Default index1D, pathlength, amr_level, vlos)
@@ -31,9 +22,11 @@ class cpu_traced_rays(object):
         if self.pinned:
             for var in self.traced_vars:
                 self.__dict__[var + "_cpu_array"] = cupyx.zeros_pinned((self.NraySegMax, self.NcellPerRaySeg), dtype  = ray_dtypes[var])
+                self.__dict__[var + "_cpu_array"][:,:] = ray_defaults[var]
         else:
             for var in self.traced_vars:
                 self.__dict__[var + "_cpu_array"] = np.zeros((self.NraySegMax, self.NcellPerRaySeg), dtype  = ray_dtypes[var])
+                self.__dict__[var + "_cpu_array"][:,:] = ray_defaults[var]
 
         # Allocate array for rayid and dump number
         self.global_rayid_ofSegment = np.full(self.NraySegMax, -1, dtype = ray_dtypes["global_rayid"])
@@ -57,14 +50,17 @@ class cpu_traced_rays(object):
             stream             : (cupy.cuda.stream.Stream) stream to use in the transfer
         """
         assert isegment + NraySeg_transfered < self.NraySegMax, "More ray segments pushed to the CPU than allocated... In future this should result in allocating more memory"
-        self.__dict__[varname + "_cpu_array"][isegment : isegment + NraySeg_transfered] = data.get(stream = stream)
         
+        self.__dict__[varname + "_cpu_array"][isegment : isegment + NraySeg_transfered] = data.get(stream = stream)
         pass
 
     def append_indexes(self, global_rayid, dump_number, NraySeg_transfered):
         """
             Method to set the global_rayid and dump number of the next (specified) number of ray segments
         """
+        if(self.NraySegUsed + NraySeg_transfered > self.NraySegMax):
+            print(self.NraySegMax, self.NraySegUsed + NraySeg_transfered) 
+      
         assert self.NraySegUsed + NraySeg_transfered <= self.NraySegMax, "No more ray segments are available"
       
         # These arrays are equal in length to the number of segments.
@@ -138,3 +134,39 @@ class cpu_traced_rays(object):
         else:
             self.splitEvents = cupy.append(self.splitEvents, split_events, axis = 0)
         return
+
+
+    def save(self, file="traced_rays.ray"):
+        f = open(file, 'wb')
+        pickle.dump(self.__dict__,f)
+        f.close()
+
+    def load(self, file="traced_rays.ray"):
+        with open(file, 'rb') as f:
+            tmp = pickle.load(f)
+        self.__dict__.update(tmp)
+        if self.pinned:
+            self.move_to_pinned_memory()
+
+
+    def save_hdf5(self, h5file):
+        """
+            Saves the ray structure object as a group within an hdf5 file
+            arguments:
+                h5file: hdf5 file (An open hdf5 file in which to create the group)
+                fields: optional list of strings (subset of fields to save)
+        """
+        
+        # Save all the ray segment fields as their own group
+        grp = h5file.create_group("ray_segments")
+        grp.create_dataset("global_rayid", self.NraySegUsed, dtype = ray_dtypes["global_rayid"], data = self.global_rayid_ofSegment)
+        grp.create_dataset("dump_number", self.NraySegUsed, dtype = ray_dtypes["dump_number"], data = self.dump_number_ofSegment)
+
+        for field in self.traced_vars:
+            assert field in self.__dict__.keys(), "Field %s has not been created in traced_rays. Has the finalize trace method been called?" % (field)
+            grp.create_dataset(field, (self.NraySegUsed, self.NcellPerRaySeg), dtype = ray_dtypes[field], data = self.__dict__[field])
+
+        
+        # Save the split events and the linage information as its own dataset
+        h5file.create_dataset("splitEvents", data = self.splitEvents.get())
+

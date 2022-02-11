@@ -1,10 +1,10 @@
-from cupy._indexing.generate import CClass
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import cupy
-import cudf
-from ..settings.defaults import ray_dtypes, ray_defaults
-import sys
+
+from gasspy.settings.defaults import ray_dtypes, ray_defaults
+from gasspy.raystructures.global_rays import global_ray_class
+
 class observer_plane_class:
     def __init__(self, sim_data, Nxp = None, Nyp = None, 
                                 detector_size_x = None, detector_size_y = None,
@@ -43,18 +43,18 @@ class observer_plane_class:
 
         # This is immutable. Never shall xps and yps change. They are pixel indicies for a detector
         if planeDefinitionMethod is None :
-            self.xps = (np.arange(0, self.Nxp) + 0.5)*self.detector_size_x/self.Nxp
-            self.yps = (np.arange(0, self.Nyp) + 0.5)*self.detector_size_y/self.Nyp
+            self.xps = (cupy.arange(0, self.Nxp) + 0.5)*self.detector_size_x/self.Nxp
+            self.yps = (cupy.arange(0, self.Nyp) + 0.5)*self.detector_size_y/self.Nyp
             
             # Define the entire mesh of points 
-            self.xp, self.yp = np.meshgrid(self.xps, self.yps)
+            self.xp, self.yp = cupy.meshgrid(self.xps, self.yps)
             self.xp = self.xp.ravel()
             self.yp = self.yp.ravel()
 
             # Total number of original rays
             self.Nrays = len(self.xp)
             # Refinement level of the initial rays
-            self.ray_lrefine = int(np.log2(self.Nxp))
+            self.ray_lrefine = int(cupy.log2(self.Nxp))
         else:
             # user defined method for defining the sets of xp and yp for all rays (if for example high rez region already known)
             self.xp, self.yp, self.ray_lrefine, self.Nrays = planeDefinitionMethod()
@@ -91,121 +91,132 @@ class observer_plane_class:
         self.__dict__.update(kwargs)
 
 
-        self.rotation_matrix = R.from_rotvec(np.array([self.pitch, self.yaw, self.roll])*np.pi/180).as_matrix()
+        self.rotation_matrix = cupy.array(R.from_rotvec(np.array([self.pitch, self.yaw, self.roll])*np.pi/180).as_matrix())
+        self.ray_area = self.detector_size_y*self.detector_size_x*4**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
+        self.dxs = self.detector_size_x*2**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
+        self.dys = self.detector_size_y*2**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
 
-    def get_first_rays(self):
+
+
+    def get_first_rays(self, old_rays = None):
         """
             Takes a ray dataframe and populates it with the original set of rays corresponding to this observer
         """
-        # Initialize a dataframe
-        rayDF = cudf.DataFrame()
+        # If no old rays exist initialize the global ray datastructure with a set of rays
+        if old_rays is None:
+            global_rays = global_ray_class()
+        else:
+            global_rays = old_rays
+
+        # Append rays defined by this observer
+        global_rayids = global_rays.append(len(self.xp))
 
         # Set the observation plane definitions
-        rayDF["xp"] = cupy.array(self.xp, dtype = ray_dtypes["yp"])
-        rayDF["yp"] = cupy.array(self.yp, dtype = ray_dtypes["xp"])
+        global_rays.set_field("xp", self.xp, index = global_rayids)
+        global_rays.set_field("yp", self.yp, index = global_rayids)
         # Transform the xp and yp in the observers coordinate frame to that of the simulation
         for i, xi in enumerate(["xi", "yi", "zi"]):
-            rayDF[xi] = cupy.full(self.Nrays, self.xp0_r * float(self.rotation_matrix[i][0]) + self.yp0_r * float(self.rotation_matrix[i][1]) + self.zp0_r * float(self.rotation_matrix[i][2]) + self.rot_origin[i],
-                                              dtype = ray_dtypes[xi])
-            rayDF[xi] += (rayDF["xp"] * float(self.rotation_matrix[i][0]) +
-                          rayDF["yp"] * float(self.rotation_matrix[i][1]))
+            global_rays.set_field(xi, cupy.full(self.Nrays, self.xp0_r * float(self.rotation_matrix[i][0]) + self.yp0_r * float(self.rotation_matrix[i][1]) + self.zp0_r * float(self.rotation_matrix[i][2]) + self.rot_origin[i],
+                                              dtype = ray_dtypes[xi]) +
+                                      self.xp * float(self.rotation_matrix[i][0]) +
+                                      self.yp * float(self.rotation_matrix[i][1]), index = global_rayids)
 
         # Set the direction of the individual rays
         for i, raydir in enumerate(["raydir_x", "raydir_y", "raydir_z"]):
-            rayDF[raydir] = cupy.full(self.Nrays, 1.0 * float(self.rotation_matrix[i][2]), dtype = ray_dtypes[raydir])
+            global_rays.set_field(raydir, cupy.full(self.Nrays, 1.0 * float(self.rotation_matrix[i][2]), dtype = ray_dtypes[raydir]), index = global_rayids)
 
         # set the refinement level of the rays
-        rayDF["ray_lrefine"] = cupy.array(self.ray_lrefine)
-        # set the different ID numbers relevant to the rays
-        # The ID of the ray 
-        rayDF["global_rayid"] = cupy.arange(self.Nrays, dtype = ray_dtypes["global_rayid"])
+        global_rays.set_field("ray_lrefine", cupy.array(self.ray_lrefine), index = global_rayids)
+
         # IDs of the parents and corresponding split events, set to null values
         for i, id in enumerate(["pid", "pevid", "cevid"]):
-            rayDF[id] = cupy.full(self.Nrays, ray_defaults[id], dtype = ray_dtypes[id])
+            global_rays.set_field(id, cupy.full(self.Nrays, ray_defaults[id], dtype = ray_dtypes[id]), index = global_rayids)
         # ID of the branch, which, since this is the first ray of the branch, is the same as the ID of the ray
-        rayDF["aid"] = cupy.arange(self.Nrays, dtype = ray_dtypes["aid"])
+        global_rays.set_field("aid", global_rayids, index = global_rayids)
+
+        # Initialize the trace status of the rays
+        global_rays.set_field("trace_status", 0, index=global_rayids)
+        
+        # Initialize the amr refinement of the rays
+        global_rays.set_field("amr_lrefine", ray_defaults["amr_lrefine"], index  = global_rayids)
+        return global_rays
 
 
-               
-        return rayDF
-
-
-    def create_child_rays(self, parent_rayDF):
+    def create_child_rays(self, parent_rays):
         """
             Creates children rays for a set of rays that are to be split
         """
         # How many children
-        Nchild = 4*len(parent_rayDF)
+        Nchild = 4*len(parent_rays["xp"])
         
         # Fields that are set here
         fields_new = ["xp", "yp", 
                       "xi", "yi", "zi"]
 
         fields_from_parent = ["raydir_x", "raydir_y", "raydir_z"]
-        children_rayDF = cudf.DataFrame()        
+        child_rays = {}        
         # allocate the new fields of the children 
         for field in fields_new:
-            children_rayDF[field] = cupy.zeros(Nchild, dtype = ray_dtypes[field])
+            child_rays[field] = cupy.zeros(Nchild, dtype = ray_dtypes[field])
 
         for field in fields_from_parent:
-            children_rayDF[field] = cupy.repeat(parent_rayDF[field].values, repeats=4)
+            child_rays[field] = cupy.repeat(parent_rays[field], repeats=4)
         # Set the position and pixel of the children
-        self.set_child_pixels(children_rayDF, parent_rayDF)
-        self.set_child_positions(children_rayDF, parent_rayDF)
+        self.set_child_fields(child_rays, parent_rays)
     
-        return  children_rayDF
+        return  child_rays
 
-    def set_child_pixels(self, children_rayDF, parent_rayDF):
+    def set_child_fields(self, child_rays, parent_rays):
+        # start by getting the size of the parent pixel 
+        dxp = self.dxs[parent_rays["ray_lrefine"] - ray_defaults["ray_lrefine_min"]]
+        dyp = self.dys[parent_rays["ray_lrefine"] - ray_defaults["ray_lrefine_min"]]        
+
+        self.set_child_pixels(child_rays, parent_rays, dxp, dyp)
+        self.set_child_positions(child_rays, parent_rays, dxp, dyp)
+
+        return
+
+    def set_child_pixels(self, child_rays, parent_rays, dxp, dyp):
         """
             Calculate the xp and yp of the children given the parents
         """
-        
-        # start by getting the size of the parent pixel 
-        dxp = self.detector_size_x*2**(-parent_rayDF["ray_lrefine"].values.astype(ray_dtypes["xp"]))
-        dyp = self.detector_size_y*2**(-parent_rayDF["ray_lrefine"].values.astype(ray_dtypes["yp"]))
 
         # allocate the arrays
-        xp_new = cupy.zeros((len(parent_rayDF),4), dtype = ray_dtypes["xp"])
-        yp_new = cupy.zeros((len(parent_rayDF),4), dtype = ray_dtypes["yp"])
+        xp_new = cupy.zeros((len(parent_rays["xp"]),4), dtype = ray_dtypes["xp"])
+        yp_new = cupy.zeros((len(parent_rays["xp"]),4), dtype = ray_dtypes["yp"])
 
         # split the pixel into four
         # add 0.5 to xp
-        xp_new[:,0] = parent_rayDF["xp"].values - dxp*0.25
-        xp_new[:,1] = parent_rayDF["xp"].values + dxp*0.25
+        xp_new[:,0] = parent_rays["xp"] - dxp*0.25
+        xp_new[:,1] = parent_rays["xp"] + dxp*0.25
         xp_new[:,2] = xp_new[:,0]
         xp_new[:,3] = xp_new[:,1]
 
 
         # add 0.5 to yp
-        yp_new[:,0] = parent_rayDF["yp"].values - dyp*0.25
+        yp_new[:,0] = parent_rays["yp"] - dyp*0.25
         yp_new[:,1] = yp_new[:,0]
-        yp_new[:,2] = parent_rayDF["yp"].values + dyp*0.25
+        yp_new[:,2] = parent_rays["yp"] + dyp*0.25
         yp_new[:,3] = yp_new[:,2]
         
         # and set the pixel positions in the child dataframe
-        children_rayDF["xp"] = xp_new.ravel()
-        children_rayDF["yp"] = yp_new.ravel()
+        child_rays["xp"] = xp_new.ravel()
+        child_rays["yp"] = yp_new.ravel()
 
         return
 
-    def set_child_positions(self, children_rayDF, parent_rayDF):
+    def set_child_positions(self, child_rays, parent_rays, dxp, dyp):
         """
             Calculate the current positions of the children, given the parents
         """
-        # In the parallel case this is a simple shift of dxp*0.5 
-        # TODO: Change so that rays start from the centre of the pixel and shift by +-0.25*dxp
-        # start by getting the size of the parent pixel 
-        # TODO: This is a repeat calculation from before... maybe we can save these somehow..
-        dxp = self.detector_size_x*2**(-parent_rayDF["ray_lrefine"].values.astype(ray_dtypes["xp"]))
-        dyp = self.detector_size_y*2**(-parent_rayDF["ray_lrefine"].values.astype(ray_dtypes["yp"]))
 
         # allocate positional arrays
-        xi_new = cupy.zeros((len(parent_rayDF),4), dtype = ray_dtypes["xi"]) 
-        yi_new = cupy.zeros((len(parent_rayDF),4), dtype = ray_dtypes["yi"]) 
-        zi_new = cupy.zeros((len(parent_rayDF),4), dtype = ray_dtypes["zi"])
+        xi_new = cupy.zeros((len(parent_rays["xp"]),4), dtype = ray_dtypes["xi"]) 
+        yi_new = cupy.zeros((len(parent_rays["xp"]),4), dtype = ray_dtypes["yi"]) 
+        zi_new = cupy.zeros((len(parent_rays["xp"]),4), dtype = ray_dtypes["zi"])
 
-        xp_shift = cupy.zeros((len(parent_rayDF),4), dtype = ray_dtypes["xp"])
-        yp_shift = cupy.zeros((len(parent_rayDF),4), dtype = ray_dtypes["yp"])        
+        xp_shift = cupy.zeros((len(parent_rays["xp"]),4), dtype = ray_dtypes["xp"])
+        yp_shift = cupy.zeros((len(parent_rays["xp"]),4), dtype = ray_dtypes["yp"])        
 
         # get the shift in each direction
         xp_shift[:,0] = -dxp*0.25 
@@ -219,23 +230,23 @@ class observer_plane_class:
         yp_shift[:,3] = yp_shift[:,2]
 
         # Add the rotated shift
-        xi_new[:,:] = cupy.array(parent_rayDF["xi"].values)[:,cupy.newaxis] + xp_shift*float(self.rotation_matrix[0][0]) + yp_shift*float(self.rotation_matrix[0][1])
-        yi_new[:,:] = cupy.array(parent_rayDF["yi"].values)[:,cupy.newaxis] + xp_shift*float(self.rotation_matrix[1][0]) + yp_shift*float(self.rotation_matrix[1][1])
-        zi_new[:,:] = cupy.array(parent_rayDF["zi"].values)[:,cupy.newaxis] + xp_shift*float(self.rotation_matrix[2][0]) + yp_shift*float(self.rotation_matrix[2][1])
+        xi_new[:,:] = cupy.array(parent_rays["xi"])[:,cupy.newaxis] + xp_shift*float(self.rotation_matrix[0][0]) + yp_shift*float(self.rotation_matrix[0][1])
+        yi_new[:,:] = cupy.array(parent_rays["yi"])[:,cupy.newaxis] + xp_shift*float(self.rotation_matrix[1][0]) + yp_shift*float(self.rotation_matrix[1][1])
+        zi_new[:,:] = cupy.array(parent_rays["zi"])[:,cupy.newaxis] + xp_shift*float(self.rotation_matrix[2][0]) + yp_shift*float(self.rotation_matrix[2][1])
 
         # set the positions in the child dataframe
-        children_rayDF["xi"] = xi_new.ravel()
-        children_rayDF["yi"] = yi_new.ravel()
-        children_rayDF["zi"] = zi_new.ravel()
+        child_rays["xi"] = xi_new.ravel()
+        child_rays["yi"] = yi_new.ravel()
+        child_rays["zi"] = zi_new.ravel()
 
         return
 
-    def set_ray_area(self, rayDF):
+    def set_ray_area(self, ray_struct):
         """
             Sets the local area of the rays solid angle 
         """
         # In the case of parallel rays this is constant for a given ray refinement level
-        rayDF["ray_area"] = self.detector_size_y*self.detector_size_x * 4**(-rayDF["ray_lrefine"].values.astype(float))
+        ray_struct.set_field("ray_area", self.ray_area[ray_struct.get_field("ray_lrefine") - ray_defaults["ray_lrefine_min"]])
         
         return
     def update_ray_area(self, rayDF):
