@@ -139,6 +139,12 @@ class pipeline(object):
         self.pushBuffer(target=target)
         for i in self.stream_labels:
             self.__dict__["stream_%i"%(i)].synchronize()
+
+    def reset(self):
+        # All buffers should have already been emptied: we just need to reset counters
+        self.current_buffer_index = 0
+        self.buffer_capcity_avail = self.buff_NraySegs
+        self.current_output_index = 0
                     
 
 '''

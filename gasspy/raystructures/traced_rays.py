@@ -17,16 +17,8 @@ class traced_ray_class(object):
 
 
     def alloc(self):
-        # For all of the variable that are traced (Default index1D, pathlength, amr_level, vlos)
-        # allocate arrays for the maximum possible number of ray segments and the cells for these ray segments
-        if self.pinned:
-            for var in self.traced_vars:
-                self.__dict__[var + "_cpu_array"] = cupyx.zeros_pinned((self.NraySegMax, self.NcellPerRaySeg), dtype  = ray_dtypes[var])
-                self.__dict__[var + "_cpu_array"][:,:] = ray_defaults[var]
-        else:
-            for var in self.traced_vars:
-                self.__dict__[var + "_cpu_array"] = np.zeros((self.NraySegMax, self.NcellPerRaySeg), dtype  = ray_dtypes[var])
-                self.__dict__[var + "_cpu_array"][:,:] = ray_defaults[var]
+        # Allocate the arrays to buffer the incoming data on system memory
+        self.alloc_cpu_arrays()
 
         # Allocate array for rayid and dump number
         self.global_rayid_ofSegment = np.full(self.NraySegMax, -1, dtype = ray_dtypes["global_rayid"])
@@ -38,6 +30,18 @@ class traced_ray_class(object):
         # Arrays to store the split events of the raytrace
         self.splitEvents = None
         pass
+
+    def alloc_cpu_arrays(self):
+        # For all of the variable that are traced (Default index1D, pathlength, amr_level, vlos)
+        # allocate arrays for the maximum possible number of ray segments and the cells for these ray segments
+        if self.pinned:
+            for var in self.traced_vars:
+                self.__dict__[var + "_cpu_array"] = cupyx.zeros_pinned((self.NraySegMax, self.NcellPerRaySeg), dtype  = ray_dtypes[var])
+                self.__dict__[var + "_cpu_array"][:,:] = ray_defaults[var]
+        else:
+            for var in self.traced_vars:
+                self.__dict__[var + "_cpu_array"] = np.zeros((self.NraySegMax, self.NcellPerRaySeg), dtype  = ray_dtypes[var])
+                self.__dict__[var + "_cpu_array"][:,:] = ray_defaults[var]
  
     def data_from_cupy(self, varname, data, isegment, NraySeg_transfered, stream = None):
         """ 
@@ -85,7 +89,7 @@ class traced_ray_class(object):
 
         pass 
 
-    def finalize_trace(self):
+    def finalize_trace(self, delete_pinned = False):
         idx_sort = cupy.lexsort(cupy.array([self.dump_number_ofSegment[:self.NraySegUsed], self.global_rayid_ofSegment[:self.NraySegUsed]]))
         self.global_rayid_ofSegment = self.global_rayid_ofSegment[idx_sort.get()]   
         self.dump_number_ofSegment  = self.dump_number_ofSegment[idx_sort.get()]   
@@ -93,8 +97,9 @@ class traced_ray_class(object):
         for var in self.traced_vars:
             self.__dict__[var] = self.__dict__[var+"_cpu_array"][idx_sort.get(),:]
 
-            # release pinned memory
-            del self.__dict__[var+"_cpu_array"]       
+            if delete_pinned:
+                # release pinned memory
+                del self.__dict__[var+"_cpu_array"]       
 
 
     def move_to_pinned_memory(self):
@@ -170,3 +175,26 @@ class traced_ray_class(object):
         # Save the split events and the linage information as its own dataset
         h5file.create_dataset("splitEvents", data = self.splitEvents.get())
 
+    def reset(self):
+        # Delete all the reduced arrays and reallocate the large _cpu arrays if needed
+        cpu_arrays_exists = True
+        for field in self.traced_vars:
+            del self.__dict__[field]
+            cpu_arrays_exists = cpu_arrays_exists and (field+"_cpu" in self.__dict__.keys())
+
+        # Reset splitEvent history
+        self.splitEvents = None
+
+        # Reset dump number and global id 
+        self.global_rayid_ofSegment = np.full(self.NraySegMax, -1, dtype = ray_dtypes["global_rayid"])
+        self.dump_number_ofSegment  = np.full(self.NraySegMax, -1 , dtype = ray_dtypes["dump_number"])
+
+        # Reset all counters
+        self.NraySegUsed = 0
+
+        if cpu_arrays_exists:
+            return
+
+        # If any of the cpu arrays are missing, reallocate them
+        self.alloc_cpu_arrays()
+        

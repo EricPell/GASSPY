@@ -7,39 +7,9 @@ from gasspy.raytracing.utils.gpu2cpu import pipeline as gpu2cpu_pipeline
 from gasspy.raystructures import active_ray_class, global_rays, traced_ray_class
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
 import gasspy.raytracing.utils.__raw_kernel_utils__ as raw_kernel_utils
-#from gasspy.utils.reconstructor_test import plot_rays
+from gasspy.shared_utils.functions import sorted_in1d
 
 
-def sorted_in1d(ar1, ar2, assume_unique=False, invert=False):
-    """Tests whether each element of a 1-D array is also present in a second
-    array.
-    Returns a boolean array the same length as ``ar1`` that is ``True``
-    where an element of ``ar1`` is in ``ar2`` and ``False`` otherwise.
-    Args:
-        ar1 (cupy.ndarray): Input array.
-        ar2 (cupy.ndarray): The values against which to test each value of
-            ``ar1``. SORTED
-        assume_unique (bool, optional): Ignored
-        invert (bool, optional): If ``True``, the values in the returned array
-            are inverted (that is, ``False`` where an element of ``ar1`` is in
-            ``ar2`` and ``True`` otherwise). Default is ``False``.
-    Returns:
-        cupy.ndarray, bool: The values ``ar1[in1d]`` are in ``ar2``.
-    """
-    # Ravel both arrays, behavior for the first array could be different
-    ar1 = ar1.ravel()
-    ar2 = ar2.ravel()
-    if ar1.size == 0 or ar2.size == 0:
-        if invert:
-            return cupy.ones(ar1.shape, dtype=cupy.bool_)
-        else:
-            return cupy.zeros(ar1.shape, dtype=cupy.bool_)
-    # Use brilliant searchsorted trick
-    # https://github.com/cupy/cupy/pull/4018#discussion_r495790724
-    #ar2 = cupy.sort(ar2)
-    v1 = cupy.searchsorted(ar2, ar1, 'left')
-    v2 = cupy.searchsorted(ar2, ar1, 'right')
-    return v1 == v2 if invert else v1 != v2
 
 debug_ray = 856890
 class raytracer_class:
@@ -58,7 +28,7 @@ class raytracer_class:
         if obs_plane is not None:
             self.set_obsplane(obs_plane)
         else:
-            self.set_empty() 
+            self.obs_plane = None
         self.savefiles = savefiles
 
         # These keys need to be intialized at the transfer of an array from the global_rays to the active_rays data structures
@@ -221,8 +191,6 @@ class raytracer_class:
         """
             Method to take an observer plane set global_rays
         """
-        self.xps = 0
-        self.yps = 0
 
         self.update_obsplane(obs_plane)
 
@@ -230,17 +198,6 @@ class raytracer_class:
         """
             Method to take an observer plane and set global_rays if the observer has changed
         """
-
-        # if the xps and yps arrays have changed, we need to regenerate everything since the xp yp indices are everywhere
-        if not (np.array_equal(obs_plane.xps, cupy.asnumpy(self.xps)) 
-            and np.array_equal(obs_plane.yps, cupy.asnumpy(self.yps))):
-            pass
-            #self.xps = cupy.array(obs_plane.xps)
-            #self.yps = cupy.array(obs_plane.xps)
-            #self.xp, self.yp = cupy.meshgrid(self.xps, self.yps)
-            
-            #self.xp = self.xp.ravel()
-            #self.yp = self.yp.ravel()
 
         self.global_Nraysfinished = 0
         self.global_Nsplit_events = -1
@@ -449,15 +406,6 @@ class raytracer_class:
         # Remove rays that have terminated
         self.active_rays.remove_rays(indexes_to_drop)
 
-
-    def set_empty(self):
-        """
-            Method to initialise all used quantities to None
-        """
-        self.xps = None
-        self.yps = None
-
-
     def move_to_first_intersection(self):
         """
             finds the closest intersection to the simulation cube for each ray outside the cube
@@ -588,7 +536,6 @@ class raytracer_class:
         self.cell_index_pipe   = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["cell_index"],self.NcellBuff, "cell_index", self.traced_rays)
         self.amr_lrefine_pipe  = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["amr_lrefine"],self.NcellBuff, "amr_lrefine", self.traced_rays)
         pass
-
 
     def check_amr_level(self, index = None):
         """
@@ -811,13 +758,7 @@ class raytracer_class:
         # Determine how many blocks to run 
         blocks_per_grid = ((self.active_rays.nactive  + self.threads_per_block - 1)//self.threads_per_block)
 
-        #if cupy.isin(cupy.array([debug_ray]), self.active_rays.get_field("global_rayid")):
-        #    idx = cupy.where(self.active_rays.get_field("global_rayid") == debug_ray)[0]
-        #    self.active_rays.debug_ray(idx, ["global_rayid", "zi","pathlength", "amr_lrefine", "index1D", "next_index1D", "ray_status"])
-        #    print(int(self.active_rays.zi[idx]/2**-11)+ int(2**11)*int(self.active_rays.yi[idx]/2**-11)+ int(2**11*2**11)*int(self.active_rays.xi[idx]/2**-11))
-
         # Launch kernel to take one step
-        #self.active_rays.print(cupy.arange(10))
         self.raytrace_kernel((blocks_per_grid,), (self.threads_per_block,), (
                         # Per ray variables
                         self.active_rays.xi, 
@@ -855,6 +796,7 @@ class raytracer_class:
         #    self.active_rays.debug_ray(idx, ["global_rayid", "zi","pathlength", "amr_lrefine", "index1D", "next_index1D", "ray_status", "active_rayDF_to_buffer_map", "buffer_current_step"])
         #    print(int(self.active_rays.zi[idx]/2**-11)+ int(2**11)*int(self.active_rays.yi[idx]/2**-11)+ int(2**11*2**11)*int(self.active_rays.xi[idx]/2**-11))
         #    sys.exit(0)
+    
     def store_in_buffer(self):
         # store in buffer        
         self.buff_index1D    [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("index1D")
@@ -871,6 +813,27 @@ class raytracer_class:
         pass
 
 
+    def reset_trace(self):
+        # Reset the active_ray structure
+        self.active_rays.remove_rays(cupy.arange(self.active_rays.nactive))
+        
+        # reset the buffers
+        self.reset_buffer()
+
+        pass
+    def reset_buffer(self):
+        # set the buffered fields to their default values and tell their pipes to reset
+        for field in ["index1D", "pathlength", "amr_lrefine", "cell_index"]:
+            self.__dict__["buff_"+field][:,:] = ray_dtypes[field](ray_defaults[field]) 
+            self.__dict__[field+"_pipe"].reset()
+        
+        # Set all buffer slots as un occupied
+        self.buff_slot_occupied[:] = ray_dtypes["buff_slot_occupied"](0)
+
+        # tell the traced rays reset
+        self.traced_rays.reset()
+        pass
+
 if __name__ == "__main__":
     from gasspy.shared_utils.simulation_data_lib import simulation_data_class
     from gasspy.raytracing.observers import observer_plane_class
@@ -881,6 +844,7 @@ if __name__ == "__main__":
     save = True
     datadir = "/home/loki/research/cinn3d/inputs/ramses/SEED1_35MSUN_CDMASK_WINDUV2/GASSPY"
     sim_data = simulation_data_class(datadir = datadir)
+    raytracer = raytracer_class(sim_data, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 20, NcellBuff  = 32, raster=1, no_ray_splitting=no_ray_splitting)
 
     nframes = 19
 
@@ -893,13 +857,11 @@ if __name__ == "__main__":
     pr.enable()
     for i in range(nframes):
         print(i)
-
-        raytracer = raytracer_class(sim_data, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 20, NcellBuff  = 32, raster=1, no_ray_splitting=no_ray_splitting)
         obsplane = observer_plane_class(sim_data, pitch = pitch[i], yaw = yaw[i], roll = roll[i])
         raytracer.update_obsplane(obs_plane=obsplane)
         raytracer.raytrace_run()
         raytracer.save_trace(datadir+"/projections/%06d_trace.hdf5"%i)
-
+        raytracer.reset_trace()
     #gasspy.utils.save_to_fits.run(sim_data, obsplane, saveprefix=prefix)
     pr.disable()
     pr.dump_stats('profile_ray_struct')
