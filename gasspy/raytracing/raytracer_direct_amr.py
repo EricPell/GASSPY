@@ -6,7 +6,7 @@ import h5py
 from gasspy.raytracing.utils.gpu2cpu import pipeline as gpu2cpu_pipeline
 from gasspy.raystructures import active_ray_class, global_rays, traced_ray_class
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
-import gasspy.raytracing.utils.__raw_kernel_utils__ as raw_kernel_utils
+from gasspy.raytracing.utils.cuda_kernels import raytrace_low_mem_code_string, get_index1D_code_string
 from gasspy.shared_utils.functions import sorted_in1d
 
 
@@ -177,11 +177,11 @@ class raytracer_class:
                                                                                                                              )
 
         # Initialize the raw kernel for the raytracing (and index1D calculations)
-        self.raytrace_code_string = raw_kernel_utils.raytrace_code_string.format(
+        self.raytrace_code_string = raytrace_low_mem_code_string.format(
         sim_size_half_x = self.sim_size_half[0], sim_size_half_y = self.sim_size_half[1], sim_size_half_z = self.sim_size_half[2])
         self.raytrace_kernel = cupy.RawKernel(self.raytrace_code_string, '__raytrace_kernel__')
 
-        self.get_index1D_code_string = raw_kernel_utils.get_index1D_code_string
+        self.get_index1D_code_string = get_index1D_code_string
         self.get_index1D_kernel = cupy.RawKernel(self.get_index1D_code_string, '__get_index1D__')
 
         # save reference to sim_data

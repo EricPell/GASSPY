@@ -1,29 +1,7 @@
 import cupy 
 import numpy as np
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
-
-
-"""
-    This file contains the raw kernels used in the raytracing and various utility functions for that purpose
-"""
-
-
-def python_dtype_to_nvcc(value):
-    dtype_strings = [ [cupy.int8,  "char"],
-                      [cupy.int16, "short"],
-                      [cupy.int32, "int"],
-                      [cupy.int64, "long long"],
-                      [cupy.float16, "half"],
-                      [cupy.float32, "float"],
-                      [cupy.float64, "double"],
-                      [int, "int"]
-                   ]
-    # loop over all possible dtypes and return matching c type
-    for dtype in dtype_strings:
-        if isinstance(value, dtype[0]):
-            return dtype[1]
-    # if nothing matches.. return void and hope the user is ok...
-    return "void"
+from gasspy.raytracing.utils.cuda_kernels.dtype_functions import get_argument_string, python_dtype_to_nvcc
 
 
 """
@@ -53,14 +31,7 @@ input_vars = [["xi", "xi", "*"],
 
 
 # Loop over all of arguments and generate an appropriate argument string
-argument_string = ""
-for i, var in enumerate(input_vars):
-    name, key, arr = var[0], var[1], var[2]
-    c_type = python_dtype_to_nvcc(ray_dtypes[key](1))
-
-    if i > 0:
-        argument_string += ", " 
-    argument_string += c_type + arr + " "+ name
+argument_string = get_argument_string(input_vars)
 
 # Names of types that need to be consistent between c and python
 dx_type =  python_dtype_to_nvcc(ray_dtypes["xi"](0))
@@ -70,7 +41,7 @@ rayid_dtype = python_dtype_to_nvcc(ray_dtypes["global_rayid"](0))
 # We want this string to be formatable using kword argments, as in string.format(key = val)
 # However, this means that any {} will be interpated as a format entry. To avoid this being an issue each
 # { and } needs to be double
-raytrace_code_string = r'''
+raytrace_low_mem_code_string = r'''
 extern "C" __global__
 void __raytrace_kernel__('''+argument_string+'''){{
     int mindir;
@@ -194,67 +165,6 @@ void __raytrace_kernel__('''+argument_string+'''){{
             yi[tid] = yi[tid] + pathlength[tid]*raydir_y[tid];
         }}
         //next_index1D[tid] = ('''+index1D_type+''')iz + Nmax*('''+index1D_type+''')iy + Nmax*Nmax*('''+index1D_type+''')ix;
-    }}
-}}
-'''
-
-
-
-
-
-"""
-    Define the string containing c code for calculating index1D from a given function
-"""
-
-
-
-# Input variable dtypes (as described in settings.defaults.py) and and extra string showing their size
-input_vars = [["xi", "xi", "*"],
-              ["yi", "yi", "*"], 
-              ["zi", "zi", "*"],
-              ["index1D", "index1D", "*"],
-              ["amr_lrefine", "amr_lrefine", "*"],
-              ["dx_lref", "xi", "*"],
-              ["Nmax_lref", "index1D", "*"],  
-              ["amr_lrefine_min", "amr_lrefine", ""],
-              ["nrays", "global_rayid", "" ]]
-
-# Loop over each input variable, find corresponding dtypes and name of dtype in the compile string
-argument_string = ""
-for i, var in enumerate(input_vars):
-    name, key, arr = var[0], var[1], var[2]
-    c_type = python_dtype_to_nvcc(ray_dtypes[key](1))
-
-    if i > 0:
-        argument_string += ", " 
-    argument_string += c_type + arr + " "+ name
-
-get_index1D_code_string = r'''
-extern "C" __global__
-void __get_index1D__('''+argument_string+'''){{
-    int mindir;
-    '''+dx_type+''' dx, dy, dz, ix, iy, iz;
-    '''+amr_lrefine_type+''' iamr;
-    '''+index1D_type+''' Nmax;     
-
-    unsigned int tid = blockDim.x * blockIdx.x + threadIdx.x;
-
-    if(tid < nrays){{
-        
-        // Get the grid data relevant to the current amr level
-        iamr = amr_lrefine[tid] - amr_lrefine_min;
-        Nmax = Nmax_lref[iamr];
-
-        // Figure out cell size index on refinement level
-        dx = dx_lref[iamr*3 + 0];
-        dy = dx_lref[iamr*3 + 1];
-        dz = dx_lref[iamr*3 + 2];
-        
-        ix = xi[tid]/dx;
-        iy = yi[tid]/dy;
-        iz = zi[tid]/dz;
-
-        index1D[tid] = ('''+index1D_type+''')iz + Nmax*('''+index1D_type+''')iy + Nmax*Nmax*('''+index1D_type+''')ix;
     }}
 }}
 '''
