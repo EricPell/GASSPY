@@ -20,14 +20,14 @@ def report(test_results):
 
 test_results={}
 try:
-    from gasspy import gasspy_classes
+    from gasspy.physics.sourcefunction_database.cloudy import gasspy_cloudy_db_classes
     test_results["import library"] = True
 except:
     test_results["import library"] = False
     sys.exit("gasspy IMPORT: FAILED")
 
 try:
-    gasspy_to_cloudy = gasspy_classes.gasspy_to_cloudy(outdir="/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/", outname = "gasspy")
+    gasspy_to_cloudy = gasspy_cloudy_db_classes.gasspy_to_cloudy(outdir="/home/ewpelleg/research/cinn3d/inputs/ramses/SHELL_CDMASK2/", outname = "gasspy")
     
     test_results["init gasspy_to_cloudy class"] = True
 except:

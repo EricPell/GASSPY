@@ -20,7 +20,7 @@ def report(test_results):
 
 test_results={}
 try:
-    from gasspy import gasspy_classes
+    from gasspy.physics.sourcefunction_database.cloudy import gasspy_cloudy_db_classes
     test_results["import library"] = True
 except:
     test_results["import library"] = False
@@ -29,9 +29,9 @@ except:
 """
 create an instance
 """
-creator = gasspy_classes.uniq_dict_creator()
+creator = gasspy_cloudy_db_classes.uniq_dict_creator()
 try:
-    creator = gasspy_classes.uniq_dict_creator()
+    creator = gasspy_cloudy_db_classes.uniq_dict_creator()
     test_results["initialize creator class"] = True
 except:
     test_results["initialize creator class"] = False
@@ -171,7 +171,7 @@ except:
 del(creator)
 
 # try:
-#     gasspy_to_cloudy = gasspy_classes.gasspy_to_cloudy()
+#     gasspy_to_cloudy = gasspy_cloudy_db_classes.gasspy_to_cloudy()
     
 #     test_results["init gasspy_to_cloudy class"] = True
 # except:
