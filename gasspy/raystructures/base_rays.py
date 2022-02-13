@@ -23,6 +23,21 @@ class base_ray_class:
             self.numlib = numpy
 
         return
+
+
+    def append_field(self, field, value=None):
+        """
+            Appends a field to the current list of fields
+            arguments:
+                field: string (name of field)
+                array: optional
+        """
+        if field in self.contained_fields:
+            return
+        else:
+            self.contained_fields.append(field)
+            self.__dict__[field] = self.numlib.full(self.nalloc, ray_defaults[field], ray_dtypes[field])
+    
     def set_field(self, field, value, index = None):
         """
             Sets the values of a field 
@@ -170,3 +185,12 @@ class base_ray_class:
                 self.__dict__[field] = self.numlib.array(grp[field][:])
 
         self.nalloc = self.nrays
+
+
+    def print(self, idx = None):
+        for field in self.contained_fields:
+            print(field + ": ")
+            if idx is None:
+                print("\t\t", self.__dict__[field])
+            else:
+                print("\t\t", self.__dict__[field][idx])

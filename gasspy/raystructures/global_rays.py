@@ -25,20 +25,25 @@ class global_ray_class(base_ray_class):
         ]
     class_name = "global_rays"
 
-
-    def __init__(self, nalloc = None, on_gpu = True):
+    def __init__(self, nalloc = None, on_gpu = True, contained_fields = None):
         self.not_allocated = True
         self.nrays = 0
-        if nalloc is not None:
-            self.allocate_rays(nalloc)
-        else:
-            self.nalloc = 0
 
         self.on_gpu = on_gpu
         if self.on_gpu:
             self.numlib = cupy
         else:
             self.numlib = numpy
+        
+        if contained_fields is not None:
+            if "global_rayid" not in contained_fields:
+                contained_fields.append("global_rayid")
+            self.contained_fields = contained_fields
+        
+        if nalloc is not None:
+            self.allocate_rays(nalloc)
+        else:
+            self.nalloc = 0
         return
 
     def append(self, nrays, fields = None, over_alloc_factor = 4):
@@ -69,3 +74,4 @@ class global_ray_class(base_ray_class):
         self.nrays += nrays
         return new_global_rayid
             
+

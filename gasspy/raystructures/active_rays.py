@@ -32,11 +32,13 @@ class active_ray_class(base_ray_class):
 
     class_name = "active_rays"
 
-    def __init__(self, nrays = 0):
+    def __init__(self, nrays = 0, contained_fields = None):
         # set the number of rays in this instance
         self.nrays = nrays
         self.nactive = 0
         self.__init_arrays__()
+        if contained_fields is not None:
+            self.contained_fields = contained_fields
 
         return
 
@@ -75,6 +77,18 @@ class active_ray_class(base_ray_class):
         self.nactive = len(self.active_indexes)
         return
 
+    def append_field(self, field, value=None):
+        """
+            Appends a field to the current list of fields
+            arguments:
+                field: string (name of field)
+                array: optional
+        """
+        if field in self.contained_fields:
+            return
+        else:
+            self.contained_fields.append(field)
+            self.__dict__[field] = cupy.full(self.nrays, ray_defaults[field], ray_dtypes[field])
 
     def set_field(self, field, value, index = None, full = False):
         """
@@ -227,13 +241,6 @@ class active_ray_class(base_ray_class):
             self.__dict__[field][index] *= value
 
 
-    def print(self, idx = None):
-        for field in self.contained_fields:
-            print(field + ": ")
-            if idx is None:
-                print("\t\t", self.__dict__[field])
-            else:
-                print("\t\t", self.__dict__[field][idx])
 
     def move_to_numba(self, fields):
         for field in fields:
