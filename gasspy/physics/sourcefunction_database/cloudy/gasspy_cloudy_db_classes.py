@@ -432,7 +432,10 @@ class gasspy_to_cloudy(object):
             else:
                 sys.exit("Currently only SEDs defined by a SED file are supported")
 
-            self.outfile.write("%s(h) = %s, range %f to %f Ryd\n"%(flux_type, flux_value, EminRyd, EmaxRyd))
+            if flux_type == "phi":
+                self.outfile.write("%s(h) = %s, range %f to %f Ryd\n"%(flux_type, flux_value, EminRyd, EmaxRyd))
+            else:
+                self.outfile.write("%s = %s, range %f to %f Ryd\n"%(flux_type, flux_value, EminRyd, EmaxRyd))
 
     def create_cloudy_input_file(self, uniqueID=None, model=None, init_file=None, flux_definition=None):
         _UniqID=uniqueID
