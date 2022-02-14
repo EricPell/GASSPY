@@ -8,6 +8,7 @@ import pickle
 import astropy.table.table as table
 from astropy.table import QTable
 from astropy.table import Table
+from astropy import units as u
 import time
 from multiprocessing import Pool
 import pandas as pd
@@ -19,7 +20,7 @@ gasspy_path = pathlib.Path(gasspy.__file__).resolve().parent
 from . import gasspy_cloudy_db_defaults as defaults
 sys.path.append(os.getcwd())
 
-LastModDate = "2021.06.06.EWP"
+LastModDate = "2022.02.14.EWP"
 
 class uniq_dict_creator(object):
     def __init__(self, **kwags):
@@ -31,6 +32,8 @@ class uniq_dict_creator(object):
         self.N_unique = 0
 
         self.N_cells = 0
+
+        self.unified_fluxes = False
 
         self.outname = "test"
         self.outdir = "./"
@@ -100,7 +103,7 @@ class uniq_dict_creator(object):
     def pool_handler(self,func, exec_list,Ncores=16):
         p = Pool(min(len(exec_list), Ncores))
         p.map(func, exec_list)
-
+    
     def mask_data(self, simdata):
         """ Set masks based on mask parameters read in by the defaults library, or by myconfig"""
         masks = {}
@@ -298,6 +301,8 @@ class gasspy_to_cloudy(object):
             self.__dict__.update(kwags)
         except:
             pass
+        
+        self.unified_fluxes = False
 
         if self.unique_panda_pickle_file != None:
             self.unique_panda_pickle = pd.read_pickle(self.unique_panda_pickle_file)
@@ -308,7 +313,40 @@ class gasspy_to_cloudy(object):
                 # scalar values to Python the dictionary format
                 self.fluxdef = yaml.load(file, Loader=yaml.FullLoader)
 
+        self.unify_flux_defs()
+
         self.ForceFullDepth=ForceFullDepth
+
+    def unify_flux_defs(self):
+        """ 
+        All fluxes are to be converted to either Phi or Intensity.
+        # Phi = photons per cm^2 per s
+        # Intensity = erg per cm^2 per s        
+        """
+
+        for field in self.fluxdef:
+            if "unit" in self.fluxdef[field]:
+                if self.fluxdef[field]["unit"] not in ["phi", "intensity"]:
+                    if isinstance(self.fluxdef[field]["unit"], str):
+                        self.fluxdef[field]["unit"] = u.Unit(self.fluxdef[field]["unit"])
+                    else:
+                        if u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("Hertz")):
+                            self.unique_panda_pickle[field] +=  1/np.square(self.unique_panda_pickle['dx']) * u.Unit(self.fluxdef[field]["unit"]).to("Hertz")
+                            self.fluxdef[field]["unit"] = "phi"
+                        elif u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("1/(s*cm^2)")):
+                            self.unique_panda_pickle[field] +=  u.Unit(self.fluxdef[field]["unit"]).to("1/(s*cm^2)")
+                            self.fluxdef[field]["unit"] = "phi"
+                        elif u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("erg/(s*cm^2)")):
+                            self.unique_panda_pickle[field] +=  u.Unit(self.fluxdef[field]["unit"]).to("erg/(s*cm^2)")
+                            self.fluxdef[field]["unit"] = "intensity"
+                        elif u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("erg/s")):
+                            self.unique_panda_pickle[field] +=  1/np.square(self.unique_panda_pickle['dx']) * u.Unit(self.fluxdef[field]["unit"]).to("erg/s")
+                            self.fluxdef[field]["unit"] = "intensity"
+            else:
+                self.fluxdef[field]["unit"] = "phi"
+                
+        self.unified_fluxes = True
+
 
     def open_output(self, UniqID):
         """pass this a dictionary of parameters and values. Loop over and create prefix. Open output """
@@ -323,20 +361,19 @@ class gasspy_to_cloudy(object):
 
     def check_for_if(self, cell_depth, cell_hden, cell_phi_ih, alpha=4.0e-13):
         """Check to see if cell contains a Hydrogen ionization front"""
-        cell_depth = 10**cell_depth
-
         if self.ForceFullDepth is True:
             return True
-
         else:
-            # alpha = 4.0e-13 # H recombinations per second cm-6
-            ion_depth = cell_phi_ih /(alpha * 10**(cell_hden)**2)
+            cell_depth = 10**cell_depth
+            is_IF = False
+            for cell_phi_ih_limit in cell_phi_ih:
+                # alpha = 4.0e-13 # H recombinations per second cm-6
+                ion_depth = cell_phi_ih_limit /(alpha * 10**(cell_hden)**2)
 
-        # Change hardcoded 1e13 to mean free path of ionizing photon in H0.
-        if ion_depth <= cell_depth and ion_depth/cell_depth > self.IF_ionfrac:
-            return True
-        else:
-            return False
+                # Change hardcoded 1e13 to mean free path of ionizing photon in H0.
+                if ion_depth <= cell_depth and ion_depth/cell_depth > self.IF_ionfrac:
+                    is_IF = True
+            return is_IF
 
     def set_opacity_emiss(self, model_is_ionization_front):
         if model_is_ionization_front:
@@ -387,14 +424,16 @@ class gasspy_to_cloudy(object):
 
     def set_fluxes(self, model, flux_definition):
         for field in flux_definition.keys():
-            phi = model[field]
+            flux_value = model[field]
+            flux_type = flux_definition[field]["unit"]
             EminRyd = flux_definition[field]['Emin']/13.6
             EmaxRyd = flux_definition[field]['Emax']/13.6
             if flux_definition[field]['shape'].endswith(".sed"):
                 self.outfile.write("table SED \"%s\"\n"%flux_definition[field]['shape'])
             else:
                 sys.exit("Currently only SEDs defined by a SED file are supported")
-            self.outfile.write("phi(h) = %s, range %f to %f Ryd\n"%(phi, EminRyd, EmaxRyd))
+
+            self.outfile.write("%s(h) = %s, range %f to %f Ryd\n"%(flux_type, flux_value, EminRyd, EmaxRyd))
 
     def create_cloudy_input_file(self, uniqueID=None, model=None, init_file=None, flux_definition=None):
         _UniqID=uniqueID
@@ -415,10 +454,22 @@ class gasspy_to_cloudy(object):
         _phi_ih = 99.99
 
         if self.ForceFullDepth is False:
-            _phi_ih = 0.0
+            """
+                When flux is defined as an intensity, explicitly calculating the number of ionizing photons requires using the SED.
+                To speed that up we calculate a min and max number of photons based on the limits. At the moment since we are not accounting for the
+                cross section of hydrogen in the IF calculation this is no more or less inaccurate.
+            """
+            _phi_ih = [0.0,0.0]
             for radfield in flux_definition.keys():
                 if flux_definition[radfield]['Emin'] > 13.5984:
-                    _phi_ih += 10**model[radfield]
+                    if self.fluxdef[radfield] == 'phi':
+                        _phi_ih[0] += 10**model[radfield]
+                        _phi_ih[1] += 10**model[radfield]
+                    elif self.fluxdef[radfield] == 'intensity':
+                        phi_from_min = 10**model[radfield] / (flux_definition[radfield]['Emin']*u.eV).to("erg").value
+                        phi_from_max = 10**model[radfield] / (flux_definition[radfield]['Emax']*u.eV).to("erg").value
+                        _phi_ih[0] += phi_from_min
+                        _phi_ih[1] += phi_from_max
                 
             isIF = self.check_for_if(model["dx"], model["dens"], _phi_ih)
         else:
@@ -459,8 +510,6 @@ class gasspy_to_cloudy(object):
                 outfile.write("%f 1.000 nuFnu\n"%(self.fluxdef[field]["Emax"]/13.6) )
                 outfile.write("%f -35.0 nuFnu\n"%(self.fluxdef[field]["Emax"]*1.01/13.6) )
             outfile.close()
-
-
 
     def process_grid(self, model_limit=-1, N0=0):
         # dx + gas fields, which could be more than den and temp
