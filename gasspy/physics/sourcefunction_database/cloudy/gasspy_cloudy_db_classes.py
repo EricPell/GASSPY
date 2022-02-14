@@ -499,19 +499,24 @@ class gasspy_to_cloudy(object):
         make user defined seds using the energy bins defined by the user
         """
         try:
-            os.stat(self.outdir+"./cloudy-output")
+            os.stat(self.outdir+"/cloudy-output")
         except:
-            os.mkdir(self.outdir+"./cloudy-output")
+            os.mkdir(self.outdir+"/cloudy-output")
 
         for field in self.fluxdef.keys():
-            sedfile = "./cloudy-output/%s_%s.sed"%(self.save_prefix, field)
-            outfile = open(sedfile, 'w')
-            if self.unique_panda_pickle["fluxes"][field]["shape"] == 'const':
-                outfile.write("%f -35.0 nuFnu\n"%(self.fluxdef[field]["Emin"]*0.99/13.6) )
-                outfile.write("%f 1.000 nuFnu\n"%(self.fluxdef[field]["Emin"]/13.6) )
-                outfile.write("%f 1.000 nuFnu\n"%(self.fluxdef[field]["Emax"]/13.6) )
-                outfile.write("%f -35.0 nuFnu\n"%(self.fluxdef[field]["Emax"]*1.01/13.6) )
-            outfile.close()
+            if self.fluxdef[field]['shape'].endswith(".sed"):
+                sedfile = self.outdir+"/cloudy-output/%s"%(self.fluxdef[field]['shape'])
+                os.popen("cp %s %s"%(self.fluxdef[field]['shape'], sedfile))
+            
+            else:
+                sedfile = self.outdir+"/cloudy-output/%s_%s.sed"%(self.save_prefix, field)
+                outfile = open(sedfile, 'w')
+                if self.unique_panda_pickle["fluxes"][field]["shape"] == 'const':
+                    outfile.write("%f -35.0 nuFnu\n"%(self.fluxdef[field]["Emin"]*0.99/13.6) )
+                    outfile.write("%f 1.000 nuFnu\n"%(self.fluxdef[field]["Emin"]/13.6) )
+                    outfile.write("%f 1.000 nuFnu\n"%(self.fluxdef[field]["Emax"]/13.6) )
+                    outfile.write("%f -35.0 nuFnu\n"%(self.fluxdef[field]["Emax"]*1.01/13.6) )
+                outfile.close()
 
     def process_grid(self, model_limit=-1, N0=0):
         # dx + gas fields, which could be more than den and temp
@@ -534,6 +539,7 @@ class gasspy_to_cloudy(object):
                 rad_fluxes_string = " ".join([current_model_parameters[key] for key in self.fluxdef.keys()])
                 print(uniqueIDs[i], current_model_parameters["depth"], current_model_parameters["hden"], current_model_parameters["temp"], rad_fluxes_string)
 
+        self.make_user_seds()
 
     # def compute_cell(self, cell_i):
     #     if cell_i%self.print_every == 0:
