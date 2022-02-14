@@ -13,7 +13,7 @@ import time, timeit
 from pathlib import Path
 
 from scipy.fft import skip_backend
-from gasspy.radtransfer import cloudy_model_utils as mcu
+import gasspy.physics.sourcefunction_database.cloudy.cloudy_model_collector as mcu
 
 
 class processor_class(object):
