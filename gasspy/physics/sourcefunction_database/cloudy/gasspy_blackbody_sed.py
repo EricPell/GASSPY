@@ -58,9 +58,9 @@ class gasspy_bb():
         E_array = E_array.value
         Flux_array = Flux_array.value
         dE = (E_array[-1] - E_array[0]) * self.padding
-        out_lines = ["%f %e fnu unit eV \n"%(E_array[0] - dE, 1e-35.0),]
+        out_lines = ["%f %e fnu unit eV \n"%(E_array[0] - dE, 1e-35),]
         out_lines += ["%f %e\n"%(E_array[i], Flux_array[i]) for i in range(len(E_array))]
-        out_lines +=  ["%f %e\n"%(E_array[-1] + dE, 1e-35.0),]
+        out_lines +=  ["%f %e\n"%(E_array[-1] + dE, 1e-35),]
         return(out_lines)
 
     def write_SED(self, E_array, Flux_array, outname=None, field_name=None):
@@ -80,7 +80,6 @@ class gasspy_bb():
         f_out = open(outname, "w")
 
         f_out.writelines(self.cloudy_SED_list(E_array, Flux_array))
-        f_out.writelines("\n")
         f_out.close()
         
         return(outname)
