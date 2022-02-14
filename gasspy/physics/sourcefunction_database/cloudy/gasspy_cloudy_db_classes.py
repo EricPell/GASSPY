@@ -329,19 +329,18 @@ class gasspy_to_cloudy(object):
                 if self.fluxdef[field]["unit"] not in ["phi", "intensity"]:
                     if isinstance(self.fluxdef[field]["unit"], str):
                         self.fluxdef[field]["unit"] = u.Unit(self.fluxdef[field]["unit"])
-                    else:
-                        if u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("Hertz")):
-                            self.unique_panda_pickle[field] +=  1/np.square(self.unique_panda_pickle['dx']) * u.Unit(self.fluxdef[field]["unit"]).to("Hertz")
-                            self.fluxdef[field]["unit"] = "phi"
-                        elif u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("1/(s*cm^2)")):
-                            self.unique_panda_pickle[field] +=  u.Unit(self.fluxdef[field]["unit"]).to("1/(s*cm^2)")
-                            self.fluxdef[field]["unit"] = "phi"
-                        elif u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("erg/(s*cm^2)")):
-                            self.unique_panda_pickle[field] +=  u.Unit(self.fluxdef[field]["unit"]).to("erg/(s*cm^2)")
-                            self.fluxdef[field]["unit"] = "intensity"
-                        elif u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("erg/s")):
-                            self.unique_panda_pickle[field] +=  1/np.square(self.unique_panda_pickle['dx']) * u.Unit(self.fluxdef[field]["unit"]).to("erg/s")
-                            self.fluxdef[field]["unit"] = "intensity"
+                    if u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("Hertz")):
+                        self.unique_panda_pickle[field] +=  1/np.square(self.unique_panda_pickle['dx']) * u.Unit(self.fluxdef[field]["unit"]).to("Hertz")
+                        self.fluxdef[field]["unit"] = "phi"
+                    elif u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("1/(s*cm^2)")):
+                        self.unique_panda_pickle[field] +=  u.Unit(self.fluxdef[field]["unit"]).to("1/(s*cm^2)")
+                        self.fluxdef[field]["unit"] = "phi"
+                    elif u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("erg/(s*cm^2)")):
+                        self.unique_panda_pickle[field] +=  u.Unit(self.fluxdef[field]["unit"]).to("erg/(s*cm^2)")
+                        self.fluxdef[field]["unit"] = "intensity"
+                    elif u.Unit(self.fluxdef[field]["unit"]).is_equivalent(u.Unit("erg/s")):
+                        self.unique_panda_pickle[field] +=  1/np.square(self.unique_panda_pickle['dx']) * u.Unit(self.fluxdef[field]["unit"]).to("erg/s")
+                        self.fluxdef[field]["unit"] = "intensity"
             else:
                 self.fluxdef[field]["unit"] = "phi"
                 
