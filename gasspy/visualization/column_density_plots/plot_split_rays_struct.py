@@ -315,10 +315,10 @@ for trace_file in trace_files:
     dx_plot = 2**(-float(max_ray_lrefine))
     Nplot = int(2**max_ray_lrefine)
 
-    plot_dens = np.zeros((4096,4096))
-    plot_HII  = np.zeros((4096,4096))
-    plot_nrays = np.zeros((4096,4096))    
-    plot_lrefine = np.zeros((4096, 4096))
+    plot_dens = np.zeros((Nplot,Nplot))
+    plot_HII  = np.zeros((Nplot,Nplot))
+    plot_nrays = np.zeros((Nplot,Nplot))    
+    plot_lrefine = np.zeros((Nplot, Nplot))
     for lref in range(min_ray_lrefine, max_ray_lrefine + 1):
         dx_ray = 2**(-float(lref))
         Ncell_per_ray = 4**(max_ray_lrefine - lref)
@@ -345,9 +345,9 @@ for trace_file in trace_files:
             plot_lrefine[xplot_min[iray]:xplot_max[iray], yplot_min[iray]:yplot_max[iray]] = lref
 
 
-
-    plot_dens = plot_dens/plot_nrays
-    plot_HII  = plot_HII/plot_nrays
+    mask = plot_nrays > 1
+    plot_dens[mask] = plot_dens[mask]/plot_nrays[mask]
+    plot_HII[mask]  = plot_HII[mask]/plot_nrays[mask]
     del(plot_nrays)
     #del(leaf_ray_pseudofields)
     pathdir = "/home/loki/Runs/spectra_test/"
