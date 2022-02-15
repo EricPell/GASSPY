@@ -1,6 +1,4 @@
-import cupy 
-import numpy as np
-from gasspy.settings.defaults import ray_dtypes, ray_defaults
+from gasspy.settings.defaults import ray_dtypes
 from gasspy.raytracing.utils.cuda_kernels.dtype_functions import get_argument_string, python_dtype_to_nvcc
 
 

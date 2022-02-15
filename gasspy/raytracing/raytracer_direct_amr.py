@@ -4,7 +4,7 @@ import sys
 import h5py
 
 from gasspy.raytracing.utils.gpu2cpu import pipeline as gpu2cpu_pipeline
-from gasspy.raystructures import active_ray_class, global_rays, traced_ray_class
+from gasspy.raystructures import active_ray_class, traced_ray_class
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
 from gasspy.raytracing.utils.cuda_kernels import raytrace_low_mem_code_string, get_index1D_code_string
 from gasspy.shared_utils.functions import sorted_in1d
@@ -89,8 +89,9 @@ class raytracer_class:
             self.update_rays()
             i+=1
 
-            print(i, self.active_rays.nactive, self.global_Nraysfinished, self.global_rays.nrays)
- 
+            if i%100 == 0:
+                print(i, self.active_rays.nactive, self.global_Nraysfinished, self.global_rays.nrays)
+
         # Dump the buffer one last time. Should be unneccesary depending on the stopping condition
         self.dump_buff(cupy.arange(self.active_rays.nactive))
         
@@ -160,21 +161,8 @@ class raytracer_class:
         for lref in range(self.amr_lrefine_min, self.amr_lrefine_max + 1):
             at_lref = self.grid_amr_lrefine == lref
             idx_sort = self.grid_index1D[at_lref].argsort()
-            self.grid_index1D_lref.append(self.grid_index1D[at_lref][idx_sort])        
+            self.grid_index1D_lref.append(self.grid_index1D[at_lref][idx_sort].astype(ray_dtypes["index1D"]))        
             self.grid_cell_index_lref.append(self.grid_cell_index[at_lref][idx_sort])        
-
-        # query string used for dropping rays outside bounds 
-        # self.inside_query_string  = "(xi >= 0 and xi <= {0} and yi >= 0 and yi <= {1} and zi >= 0 and zi <= {2})".format(int(self.Nmax[0]),int(self.Nmax[1]), int(self.Nmax[2]))
-        self.inside_query_string  = "(pathlength >= 0)"
-
-        self.inside_soft_query_string  = "(xi > {0} and xi < {1} and yi > {2} and yi < {3} and zi > {4} and zi < {5})".format(
-                                                                                                                             -float(self.dx_lref[0,0]),                     #xmin - dx
-                                                                                                                             self.sim_size_x+float(self.dx_lref[0,0]),      #xmax + dx
-                                                                                                                             -float(self.dx_lref[0,1]),                     #ymin - dy 
-                                                                                                                             self.sim_size_y+float(self.dx_lref[0,1]),      #ymax + dy
-                                                                                                                             -float(self.dx_lref[0,2]),                     #zmin - dz      
-                                                                                                                             self.sim_size_z+float(self.dx_lref[0,2])       #zmax + dz
-                                                                                                                             )
 
         # Initialize the raw kernel for the raytracing (and index1D calculations)
         self.raytrace_code_string = raytrace_low_mem_code_string.format(
@@ -571,8 +559,8 @@ class raytracer_class:
             return
         
         # Pre allocate arrays to store the new values of index1D and amr_lrefine in
-        index1D_to_find = cupy.zeros(len(indexes_to_find))
-        amr_lrefine_to_find = cupy.zeros(len(indexes_to_find), dtype = cupy.int16)
+        index1D_to_find = cupy.zeros(len(indexes_to_find), dtype = ray_dtypes["index1D"])
+        amr_lrefine_to_find = cupy.zeros(len(indexes_to_find), dtype = ray_dtypes["amr_lrefine"])
         
         # A mask showing which of the mismatched rays still need to have their host cell amr_lrefine determined
         not_found = cupy.full(len(indexes_to_find), True, dtype = cupy.bool8)
@@ -621,7 +609,7 @@ class raytracer_class:
             # .. We must make sure that we dont accedentially have a match here as an index1D could exist on multiple refinement levels, 
             # just pointing to different parts of the domain
             matches[~not_found] = False
-            
+
             # If we have no matches on this amr level : skip
             if cupy.sum(matches) == 0:
                 continue
@@ -632,7 +620,6 @@ class raytracer_class:
         # Grab all of those that were found and update the amr_lrefine and next_index1D.. We still have the rays that strictly speaking has left the box
         # these dont have any matching cells, so we can only grab found and not all
         found = ~not_found
-
         self.active_rays.set_field("amr_lrefine",  amr_lrefine_to_find[found], index = indexes_in_active_rays[found])
         self.active_rays.set_field("next_index1D", index1D_to_find[found], index = indexes_in_active_rays[found])
 
@@ -667,7 +654,8 @@ class raytracer_class:
         # in the case of non-parallell rays, we may need to update the area of each ray as we move along
         # if so, this is also a function that belongs to the observer
         self.obs_plane.update_ray_area(self.active_rays)
-
+        #print(self.cell_smallest_area[self.active_rays.get_field("amr_lrefine") - self.amr_lrefine_min])
+        #print(self.active_rays.get_field("ray_area"))
         # check where the area covered by the ray is larger than some fraction of its cell
         unresolved = self.active_rays.get_field("ray_area") > self.ray_max_area_frac * self.cell_smallest_area[self.active_rays.get_field("amr_lrefine") - self.amr_lrefine_min]
         self.active_rays.set_field("ray_status", 3, index = cupy.where(unresolved)[0])
@@ -840,11 +828,11 @@ if __name__ == "__main__":
     import numpy as np
     import cProfile 
 
-    no_ray_splitting = False #True
+    no_ray_splitting = True
     save = True
     datadir = "/home/loki/research/cinn3d/inputs/ramses/SEED1_35MSUN_CDMASK_WINDUV2/GASSPY"
     sim_data = simulation_data_class(datadir = datadir)
-    raytracer = raytracer_class(sim_data, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 20, NcellBuff  = 32, raster=1, no_ray_splitting=no_ray_splitting)
+    raytracer = raytracer_class(sim_data, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 10, NcellBuff  = 32, raster=1, no_ray_splitting=no_ray_splitting)
 
     nframes = 19
 
@@ -860,8 +848,7 @@ if __name__ == "__main__":
         obsplane = observer_plane_class(sim_data, pitch = pitch[i], yaw = yaw[i], roll = roll[i])
         raytracer.update_obsplane(obs_plane=obsplane)
         raytracer.raytrace_run()
-        raytracer.save_trace(datadir+"/projections/%06d_trace.hdf5"%i)
+        #raytracer.save_trace(datadir+"/projections/%06d_trace.hdf5"%i)
         raytracer.reset_trace()
-    #gasspy.utils.save_to_fits.run(sim_data, obsplane, saveprefix=prefix)
     pr.disable()
     pr.dump_stats('profile_ray_struct')

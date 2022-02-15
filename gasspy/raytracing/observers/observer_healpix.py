@@ -1,12 +1,12 @@
-from enum import unique
-from cupy._indexing.generate import CClass
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import cupy
 import cudf
 import healpy as hp
-from ...settings.defaults import ray_dtypes, ray_defaults
 import sys
+
+from gasspy.settings.defaults import ray_dtypes, ray_defaults
+
 class observer_healpix_class:
     def __init__(self, sim_data, ray_lrefine_min = None, ray_lrefine_max = None, ipix_lmin = None, **kwargs):
         print("HEALPIX OBSERVER HAS NOT BEEN UPDATED WITH THE RAYSTRUCTURE. TELL LOKE TO GET HIS ACT TOGETHER")
