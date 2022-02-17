@@ -1,6 +1,5 @@
 #from re import I
 import cupy
-from numba import cuda
 from .base_rays import base_ray_class
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
 """
@@ -239,14 +238,6 @@ class active_ray_class(base_ray_class):
             self.__dict__[field][:self.nactive] *= value
         else:
             self.__dict__[field][index] *= value
-
-
-
-    def move_to_numba(self, fields):
-        for field in fields:
-            assert field in self.contained_fields, "Field %s does not exist in %s data structure" % (field, self.class_name)
-            self.__dict__[field] = cuda.as_cuda_array(self.__dict__[field])
-
 
     def move_to_cupy(self, fields):
         for field in fields:
