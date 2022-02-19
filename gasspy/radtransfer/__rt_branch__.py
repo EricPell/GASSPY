@@ -1,6 +1,7 @@
 """
 This routine performs a spectra RT on an AMR grid
 """
+from inspect import trace
 import sys, os
 from pathlib import Path
 import pickle
@@ -8,8 +9,10 @@ import numpy as np
 import cudf
 import cupy
 import torch
+import h5py
 from astropy.io import fits
 from astropy import constants as const
+from gasspy.raystructures import global_ray_class
 import yaml
 
 class FamilyTree():
@@ -17,8 +20,10 @@ class FamilyTree():
         self, root_dir="./",
         gasspy_subdir="GASSPY",
         gasspy_spec_subdir="spec",
+        gasspy_projection_subdir="projections",
         traced_rays=None,
-        global_rayDF=None,
+        traced_rays_deprecated=None,
+        global_rayDF_deprecated=None,
         energy=None,
         energy_lims=None,
         Emask=None,
@@ -42,25 +47,59 @@ class FamilyTree():
         self.dtype = dtype
         self.torch_dtype = torch.as_tensor(np.array([],dtype=self.dtype)).dtype
 
+        if liteVRAM:
+            self.numlib = cupy
+        else:
+            self.numlib = np
+
+        if str == type(root_dir):
+            assert Path(root_dir).is_dir(), "Provided root_dir \""+root_dir+"\"is not a directory"
+            self.root_dir = root_dir
+
         assert type(gasspy_subdir) == str, "gasspy_subdir not a string"
         if not gasspy_subdir.endswith("/"):
             gasspy_subdir = gasspy_subdir + "/"
         if not gasspy_subdir[0] == "/":
             gasspy_subdir = "/" + gasspy_subdir
+        self.gasspy_subdir = gasspy_subdir
+        assert Path.is_dir(self.root_dir+self.gasspy_spec_subdir) == True, "GASSPY subdir does not exist..."
+
+        assert type(gasspy_projection_subdir) == str, "gasspy_projection_subdir not a string"
+        if not gasspy_projection_subdir[0] == "/":
+            gasspy_projection_subdir = "/" + gasspy_projection_subdir
+        if not gasspy_spec_subdir.endswith("/"):
+            gasspy_projection_subdir = gasspy_projection_subdir + "/"
+        self.gasspy_projection_subdir = gasspy_projection_subdir
+        assert Path.is_dir(self.root_dir+self.gasspy_projection_subdir) == True, "GASSPY projections dir does not exist..."
 
         assert type(gasspy_spec_subdir) == str, "gasspy_spec_subdir not a string"
         if not gasspy_spec_subdir[0] == "/":
             gasspy_spec_subdir = "/" + gasspy_spec_subdir
         if not gasspy_spec_subdir.endswith("/"):
             gasspy_spec_subdir = gasspy_spec_subdir + "/"
-
-        if str == type(root_dir):
-            assert Path(root_dir).is_dir(), "Provided root_dir \""+root_dir+"\"is not a directory"
-            self.root_dir = root_dir
+        self.gasspy_spec_subdir = gasspy_spec_subdir
 
         if make_spec_subdirs:
             spec_subdir_path = root_dir+gasspy_subdir+gasspy_spec_subdir
             os.makedirs(spec_subdir_path, exist_ok = True) 
+
+        if not isinstance(traced_rays, h5py._hl.files.File):
+            assert isinstance(traced_rays, str), "provided traced rays is neither a string or open hd5 file"
+            if Path(traced_rays).is_file():
+                tmp_path = traced_rays
+            elif Path(self.root_dir+self.gasspy_projection_subdir+self.traced_rays).is_file():
+                tmp_path = self.root_dir+self.gasspy_projection_subdir+self.traced_rays
+            else:
+                sys.exit("Could not find the traced rays file\n"+\
+                "Provided path: %s"%traced_rays+\
+                "Try looking in \"./\" and %s\n"%(self.root_dir+self.gasspy_projection_subdir)+\
+                "Aborting...")            
+
+            self.traced_rays_h5file = h5py.File(self.traced_rays, "r")
+        else:
+            self.traced_rays_h5file = traced_rays
+
+        self.last_gid = 0
 
         self.mu = mu
         self.den = den
@@ -78,10 +117,6 @@ class FamilyTree():
 
         self.raydump_dict = {}
 
-        self.gasspy_subdir = gasspy_subdir
-
-        self.gasspy_spec_subdir = gasspy_spec_subdir
-
         self.los_angle = los_angle
 
         self.liteVRAM = liteVRAM
@@ -95,14 +130,12 @@ class FamilyTree():
         self.vel = vel
         self.saved3d = saved3d
         self.traced_rays = traced_rays
-        self.global_rayDF = global_rayDF
+        self.global_rayDF_deprecated = global_rayDF_deprecated
         self.config_yaml = config_yaml
-
-
 
     def load_all(self):
         self.load_config_yaml()
-        self.load_global_rays()
+        self.load_global_rays_deprecated()
 
         # Ensure the energy bins are loaded BEFORE the em and op tables to minimize memory used
         self.load_energy_limits()
@@ -110,6 +143,7 @@ class FamilyTree():
         self.load_em()
         self.load_op()
         self.load_saved3d()
+        self.load_new_global_rays
         self.load_cell_index_to_gasspydb()
         self.load_velocity_data()
         self.load_density_data()
@@ -151,20 +185,26 @@ class FamilyTree():
         
         self.sim_unit_length = self.config_dict["sim_unit_length"]
 
-    def load_global_rays(self):
+    def load_new_global_rays(self):
+        self.new_global_rays = global_ray_class(on_gpu=self.liteVRAM)
+        self.new_global_rays.load_hdf5(self.traced_rays_h5file)
+        # Select the ancestral GIDs
+        self.ancenstors = self.new_global_rays[self.numlib.where(self.new_global_rays.pevid == -1)]
+
+    def load_global_rays_deprecated(self):
         # load up on rays
-        if str == type(self.global_rayDF):
-            if Path(self.global_rayDF).is_file():
-                tmp_path = self.global_rayDF
-            elif Path(self.root_dir + self.gasspy_subdir + self.global_rayDF).is_file():
-                tmp_path = self.root_dir + self.gasspy_subdir + self.global_rayDF
-            self.global_rayDF = cudf.read_hdf(tmp_path)
+        if isinstance(str, self.global_rayDF_deprecated):
+            if Path(self.global_rayDF_deprecated).is_file():
+                tmp_path = self.global_rayDF_deprecated
+            elif Path(self.root_dir + self.gasspy_subdir + self.global_rayDF_deprecated).is_file():
+                tmp_path = self.root_dir + self.gasspy_subdir + self.global_rayDF_deprecated
+            self.global_rayDF_deprecated = cudf.read_hdf(tmp_path)
         # expressions to find parents and children
         self.pid_expr = "(pid == %i)"
         self.pevid_expr = "(pevid == %i)"
 
         # Get all first_parents with children
-        self.ancenstors = self.global_rayDF.query("(pevid == -1)")
+        self.ancenstors = self.global_rayDF_deprecated.query("(pevid == -1)")
 
     def load_energy_limits(self):
         if self.useGasspyEnergyWindows and self.energy_lims is None:
@@ -266,17 +306,21 @@ class FamilyTree():
                 sys.exit("Unrecognizized format for velocity data file. Contact developers...")
 
     def load_traced_rays(self):
-        if str == type(self.traced_rays):
-            if Path(self.traced_rays).is_file():
-                tmp_path = self.traced_rays
-            elif Path(self.root_dir + self.gasspy_subdir + self.traced_rays).is_file():
-                tmp_path = self.root_dir + self.gasspy_subdir + self.traced_rays
+        self.raydump_dict['segment_global_rayid'] = self.traced_rays_h5file['ray_segments']['global_rayid'][:]
+        self.raydump_dict["pathlength"] = self.traced_rays_h5file["ray_segments"]["pathlength"].astype(self.dtype)*self.dtype(self.sim_unit_length)
+        self.raydump_dict["cell_index"] = self.traced_rays_h5file["ray_segments"]["cell_index"][:,:]
+        self.raydump_dict["splitEvents"] = self.traced_rays_h5file["splitEvents"][:,:]
+ 
+        # Initialize the raydump N_segs and index into ray_buffer_dumps with -1
+        self.raydump_dict["ray_index0"] = np.full(self.raydump_dict['global_rayid'].max()+1,-1)
+        self.raydump_dict["Nsegs"] = np.full(self.raydump_dict['global_rayid'].max()+1,-1)
 
-            with open(tmp_path, "rb") as f:
-                tmp = pickle.load(f)
-                self.raydump_dict.update(tmp)
-            
-            self.raydump_dict["pathlength"] = self.raydump_dict["pathlength"].astype(self.dtype)*self.dtype(self.sim_unit_length)
+        # Get the unique values and the first index of array with that value, and Counts. 
+        # This ONLY works because segment global_rayid is sorted.
+        unique_gid, i0, Nsegs = np.unique(self.raydump_dict['segment_global_rayid'], return_counts=True, return_index=True)
+
+        self.raydump_dict["ray_index0"][unique_gid] = i0
+        self.raydump_dict["Nsegs"][unique_gid] = Nsegs
 
         self.family_tree = {}
         self.max_level = 0
@@ -339,7 +383,7 @@ class FamilyTree():
         level = 0
 
         # This initalizes the trace down from parent
-        gid = self.ancenstors.iloc[root_i]['global_rayid']
+        gid = self.ancenstors['global_rayid'][root_i]
 
         new_parent_gids = cupy.array([gid], dtype=cupy.int64)
 
@@ -410,8 +454,10 @@ class FamilyTree():
         # These are the ray dumps of the first root
 
         branch_gid = self.branch[0]
-        my_segment_IDs[my_l_i][0] = np.array(list(self.raydump_dict["RaySegment_mapping_dict"][branch_gid].values()))
-        my_cell_indexes = self.raydump_dict["cell_index"].take(my_segment_IDs[my_l_i][0], axis=0)
+        
+        #my_segment_IDs[my_l_i][0] = np.array(list(self.raydump_dict["RaySegment_mapping_dict"][branch_gid].values()))
+        my_segment_IDs[my_l_i][0] = np.where(self.raydump_dict["global_rayid"][self.last_gid:] == branch_gid)
+        my_cell_indexes = self.raydump_dict["cell_index"][self.last_gid:].take(my_segment_IDs[my_l_i][0], axis=0)
         gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
 
         # Check if using Tensors
@@ -419,7 +465,7 @@ class FamilyTree():
             my_Em = torch.as_tensor(self.em.take(gasspy_id, axis=1), device=cuda_device)
             my_Opc = torch.as_tensor(self.op.take(gasspy_id, axis=1), device=cuda_device)
 
-            my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"].take(my_segment_IDs[my_l_i][0], axis=0), device=cuda_device)
+            my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"][self.last_gid:].take(my_segment_IDs[my_l_i][0], axis=0), device=cuda_device)
 
             if self.opc_per_NH:
                 my_den = torch.as_tensor(self.den.take(my_cell_indexes), device=cuda_device)
