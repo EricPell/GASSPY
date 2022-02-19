@@ -8,7 +8,7 @@ class tree(object):
         self.physics = {"shocked":False,
         "fully_ionized":False,
         "ionization_front":False,
-        "shielded":False,m  
+        "shielded":False,  
         "turbulent":False}
 
         # This creates a dictionary which contains links to the test.
