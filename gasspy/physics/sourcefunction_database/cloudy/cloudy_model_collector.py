@@ -26,14 +26,18 @@ class ModelCollector():
         assert type(out_dir) == str, "out_dir not a string"
         if not out_dir.endswith("/"):
             out_dir = out_dir + "/"
-
         self.out_dir = os.path.abspath(out_dir)
         print(self.out_dir)
+
+        if not cloudy_dir.endswith("/"):
+            cloudy_dir = cloudy_dir + "/" 
+        self.cloudy_dir = cloudy_dir
+
+
         self.db_name = db_name
 
         self.use_gpu = use_gpu
         self.all_opacities = all_opacities
-        self.cloudy_dir = cloudy_dir
         self.energy_limits = None
 
         self.opacity_everyzone = None
@@ -54,7 +58,6 @@ class ModelCollector():
 
     def read_em(self, filename, suff=".em"):
         """ Read the multizone emissivity spectrum """
-
         if self.use_gpu:
             try:
                 mydf = cudf.read_csv(
@@ -221,6 +224,7 @@ class ModelCollector():
             files = [single_file,]
         else:    
             files = glob.glob(self.cloudy_dir+"/*.out")
+            
         cleaned = [int(file.split("/")[-1].strip(".out")[len("gasspy-"):]) for file in files]
         cleaned.sort()
         files = ["gasspy-%i"%file_i for file_i in cleaned]
@@ -322,7 +326,7 @@ class ModelCollector():
         """ Run all routines for a single model """
         self.skip = False
         try:
-            # if True:
+        #if True:
             self.read_in(name)
             self.read_mol(name)
             self.read_em(name)
@@ -330,6 +334,7 @@ class ModelCollector():
             self.read_opc(name)
 
         except:
+        #else:
             self.skip = True
     
 if __name__ == "__main__":
