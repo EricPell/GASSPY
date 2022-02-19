@@ -14,14 +14,14 @@ class observer_plane_class:
         # if not defined assume that the simulation data is cubic, and take the plot grid to use the same dimensions
         if Nxp is not None:
             self.Nxp = Nxp
-        elif "Nxp" in sim_data.config_yaml:
+        elif "Nxp" in sim_data.config_yaml.keys():
             self.Nxp = sim_data.config_yaml["Nxp"]
         else:
             self.Nxp = sim_data.Ncells[0]
 
         if Nyp is not None:
             self.Nyp = Nyp
-        elif "Nyp" in sim_data.config_yaml:
+        elif "Nyp" in sim_data.config_yaml.keys():
             self.Nyp = sim_data.config_yaml["Nyp"]
         else:
             self.Nyp = sim_data.Ncells[1]
