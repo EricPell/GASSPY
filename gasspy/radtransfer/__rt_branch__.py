@@ -22,7 +22,6 @@ class FamilyTree():
         gasspy_spec_subdir="spec",
         gasspy_projection_subdir="projections",
         traced_rays=None,
-        traced_rays_deprecated=None,
         global_rayDF_deprecated=None,
         energy=None,
         energy_lims=None,
@@ -62,7 +61,7 @@ class FamilyTree():
         if not gasspy_subdir[0] == "/":
             gasspy_subdir = "/" + gasspy_subdir
         self.gasspy_subdir = gasspy_subdir
-        assert Path.is_dir(self.root_dir+self.gasspy_spec_subdir) == True, "GASSPY subdir does not exist..."
+        assert Path(self.root_dir+self.gasspy_subdir).is_dir() == True, "GASSPY subdir does not exist..."
 
         assert type(gasspy_projection_subdir) == str, "gasspy_projection_subdir not a string"
         if not gasspy_projection_subdir[0] == "/":
@@ -70,7 +69,7 @@ class FamilyTree():
         if not gasspy_spec_subdir.endswith("/"):
             gasspy_projection_subdir = gasspy_projection_subdir + "/"
         self.gasspy_projection_subdir = gasspy_projection_subdir
-        assert Path.is_dir(self.root_dir+self.gasspy_projection_subdir) == True, "GASSPY projections dir does not exist..."
+        assert Path(self.root_dir+self.gasspy_subdir+self.gasspy_projection_subdir).is_dir() == True, "GASSPY projections dir does not exist..."
 
         assert type(gasspy_spec_subdir) == str, "gasspy_spec_subdir not a string"
         if not gasspy_spec_subdir[0] == "/":
@@ -85,17 +84,19 @@ class FamilyTree():
 
         if not isinstance(traced_rays, h5py._hl.files.File):
             assert isinstance(traced_rays, str), "provided traced rays is neither a string or open hd5 file"
+            if not traced_rays.endswith(".hdf5"):
+                traced_rays += ".hdf5"
             if Path(traced_rays).is_file():
                 tmp_path = traced_rays
-            elif Path(self.root_dir+self.gasspy_projection_subdir+self.traced_rays).is_file():
-                tmp_path = self.root_dir+self.gasspy_projection_subdir+self.traced_rays
+            elif Path(self.root_dir+self.gasspy_subdir+self.gasspy_projection_subdir+traced_rays).is_file():
+                tmp_path = self.root_dir+self.gasspy_subdir+self.gasspy_projection_subdir+traced_rays
             else:
                 sys.exit("Could not find the traced rays file\n"+\
                 "Provided path: %s"%traced_rays+\
                 "Try looking in \"./\" and %s\n"%(self.root_dir+self.gasspy_projection_subdir)+\
                 "Aborting...")            
 
-            self.traced_rays_h5file = h5py.File(self.traced_rays, "r")
+            self.traced_rays_h5file = h5py.File(tmp_path, "r")
         else:
             self.traced_rays_h5file = traced_rays
 
@@ -193,7 +194,7 @@ class FamilyTree():
 
     def load_global_rays_deprecated(self):
         # load up on rays
-        if isinstance(str, self.global_rayDF_deprecated):
+        if isinstance(self.global_rayDF_deprecated, str):
             if Path(self.global_rayDF_deprecated).is_file():
                 tmp_path = self.global_rayDF_deprecated
             elif Path(self.root_dir + self.gasspy_subdir + self.global_rayDF_deprecated).is_file():
