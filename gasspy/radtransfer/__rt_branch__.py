@@ -136,7 +136,6 @@ class FamilyTree():
 
     def load_all(self):
         self.load_config_yaml()
-        self.load_global_rays_deprecated()
 
         # Ensure the energy bins are loaded BEFORE the em and op tables to minimize memory used
         self.load_energy_limits()
