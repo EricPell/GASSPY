@@ -26,8 +26,7 @@ print_status_every_N = 1000
 mytree = __rt_branch__.FamilyTree(
     root_dir=root_dir,
     gasspy_subdir="GASSPY",
-    traced_rays="000000_loke_devel_fixed.ray",
-    global_rayDF="000000_global_rayDF.ray",
+    traced_rays="000000_trace",
     energy="gasspy_ebins.pkl.npy",
     energy_lims=None,
     em="gasspy_avg_em.pkl.npy",
@@ -38,7 +37,7 @@ mytree = __rt_branch__.FamilyTree(
     opc_per_NH=True,
     mu=1.1,
     accel="TORCH",
-    liteVRAM=True,
+    liteVRAM=False,
     Nraster=4,
     dtype=np.float32
 )
@@ -50,7 +49,7 @@ print("N_energybins = %i"%(len(mytree.energy)))
 t = time.time()
 t_start = t
 
-profiling = False
+profiling = True
 if profiling:
     profiler = cProfile.Profile()
     profiler.enable()
@@ -58,7 +57,12 @@ if profiling:
 if mytree.accel == "TORCH":
     cuda_device = torch.device('cuda:0')
 
-#for root_i in range(len(mytree.ancenstors)):
+# for root_i in range(len(mytree.ancenstors)):
+#     mytree.set_branch(root_i)
+#     if root_i % 1000 == 0:
+#         print(root_i)
+#     if len(mytree.branch) > 1:
+#         print(mytree.branch)
 
 for root_i in range(len(mytree.ancenstors)):
     t = mytree.get_spec_root(root_i, cuda_device)
@@ -69,4 +73,4 @@ print ("total time = ",time.time()-t_start)
 if profiling:
     profiler.disable()
     stats = pstats.Stats(profiler).sort_stats('ncalls')
-    stats.dump_stats("radtran_profile_float32_large")
+    stats.dump_stats("radtran_newrays")

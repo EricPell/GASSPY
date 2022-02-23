@@ -47,9 +47,9 @@ class FamilyTree():
         self.torch_dtype = torch.as_tensor(np.array([],dtype=self.dtype)).dtype
 
         if liteVRAM:
-            self.numlib = cupy
-        else:
             self.numlib = np
+        else:
+            self.numlib = cupy
 
         if str == type(root_dir):
             assert Path(root_dir).is_dir(), "Provided root_dir \""+root_dir+"\"is not a directory"
@@ -100,8 +100,6 @@ class FamilyTree():
         else:
             self.traced_rays_h5file = traced_rays
 
-        self.last_gid = 0
-
         self.mu = mu
         self.den = den
         self.massden = massden
@@ -143,7 +141,7 @@ class FamilyTree():
         self.load_em()
         self.load_op()
         self.load_saved3d()
-        self.load_new_global_rays
+        self.load_new_global_rays()
         self.load_cell_index_to_gasspydb()
         self.load_velocity_data()
         self.load_density_data()
@@ -186,10 +184,10 @@ class FamilyTree():
         self.sim_unit_length = self.config_dict["sim_unit_length"]
 
     def load_new_global_rays(self):
-        self.new_global_rays = global_ray_class(on_gpu=self.liteVRAM)
+        self.new_global_rays = global_ray_class(on_cpu=self.liteVRAM)
         self.new_global_rays.load_hdf5(self.traced_rays_h5file)
         # Select the ancestral GIDs
-        self.ancenstors = self.new_global_rays[self.numlib.where(self.new_global_rays.pevid == -1)]
+        self.ancenstors = self.new_global_rays.global_rayid[self.numlib.where(self.new_global_rays.pevid == -1)]
 
     def load_global_rays_deprecated(self):
         # load up on rays
@@ -307,13 +305,15 @@ class FamilyTree():
 
     def load_traced_rays(self):
         self.raydump_dict['segment_global_rayid'] = self.traced_rays_h5file['ray_segments']['global_rayid'][:]
-        self.raydump_dict["pathlength"] = self.traced_rays_h5file["ray_segments"]["pathlength"].astype(self.dtype)*self.dtype(self.sim_unit_length)
+        self.raydump_dict["pathlength"] = self.traced_rays_h5file["ray_segments"]["pathlength"][:,:].astype(self.dtype)*self.dtype(self.sim_unit_length)
         self.raydump_dict["cell_index"] = self.traced_rays_h5file["ray_segments"]["cell_index"][:,:]
         self.raydump_dict["splitEvents"] = self.traced_rays_h5file["splitEvents"][:,:]
  
+        maxGID = self.numlib.int(self.new_global_rays.global_rayid.max())
+
         # Initialize the raydump N_segs and index into ray_buffer_dumps with -1
-        self.raydump_dict["ray_index0"] = np.full(self.raydump_dict['global_rayid'].max()+1,-1)
-        self.raydump_dict["Nsegs"] = np.full(self.raydump_dict['global_rayid'].max()+1,-1)
+        self.raydump_dict["ray_index0"] = self.numlib.full(maxGID+1,-1).astype(np.int64)
+        self.raydump_dict["Nsegs"] = self.numlib.full(maxGID+1,-1).astype(np.int64)
 
         # Get the unique values and the first index of array with that value, and Counts. 
         # This ONLY works because segment global_rayid is sorted.
@@ -322,6 +322,7 @@ class FamilyTree():
         self.raydump_dict["ray_index0"][unique_gid] = i0
         self.raydump_dict["Nsegs"][unique_gid] = Nsegs
 
+        self.raydump_dict['NcellPerRaySeg'] = self.raydump_dict["pathlength"].shape[1]
         self.family_tree = {}
         self.max_level = 0
         self.create_split_event_dict()
@@ -329,7 +330,7 @@ class FamilyTree():
     def create_split_event_dict(self):
         self.raydump_dict['splitEvents'] = cupy.asnumpy(self.raydump_dict['splitEvents'])
         # Create a dictionary with each split event keyed by the GID of teh parent
-        self.split_by_gid_tree = dict(zip(self.raydump_dict['splitEvents'][:, 0], zip(*self.raydump_dict['splitEvents'][:, 1:].T)))
+        self.split_by_gid_tree = dict(zip(self.raydump_dict['splitEvents'][:, 0].astype(np.int32), zip(*self.raydump_dict['splitEvents'][:, 1:].astype(np.int32).T)))
 
     def padding(self):
         # The last element of each of the following arrays is assumed to be zero, and is used for out of bound indexes, which will have values -1.
@@ -345,7 +346,7 @@ class FamilyTree():
 
         self.raydump_dict["cell_index"] = np.vstack((self.raydump_dict["cell_index"],np.full(self.raydump_dict['NcellPerRaySeg'], -1)))
 
-        self.raydump_dict["RaySegment_mapping_dict"][-1] = {0:np.array([-1])}
+        self.raydump_dict["ray_index0"] = np.append(self.raydump_dict["ray_index0"],[-1])
 
         if self.opc_per_NH:
             self.den = np.append(self.den, np.array([0], dtype = self.dtype))
@@ -383,11 +384,11 @@ class FamilyTree():
         level = 0
 
         # This initalizes the trace down from parent
-        gid = self.ancenstors['global_rayid'][root_i]
+        gid = self.ancenstors[root_i]
 
         new_parent_gids = cupy.array([gid], dtype=cupy.int64)
 
-        self.branch[level] = np.int64(gid)
+        self.branch[level] = self.numlib.int(gid)
         eol = -1
 
         while eol < 4**(level-1):
@@ -455,9 +456,10 @@ class FamilyTree():
 
         branch_gid = self.branch[0]
         
-        #my_segment_IDs[my_l_i][0] = np.array(list(self.raydump_dict["RaySegment_mapping_dict"][branch_gid].values()))
-        my_segment_IDs[my_l_i][0] = np.where(self.raydump_dict["global_rayid"][self.last_gid:] == branch_gid)
-        my_cell_indexes = self.raydump_dict["cell_index"][self.last_gid:].take(my_segment_IDs[my_l_i][0], axis=0)
+        i0, Nsegs = self.raydump_dict["ray_index0"][branch_gid], self.raydump_dict["Nsegs"][branch_gid]
+        i1 = i0+Nsegs
+
+        my_cell_indexes = self.raydump_dict["cell_index"][i0:i1]
         gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
 
         # Check if using Tensors
@@ -465,7 +467,7 @@ class FamilyTree():
             my_Em = torch.as_tensor(self.em.take(gasspy_id, axis=1), device=cuda_device)
             my_Opc = torch.as_tensor(self.op.take(gasspy_id, axis=1), device=cuda_device)
 
-            my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"][self.last_gid:].take(my_segment_IDs[my_l_i][0], axis=0), device=cuda_device)
+            my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"][i0:i1], device=cuda_device)
 
             if self.opc_per_NH:
                 my_den = torch.as_tensor(self.den.take(my_cell_indexes), device=cuda_device)
@@ -479,8 +481,7 @@ class FamilyTree():
         for my_l_i, my_l in enumerate(list(self.branch.values())[1:]):
             my_l_i += 1
 
-            Nsegs_branch = np.array([len(self.raydump_dict["RaySegment_mapping_dict"][gid]) for gid in my_l])
-            #padNsegs_branch = Nsegs_branch.max() - padNsegs_branch
+            Nsegs_branch = self.numlib.array([self.raydump_dict["Nsegs"][gid] for gid in my_l])
 
             try:
                 rt_tetris_maps[my_l_i]
@@ -489,24 +490,14 @@ class FamilyTree():
                 if self.accel == "TORCH":
                     rt_tetris_maps[my_l_i] = torch.as_tensor(rt_tetris_maps[my_l_i], device=cuda_device)
 
-            my_segment_IDs[my_l_i] = np.full((len(self.branch[my_l_i]),Nsegs_branch.max()), -1, dtype=np.int64)
+            my_segment_IDs[my_l_i] = self.numlib.full((len(self.branch[my_l_i]),self.numlib.int(Nsegs_branch.max())), -1, dtype=np.int64)
 
-            # For each gid in each branch, get the dump_index
             for branch_gid_i, branch_gid in enumerate(my_l):
-                my_segment_IDs[my_l_i][branch_gid_i, :Nsegs_branch[branch_gid_i]] = np.array(list(self.raydump_dict["RaySegment_mapping_dict"][branch_gid].values()), dtype=np.int64)[:]
-
-                # if padNsegs_branch[branch_gid_i] >= 0:
-                #     my_segment_IDs[my_l_i][branch_gid_i] = np.pad(my_segment_IDs[my_l_i][branch_gid_i],(0,padNsegs_branch[branch_gid_i]), constant_values=-1)
-
-                # for branch_dump_i, branch_dump_num in self.raydump_dict["RaySegment_mapping_dict"][branch_gid].items():
-                #     print(branch_gid_i, branch_gid)
-        
-                #     my_segment_IDs[my_l_i][branch_gid_i] = np.array(list(self.raydump_dict["RaySegment_mapping_dict"][branch_gid].values()), dtype=np.int64)
-
-                #Using many children. The children may have to be broadcast against each other
+                i0, Nsegs = self.raydump_dict["ray_index0"][branch_gid], self.raydump_dict["Nsegs"][branch_gid]
+                i1 = i0+Nsegs                
+                my_segment_IDs[my_l_i][branch_gid_i, :Nsegs] = self.numlib.arange(self.numlib.int(i0),self.numlib.int(i1))[:]
 
             # Using take we can get each branch at at time, returning a self.Nraster^level set of arrays which each contain many different path lengths etc.
-
             my_cell_indexes = self.raydump_dict["cell_index"].take(my_segment_IDs[my_l_i], axis=0)
             gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
             
