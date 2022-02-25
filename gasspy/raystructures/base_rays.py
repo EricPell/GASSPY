@@ -11,16 +11,17 @@ class base_ray_class:
     contained_fields = []
     class_name = "base_rays"
 
-    def __init__(self, nalloc, contained_fields, on_gpu = True):
+    def __init__(self, nalloc, contained_fields, on_cpu = False):
         self.nalloc = nalloc
         self.nrays  = 0
         self.not_allocated = True
         self.contained_fields = contained_fields
-        self.on_gpu = on_gpu
-        if self.on_gpu:
-            self.numlib = cupy
-        else:
+        self.on_cpu = on_cpu
+        if self.on_cpu:
             self.numlib = numpy
+        else:
+            self.numlib = cupy
+
 
         return
 

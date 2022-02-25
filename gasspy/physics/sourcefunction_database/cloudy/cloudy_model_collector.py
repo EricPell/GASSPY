@@ -6,6 +6,9 @@ import numpy as np
 import cupy
 import cudf
 import gc
+import os 
+import glob
+import sys
 
 class ModelCollector():
     """Worker class for reading and collecting cloudy models into a gasspy db entry"""
@@ -338,9 +341,7 @@ class ModelCollector():
             self.skip = True
     
 if __name__ == "__main__":
-    import sys,os
     import time
-    import glob
     import cProfile, pstats
     
     if len(sys.argv) > 1:
