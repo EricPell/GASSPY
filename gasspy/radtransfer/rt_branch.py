@@ -20,8 +20,7 @@ mempool = cupy.get_default_memory_pool()
 pinned_mempool = cupy.get_default_pinned_memory_pool()
 
 root_dir = os.getenv("HOME")+"/research/cinn3d/inputs/ramses/SEED1_35MSUN_CDMASK_WINDUV2/"
-
-print_status_every_N = 1000
+cuda_device = torch.device('cuda:0')
 
 mytree = __rt_branch__.FamilyTree(
     root_dir=root_dir,
@@ -36,41 +35,28 @@ mytree = __rt_branch__.FamilyTree(
     den=root_dir+"/rho/celllist_rho_00051.fits",
     opc_per_NH=True,
     mu=1.1,
-    accel="TORCH",
+    accel="torch",
     liteVRAM=False,
     Nraster=4,
-    dtype=np.float32
+    spec_save_name="000000_trace",
+    dtype=np.float32,
+    spec_save_type='hdf5',
+    cuda_device=cuda_device
 )
-
-mytree.load_all()
-
-print("N_energybins = %i"%(len(mytree.energy)))
 
 t = time.time()
 t_start = t
 
-profiling = True
+profiling = False
 if profiling:
     profiler = cProfile.Profile()
     profiler.enable()
 
-if mytree.accel == "TORCH":
-    cuda_device = torch.device('cuda:0')
-
-# for root_i in range(len(mytree.ancenstors)):
-#     mytree.set_branch(root_i)
-#     if root_i % 1000 == 0:
-#         print(root_i)
-#     if len(mytree.branch) > 1:
-#         print(mytree.branch)
-
-for root_i in range(len(mytree.ancenstors)):
-    t = mytree.get_spec_root(root_i, cuda_device)
-    if root_i % 1000 == 0:
-        print(root_i)
+mytree.load_all()
+mytree.process_all()
 
 print ("total time = ",time.time()-t_start)
 if profiling:
     profiler.disable()
     stats = pstats.Stats(profiler).sort_stats('ncalls')
-    stats.dump_stats("radtran_newrays")
+    stats.dump_stats("radtran_newrays_gpu")

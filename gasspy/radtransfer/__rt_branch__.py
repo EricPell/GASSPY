@@ -35,14 +35,18 @@ class FamilyTree():
         massden=True,
         mu=1.1,
         los_angle=None,
-        accel="TORCH",
+        accel="torch",
         dtype=np.float32,
         liteVRAM=True,
         Nraster=4,
         useGasspyEnergyWindows=True,
         make_spec_subdirs=True,
-        config_yaml=None
+        config_yaml=None,
+        spec_save_type="hdf5",
+        spec_save_name="gasspy_spec",
+        cuda_device=None
     ):
+        self.cuda_device = cuda_device
         self.dtype = dtype
         self.torch_dtype = torch.as_tensor(np.array([],dtype=self.dtype)).dtype
 
@@ -100,6 +104,9 @@ class FamilyTree():
         else:
             self.traced_rays_h5file = traced_rays
 
+        self.spec_save_name = spec_save_name
+        self.spec_save_type = spec_save_type
+
         self.mu = mu
         self.den = den
         self.massden = massden
@@ -108,7 +115,7 @@ class FamilyTree():
         self.Nraster = Nraster
 
         # use torch tensors?
-        self.accel = accel
+        self.accel = accel.lower()
 
         self.useGasspyEnergyWindows = useGasspyEnergyWindows
 
@@ -132,6 +139,69 @@ class FamilyTree():
         self.global_rayDF_deprecated = global_rayDF_deprecated
         self.config_yaml = config_yaml
 
+    def process_all(self,):
+        
+        for root_i in range(len(self.ancenstors)):
+            self.get_spec_root(root_i, self.cuda_device)
+            if root_i % 1000 == 0:
+                print(root_i)
+        
+        self.close_spec_save_hdf5()
+
+    def open_spec_save_hdf5(self, init_size=0):
+        assert isinstance(self.spec_save_name, str), "hdf5 spec save name is not a string...exiting" 
+        if not self.spec_save_name.endswith(".hdf5"):
+            self.spec_save_name += ".hdf5"
+
+        if Path(self.gasspy_spec_subdir).is_dir():
+            self.spec_outpath = self.gasspy_spec_subdir+self.spec_save_name
+        else:
+            self.spec_outpath = self.root_dir+self.gasspy_subdir+self.gasspy_spec_subdir+self.spec_save_name
+
+        self.spechdf5_out = h5py.File(self.spec_outpath, "w")
+        self.N_spec_written = 0
+
+        if init_size >=0:
+            init_size=int(init_size)
+        else:
+            init_size = self.numlib.int(self.new_global_rays.cevid[self.new_global_rays.cevid == -1].shape[0])
+
+        self.spechdf5_out.create_dataset("flux", (init_size, len(self.energy)), maxshape=(None,len(self.energy)))
+        self.spechdf5_out.create_dataset("x", (init_size,), maxshape=(None,))
+        self.spechdf5_out.create_dataset("y", (init_size,), maxshape=(None,))
+        self.spechdf5_out.create_dataset("ray_lrefine", (init_size,), dtype="int8", maxshape=(None,))
+        self.spechdf5_out.create_dataset("E", data=self.energy)
+
+    def write_spec_save_hdf5(self, new_data, grow=True):
+        n_E, n_spec = new_data['flux'].shape
+
+        for key in new_data.keys():
+            new_data_shape = new_data[key].shape
+
+            if not grow:
+                if len(new_data_shape) == 1:
+                    self.spechdf5_out[key][self.N_spec_written:self.N_spec_written+n_spec] = new_data[key][:]
+        
+                elif len(new_data_shape) == 2:
+                    self.spechdf5_out[key][self.N_spec_written:self.N_spec_written+n_spec,:] = new_data[key].T[:]
+
+            else:
+                if len(new_data_shape) == 1:
+                    self.spechdf5_out[key].resize((self.spechdf5_out[key].shape[0] + n_spec), axis=0)
+                    self.spechdf5_out[key][-n_spec:] = new_data[key][:]
+        
+                elif len(new_data_shape) == 2:
+                    self.spechdf5_out[key].resize((self.spechdf5_out[key].shape[0] + n_spec), axis=0)
+                    self.spechdf5_out[key][-n_spec:,:] = new_data[key].T[:]
+
+        self.N_spec_written += n_spec
+
+    def close_spec_save_hdf5(self):
+        if self.spec_save_type=='hdf5':
+            self.spechdf5_out.close()
+        else:
+            print("wARNING: You tried to close an output hdf5 file, but are not using hdf5 output.")
+
     def load_all(self):
         self.load_config_yaml()
 
@@ -151,6 +221,9 @@ class FamilyTree():
         self.cleaning()
         self.padding()
         self.move_to_GPU()
+
+        if self.spec_save_type == 'hdf5':
+            self.open_spec_save_hdf5()
 
     def set_precision(self, new_dtype):
         self.dtype = new_dtype
@@ -217,7 +290,7 @@ class FamilyTree():
                 self.energy_lims = np.loadtxt(self.energy_lims)           
 
 
-    def load_energy_bins(self, save=True):
+    def load_energy_bins(self, save=False):
         # Processing the energy limits must come first, as it allows us to create a numpy mask and convert less 
         # data to the GPU.
         if str == type(self.energy):
@@ -352,7 +425,7 @@ class FamilyTree():
             self.den = np.append(self.den, np.array([0], dtype = self.dtype))
 
     def move_to_GPU(self):
-        if self.accel == "TORCH" and not self.liteVRAM:
+        if self.accel == "torch" and not self.liteVRAM:
             self.raydump_dict["pathlength"] = cupy.asarray(self.raydump_dict["pathlength"], dtype=self.dtype)
             self.raydump_dict["cell_index"] = cupy.asarray(self.raydump_dict["cell_index"], dtype=cupy.int64)
             self.em = cupy.asarray(self.em, dtype=self.dtype)
@@ -363,7 +436,7 @@ class FamilyTree():
         if self.accel == "CUDA":
             self.energy = cupy.asarray(self.energy)
 
-        if self.accel == "TORCH":
+        if self.accel == "torch":
             self.energy = torch.from_numpy(self.energy)
 
 
@@ -439,7 +512,7 @@ class FamilyTree():
         rt_tetris_maps = {}
         rt_tetris_maps[0] = cupy.arange(1)
 
-        if self.accel == "TORCH":
+        if self.accel == "torch":
             rt_tetris_maps[0] = torch.as_tensor(rt_tetris_maps[0])
 
 
@@ -448,7 +521,7 @@ class FamilyTree():
         my_N_spect = self.Nraster**self.max_level
         #output_array_cpu = cupyx.zeros_pinned((my_N_spect, self.energy.shape[0]))
 
-        if self.accel == "TORCH":
+        if self.accel == "torch":
             output_array_gpu = torch.zeros((self.energy.shape[0], my_N_spect), requires_grad=False, device=cuda_device, dtype=self.torch_dtype)
 
         my_l_i = 0
@@ -462,8 +535,10 @@ class FamilyTree():
         my_cell_indexes = self.raydump_dict["cell_index"][i0:i1]
         gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
 
+        save_GIDs = {my_l_i:np.array([branch_gid])}
+
         # Check if using Tensors
-        if self.accel == "TORCH":
+        if self.accel == "torch":
             my_Em = torch.as_tensor(self.em.take(gasspy_id, axis=1), device=cuda_device)
             my_Opc = torch.as_tensor(self.op.take(gasspy_id, axis=1), device=cuda_device)
 
@@ -479,53 +554,63 @@ class FamilyTree():
         output_array_gpu[:, 0] = dF[:] * dTau[:]
 
         for my_l_i, my_l in enumerate(list(self.branch.values())[1:]):
-            my_l_i += 1
-
-            Nsegs_branch = self.numlib.array([self.raydump_dict["Nsegs"][gid] for gid in my_l])
-
-            try:
-                rt_tetris_maps[my_l_i]
-            except:
-                rt_tetris_maps[my_l_i] = cupy.arange(int(self.Nraster**(my_l_i)))
-                if self.accel == "TORCH":
-                    rt_tetris_maps[my_l_i] = torch.as_tensor(rt_tetris_maps[my_l_i], device=cuda_device)
-
-            my_segment_IDs[my_l_i] = self.numlib.full((len(self.branch[my_l_i]),self.numlib.int(Nsegs_branch.max())), -1, dtype=np.int64)
-
-            for branch_gid_i, branch_gid in enumerate(my_l):
-                i0, Nsegs = self.raydump_dict["ray_index0"][branch_gid], self.raydump_dict["Nsegs"][branch_gid]
-                i1 = i0+Nsegs                
-                my_segment_IDs[my_l_i][branch_gid_i, :Nsegs] = self.numlib.arange(self.numlib.int(i0),self.numlib.int(i1))[:]
-
-            # Using take we can get each branch at at time, returning a self.Nraster^level set of arrays which each contain many different path lengths etc.
-            my_cell_indexes = self.raydump_dict["cell_index"].take(my_segment_IDs[my_l_i], axis=0)
-            gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
             
-            if self.accel == "TORCH":
-                my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"].take(my_segment_IDs[my_l_i], axis=0), device=cuda_device)
-                my_Em = torch.as_tensor(self.em.take(gasspy_id, axis=1), device=cuda_device)
-                my_Opc = torch.as_tensor(self.op.take(gasspy_id, axis=1), device=cuda_device)
+            # Check for the number of dead rays. Some times dumps contain all dead rays. 
+            dead_index = np.argwhere(self.branch[my_l_i+1] == -1)
 
-                if self.opc_per_NH:
-                    my_den = torch.as_tensor(self.den.take(my_cell_indexes), device=cuda_device)
-                    my_Opc = torch.mul(my_den, my_Opc)
+            # If there are live rays in this level, proceed
+            if len(dead_index) != len(self.branch[my_l_i+1]):
+                my_l_i += 1
 
-                dF = torch.mul(my_Em, my_pathlenths).sum(axis=[3, 2])
-                dTau = torch.exp(-torch.mul(my_Opc, my_pathlenths).sum(axis=[3, 2]))
-                output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[:,torch.tile(rt_tetris_maps[my_l_i-1],dims=(self.Nraster,1)).T.ravel()] + dF[:]) * dTau[:])
+                Nsegs_branch = self.numlib.array([self.raydump_dict["Nsegs"][gid] for gid in my_l])
 
-            else:
-                my_pathlenths = cupy.asarray(self.raydump_dict["pathlength"].take(my_segment_IDs[my_l_i], axis=0))
-                my_Em = cupy.asarray(self.em.take(gasspy_id, axis=1))
-                my_Opc = cupy.asarray(self.op.take(gasspy_id, axis=1))
+                save_GIDs[my_l_i] = my_l.copy()
 
-                if self.opc_per_NH:
-                    my_den = cupy.as_array(self.den.take(my_cell_indexes), device=cuda_device)
-                    my_Opc = cupy.multiply(my_den, my_Opc)
+                save_GIDs[my_l_i][dead_index] = save_GIDs[my_l_i-1][dead_index // self.Nraster]
 
-                dF = (my_Em[:, :] * my_pathlenths).sum(axis=[2, 3])
-                dTau = cupy.exp((-my_Opc[:, :] * my_pathlenths).sum(axis=[2, 3]))
-                output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[cupy.tile(rt_tetris_maps[my_l_i-1],self.Nraster)] + dF[:]) * dTau[:])
+                try:
+                    rt_tetris_maps[my_l_i]
+                except:
+                    rt_tetris_maps[my_l_i] = cupy.arange(int(self.Nraster**(my_l_i)))
+                    if self.accel == "torch":
+                        rt_tetris_maps[my_l_i] = torch.as_tensor(rt_tetris_maps[my_l_i], device=cuda_device)
+
+                my_segment_IDs[my_l_i] = self.numlib.full((len(self.branch[my_l_i]),self.numlib.int(Nsegs_branch.max())), -1, dtype=np.int64)
+
+                for branch_gid_i, branch_gid in enumerate(my_l):
+                    i0, Nsegs = self.raydump_dict["ray_index0"][branch_gid], self.raydump_dict["Nsegs"][branch_gid]
+                    i1 = i0+Nsegs                
+                    my_segment_IDs[my_l_i][branch_gid_i, :Nsegs] = self.numlib.arange(self.numlib.int(i0),self.numlib.int(i1))[:]
+
+                # Using take we can get each branch at at time, returning a self.Nraster^level set of arrays which each contain many different path lengths etc.
+                my_cell_indexes = self.raydump_dict["cell_index"].take(my_segment_IDs[my_l_i], axis=0)
+                gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
+                
+                if self.accel == "torch":
+                    my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"].take(my_segment_IDs[my_l_i], axis=0), device=cuda_device)
+                    my_Em = torch.as_tensor(self.em.take(gasspy_id, axis=1), device=cuda_device)
+                    my_Opc = torch.as_tensor(self.op.take(gasspy_id, axis=1), device=cuda_device)
+
+                    if self.opc_per_NH:
+                        my_den = torch.as_tensor(self.den.take(my_cell_indexes), device=cuda_device)
+                        my_Opc = torch.mul(my_den, my_Opc)
+
+                    dF = torch.mul(my_Em, my_pathlenths).sum(axis=[3, 2])
+                    dTau = torch.exp(-torch.mul(my_Opc, my_pathlenths).sum(axis=[3, 2]))
+                    output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[:,torch.tile(rt_tetris_maps[my_l_i-1],dims=(self.Nraster,1)).T.ravel()] + dF[:]) * dTau[:])
+
+                else:
+                    my_pathlenths = cupy.asarray(self.raydump_dict["pathlength"].take(my_segment_IDs[my_l_i], axis=0))
+                    my_Em = cupy.asarray(self.em.take(gasspy_id, axis=1))
+                    my_Opc = cupy.asarray(self.op.take(gasspy_id, axis=1))
+
+                    if self.opc_per_NH:
+                        my_den = cupy.as_array(self.den.take(my_cell_indexes), device=cuda_device)
+                        my_Opc = cupy.multiply(my_den, my_Opc)
+
+                    dF = (my_Em[:, :] * my_pathlenths).sum(axis=[2, 3])
+                    dTau = cupy.exp((-my_Opc[:, :] * my_pathlenths).sum(axis=[2, 3]))
+                    output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[cupy.tile(rt_tetris_maps[my_l_i-1],self.Nraster)] + dF[:]) * dTau[:])
 
             # Per child...
             # Using the 1D simulation/model index extract the emissivity and opacity
@@ -536,6 +621,23 @@ class FamilyTree():
             # dF = (my_Em[:,:] * my_pathlenths).sum(axis=1)
             # dTau = cupy.exp((-my_Opc[:,:] * my_pathlenths).sum(axis=1))
             # output_array_gpu[rt_tetris_maps[my_l_i]] = (output_array_gpu[rt_tetris_maps[my_l_i]] + dF[:]) * dTau[:]
-            
-        np.save("%s%s%sspec_%i.npy"%(self.root_dir, self.gasspy_subdir, self.gasspy_spec_subdir, root_i), output_array_gpu.cpu().numpy())
-        pass
+
+        if self.spec_save_type == "hdf5":
+            out_GIDs, out_GID_i = np.unique(save_GIDs[my_l_i], return_index=True)
+
+            if self.accel.lower() == "torch":
+                save_data = {'flux':output_array_gpu[:,out_GID_i].cpu().numpy()}
+
+            if self.liteVRAM:
+                save_data.update({'x':self.new_global_rays.xp[out_GIDs],
+                'y':self.new_global_rays.yp[out_GIDs],
+                'ray_lrefine':self.new_global_rays.ray_lrefine[out_GIDs]})
+            else:
+                save_data.update({'x':self.new_global_rays.xp[out_GIDs].get(),
+                'y':self.new_global_rays.yp[out_GIDs].get(),
+                'ray_lrefine':self.new_global_rays.ray_lrefine[out_GIDs].get()})
+            self.write_spec_save_hdf5(save_data)
+
+        elif self.spec_save_type == "numpy":
+            np.save("%s%s%sspec_%i.npy"%(self.root_dir, self.gasspy_subdir, self.gasspy_spec_subdir, root_i), output_array_gpu.cpu().numpy())
+
