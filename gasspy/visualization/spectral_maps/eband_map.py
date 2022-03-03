@@ -32,13 +32,28 @@ if args.lines:
     window_method = integrated_line
 else:
     window_method = broadband
-
-
+nfields = 3
+logscale = [True, False, False]
+fscale = 5
 for i in range(len(args.Emin)):
-    map = reader.create_map(Elims=np.array([args.Emin[i], args.Emax[i]]), window_method = window_method, outmap_nfields= 1, 
+    map = reader.create_map(Elims=np.array([args.Emin[i], args.Emax[i]]), window_method = window_method, outmap_nfields= nfields, 
                                             outmap_nx = args.nx, outmap_ny = args.ny, xlims = args.xlims, ylims = args.ylims)
     
-    map = np.log10(map[:,:,0]).T
-    maxf = np.max(map)
-    plt.imshow(map, vmin = maxf - 4, vmax = maxf + 0.5)
+
+    fig, axes = plt.subplots(figsize=(fscale*nfields,fscale), nrows = 1, ncols = nfields, sharex = True, sharey =True)
+    if nfields == 1:
+        axes = [axes,]
+    for iax, ax in enumerate(axes):
+        if logscale[iax]:
+            field = np.log10(map[:,:,iax].T)
+            fmax = np.max(field)
+            vmin = fmax - 4
+            vmax = fmax + 0.5
+        else:
+            field = map[:,:,iax].T
+            vmin = np.min(field)
+            vmax = np.max(field)
+        ax.imshow(field, vmin = vmin, vmax = vmax, extent=[0,1,0,1])
+
+    #plt.savefig("Halpha.pdf")
     plt.show()
