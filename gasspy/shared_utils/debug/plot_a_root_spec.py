@@ -3,25 +3,42 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import argparse
+from gasspy.shared_utils.spec_reader import spec_reader
 
-if len(sys.argv) > 1:
-    i = int(sys.argv[1])
+ap=argparse.ArgumentParser()
+
+#---------------outputs-----------------------------
+ap.add_argument('f')
+ap.add_argument("--Emin", default = None, type=float)
+ap.add_argument("--Emax", default = None, type=float)
+ap.add_argument("--xp", required = True, nargs = "+", type = float)
+ap.add_argument("--yp", required = True, nargs = "+", type = float)
+
+args=ap.parse_args()
+
+assert len(args.xp) == len(args.yp), "xp and yp are required to have the same shape"
+
+reader = spec_reader(args.f, maxmem_GB=None)
+if args.Emin is None:
+    Emin = np.min(reader.Energies)
 else:
-    os.chdir(os.environ["HOME"]+"/research/cinn3d/inputs/ramses/SEED1_35MSUN_CDMASK_WINDUV2/GASSPY/spec")
-    i = 136149
-x = np.load("windowed_energy.npy")
-y = np.load("spec_%i.npy"%i)
+    Emin = args.Emin
 
-from scipy import ndimage, interpolate
+if args.Emax is None:
+    Emax = np.max(reader.Energies)
+else:
+    Emax = args.Emax
 
-f = interpolate.interp1d(x, y, axis = 0)
+Elims = np.array([Emin, Emax])
 
-#newx = np.logspace(np.log10(np.min(x[1:-1])), np.log10(np.max(x[1:-1])), 140000)
-#newy = f(newx)
-#by = ndimage.gaussian_filter(newy, (5,0))
-
-
-plt.plot(x, y)
+fig = plt.figure()
+for i in range(len(args.xp)):
+    xp = args.xp[i]
+    yp = args.yp[i]
+    Eplot, flux = reader.read_spec(xp, yp, Elims = Elims)
+    plt.plot(Eplot, flux, label = "xp = %.4e, yp=%.4e"%(xp,yp))
+plt.legend()
 plt.xscale("log")
 plt.yscale("log")
 plt.show()
