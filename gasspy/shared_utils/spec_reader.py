@@ -161,8 +161,12 @@ class spec_reader:
                 idxs_now = idxs_at_lref[iray:iray+nrays_now]
 
                 # get the fluxes for these rays and apply the window method
-                fields = window_method(Energies, deltaEnergies, self.read_rays(idxs_now, Eidxs))
-
+                fields = np.zeros((nrays_now, outmap_nfields))
+                flux = window_method(Energies, deltaEnergies, self.read_rays(idxs_now, Eidxs))
+                fields[:,0] = flux[:,0]
+                fields[:,1] = lref
+                fields[:,2] = idxs_now
+                fields[:,2][idxs_now%2 == 1] = - idxs_now[idxs_now%2 == 1]
                 # Determine where in the map the ray is
                 map_xstart = self.xp[idxs_now] - 0.5*ray_dx - xlims[0]
                 map_xend   = self.xp[idxs_now] + 0.5*ray_dx - xlims[0]
@@ -200,27 +204,28 @@ class spec_reader:
 
                             # side cells on x fully covered by y
                             if ray_ny >= 2:
-                                if map_ixstart[iray]> 0 :
+                                if map_ixstart[iray] >= 0 :
                                     outmap[map_ixstart[iray], map_iystart[iray] + 1: map_iyend[iray], ifl] += fields[iray, ifl] * fxleft[iray]  * outmap_dy
                                 if map_ixend[iray] < outmap.shape[0]:
                                     outmap[map_ixend[iray]  , map_iystart[iray] + 1: map_iyend[iray], ifl] += fields[iray, ifl] * fxright[iray] * outmap_dy                        
 
                             # side cells on y fully covered by x
                             if ray_nx >= 2:
-                                if map_iystart[iray]> 0 :
+                                if map_iystart[iray] >= 0 :
                                     outmap[map_ixstart[iray] + 1: map_ixend[iray], map_iystart[iray], ifl] += fields[iray, ifl] * outmap_dx * fyleft[iray] 
                                 if map_iyend[iray] < outmap.shape[1]:                            
                                     outmap[map_ixstart[iray] + 1: map_ixend[iray], map_iyend[iray]  , ifl] += fields[iray, ifl] * outmap_dx * fyright[iray]
                 # Corners
+                # lower left
+                inside = np.where((map_ixstart >= 0)*(map_iystart >=0))[0] 
+                outmap[map_ixstart[inside], map_iystart[inside], :] += (fields * fxleft[:,np.newaxis] * fyleft[:,np.newaxis])[inside,:]
+                # lower right
                 inside = np.where((map_ixend < outmap.shape[0])*(map_iystart >=0))[0]
                 outmap[map_ixend[inside], map_iystart[inside], : ]  += (fields * fxright[:,np.newaxis] * fyleft[:,np.newaxis])[inside,:]
-               
-                inside = np.where((map_ixstart >= 0)*(map_iystart >=0))[0] 
-                outmap[map_ixstart[inside], map_iystart[inside], :] += (fields * fxleft[:,np.newaxis] * fyright[:,np.newaxis])[inside,:]
-               
+                # upper left
                 inside = np.where((map_ixstart >= 0)*(map_iyend < outmap.shape[1]))[0] 
-                outmap[map_ixstart[inside], map_iystart[inside], :] += (fields * fxleft[:,np.newaxis] * fyleft[:,np.newaxis])[inside,:]
-
+                outmap[map_ixstart[inside], map_iystart[inside], :] += (fields * fxleft[:,np.newaxis] * fyright[:,np.newaxis])[inside,:]
+                # upper right
                 inside = np.where((map_ixend < outmap.shape[0])*(map_iyend < outmap.shape[1]))[0]
                 outmap[map_ixend[inside], map_iyend[inside], : ]    += (fields * fxright[:,np.newaxis] * fyright[:,np.newaxis])[inside,:]                
 
@@ -231,13 +236,20 @@ class spec_reader:
         outmap = outmap/outmap_dx/outmap_dy 
         return outmap
     def read_spec(self, x, y, Elims = None):
+        """
+            Finds the closest matching ray to a set of xy coordinates and returns its spectra and energies
+            arguments:
+                x: float (x position to find ray of)
+                y: float (y position to find ray of)
+                Elims: optional array of two floats (minimum and maximum energy of spectra to return)
+            TODO: Make this work for arrays of x and y
+        """
         # if we are reading the entire energy range, set limits to cover everything
         if Elims is None:
             Elims = np.array([np.min(self.Energies)-1, np.max(self.Energies) + 1])
         Eidxs = np.where( (self.Energies >= Elims[0]) * (self.Energies < Elims[1]))[0]
         
         # find the closest matching ray
-
         idx = np.argmin((self.xp - x)**2 + (self.yp - y)**2)
 
-        return self.read_rays(idx, Eidxs)
+        return self.Energies[Eidxs], self.read_rays([idx], Eidxs)[0,:]
