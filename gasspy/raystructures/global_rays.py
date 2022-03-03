@@ -1,6 +1,6 @@
 import cupy
 import numpy
-
+import sys
 from .base_rays import base_ray_class
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
 """
@@ -25,7 +25,7 @@ class global_ray_class(base_ray_class):
         ]
     class_name = "global_rays"
 
-    def __init__(self, nalloc = None, on_cpu = True, contained_fields = None):
+    def __init__(self, nalloc = None, on_cpu = False, contained_fields = None):
         self.not_allocated = True
         self.nrays = 0
 
@@ -56,14 +56,17 @@ class global_ray_class(base_ray_class):
             returns:
                     global_rayid : array of integers (indexes of the new rays in the global_ray class )
         """
+        if "global_rayid" in self.__dict__.keys():
+            print("1)", self.global_rayid)
 
         # If the new number of rays exceed the allocated ones, allocate more
         if nrays + self.nrays > self.nalloc:
             self.allocate_rays(nrays*over_alloc_factor)
-        
+
         # Determine the global_rayids
         new_global_rayid = self.numlib.arange(self.nrays, self.nrays + nrays, dtype=ray_dtypes["global_rayid"])
         self.global_rayid[new_global_rayid] = new_global_rayid
+        print("2)", self.global_rayid)
         if fields is not None:
             for field in fields.keys():
                 if "global_rayid"  == field:
