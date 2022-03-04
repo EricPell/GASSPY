@@ -15,6 +15,8 @@ from astropy import constants as const
 from gasspy.raystructures import global_ray_class
 import yaml
 
+cupy.cuda.set_allocator(cupy.cuda.MemoryPool(cupy.cuda.malloc_managed).malloc)
+
 class FamilyTree():
     def __init__(
         self, root_dir="./",
@@ -139,9 +141,9 @@ class FamilyTree():
         self.global_rayDF_deprecated = global_rayDF_deprecated
         self.config_yaml = config_yaml
 
-    def process_all(self,):
+    def process_all(self,i0=0):
         
-        for root_i in range(len(self.ancenstors)):
+        for root_i in range(i0, len(self.ancenstors)):
             self.get_spec_root(root_i, self.cuda_device)
             if root_i % 1000 == 0:
                 print(root_i)
@@ -170,7 +172,12 @@ class FamilyTree():
         self.spechdf5_out.create_dataset("x", (init_size,), maxshape=(None,))
         self.spechdf5_out.create_dataset("y", (init_size,), maxshape=(None,))
         self.spechdf5_out.create_dataset("ray_lrefine", (init_size,), dtype="int8", maxshape=(None,))
-        self.spechdf5_out.create_dataset("E", data=self.energy)
+        if isinstance(self.energy, cupy._core.core.ndarray):
+            self.spechdf5_out.create_dataset("E", data=cupy.asnumpy(self.energy))
+        elif isinstance(self.energy, torch.Tensor):
+            self.spechdf5_out.create_dataset("E", data=self.energy.cpu().numpy())
+
+        self.spec_stream = cupy.cuda.Stream()
 
     def write_spec_save_hdf5(self, new_data, grow=True):
         n_E, n_spec = new_data['flux'].shape
@@ -425,7 +432,8 @@ class FamilyTree():
             self.den = np.append(self.den, np.array([0], dtype = self.dtype))
 
     def move_to_GPU(self):
-        if self.accel == "torch" and not self.liteVRAM:
+        if self.accel in ["torch", "cuda"] and not self.liteVRAM:
+            self.energy = cupy.asarray(self.energy)
             self.raydump_dict["pathlength"] = cupy.asarray(self.raydump_dict["pathlength"], dtype=self.dtype)
             self.raydump_dict["cell_index"] = cupy.asarray(self.raydump_dict["cell_index"], dtype=cupy.int64)
             self.em = cupy.asarray(self.em, dtype=self.dtype)
@@ -433,11 +441,11 @@ class FamilyTree():
             self.den = cupy.asarray(self.den, dtype=self.dtype)
             self.cell_index_to_gasspydb = cupy.asarray(self.cell_index_to_gasspydb)
 
-        if self.accel == "CUDA":
+        if self.accel == "cuda":
             self.energy = cupy.asarray(self.energy)
 
         if self.accel == "torch":
-            self.energy = torch.from_numpy(self.energy)
+            self.energy = torch.as_tensor(self.energy).cuda(self.cuda_device)
 
 
     def cleaning(self):
@@ -510,6 +518,10 @@ class FamilyTree():
         self.set_branch(root_i)
 
         rt_tetris_maps = {}
+
+        """
+        By default the index map exists on the GPU
+        """
         rt_tetris_maps[0] = cupy.arange(1)
 
         if self.accel == "torch":
@@ -523,6 +535,8 @@ class FamilyTree():
 
         if self.accel == "torch":
             output_array_gpu = torch.zeros((self.energy.shape[0], my_N_spect), requires_grad=False, device=cuda_device, dtype=self.torch_dtype)
+        elif self.accel == "cuda":
+            output_array_gpu = cupy.zeros((self.energy.shape[0], my_N_spect), dtype=self.dtype)
 
         my_l_i = 0
         # These are the ray dumps of the first root
@@ -550,6 +564,19 @@ class FamilyTree():
 
             dF = torch.mul(my_Em, my_pathlenths).sum(axis=[2,1])
             dTau = torch.exp(-torch.mul(my_Opc,my_pathlenths).sum(axis=[2, 1]))
+
+        elif self.accel == "cuda":
+            my_Em  = cupy.asarray(self.em.take(gasspy_id, axis=1))
+            my_Opc = cupy.asarray(self.op.take(gasspy_id, axis=1))
+
+            my_pathlenths = cupy.asarray(self.raydump_dict["pathlength"][i0:i1])
+
+            if self.opc_per_NH:
+                my_den = cupy.asarray(self.den.take(my_cell_indexes))
+                my_Opc = cupy.multiply(my_den, my_Opc)
+
+            dF = cupy.multiply(my_Em, my_pathlenths).sum(axis=[2,1])
+            dTau = cupy.exp(-cupy.multiply(my_Opc,my_pathlenths).sum(axis=[2, 1]))
 
         output_array_gpu[:, 0] = dF[:] * dTau[:]
 
@@ -605,28 +632,21 @@ class FamilyTree():
                     my_Opc = cupy.asarray(self.op.take(gasspy_id, axis=1))
 
                     if self.opc_per_NH:
-                        my_den = cupy.as_array(self.den.take(my_cell_indexes), device=cuda_device)
+                        my_den = cupy.asarray(self.den.take(my_cell_indexes))
                         my_Opc = cupy.multiply(my_den, my_Opc)
 
                     dF = (my_Em[:, :] * my_pathlenths).sum(axis=[2, 3])
                     dTau = cupy.exp((-my_Opc[:, :] * my_pathlenths).sum(axis=[2, 3]))
-                    output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[cupy.tile(rt_tetris_maps[my_l_i-1],self.Nraster)] + dF[:]) * dTau[:])
-
-            # Per child...
-            # Using the 1D simulation/model index extract the emissivity and opacity
-            # my_index1Ds = self.raydump_dict["index1D"][my_segment_IDs[my_l_i],:].ravel()
-            # my_pathlenths = self.raydump_dict["pathlength"][my_segment_IDs[my_l_i],:].ravel()
-            # my_Em = self.em[:, my_index1Ds.ravel()]
-            # my_Opc = self.op[:, my_index1Ds.ravel()]
-            # dF = (my_Em[:,:] * my_pathlenths).sum(axis=1)
-            # dTau = cupy.exp((-my_Opc[:,:] * my_pathlenths).sum(axis=1))
-            # output_array_gpu[rt_tetris_maps[my_l_i]] = (output_array_gpu[rt_tetris_maps[my_l_i]] + dF[:]) * dTau[:]
+                    output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[:,cupy.tile(rt_tetris_maps[my_l_i-1],self.Nraster)] + dF[:]) * dTau[:])
 
         if self.spec_save_type == "hdf5":
             out_GIDs, out_GID_i = np.unique(save_GIDs[my_l_i], return_index=True)
 
-            if self.accel.lower() == "torch":
+            if self.accel == "torch":
                 save_data = {'flux':output_array_gpu[:,out_GID_i].cpu().numpy()}
+            elif self.accel == "cuda":
+                # Note: Should be a stream
+                save_data = {'flux':cupy.asnumpy(output_array_gpu[:,out_GID_i], stream=self.spec_stream)}
 
             if self.liteVRAM:
                 save_data.update({'x':self.new_global_rays.xp[out_GIDs],
