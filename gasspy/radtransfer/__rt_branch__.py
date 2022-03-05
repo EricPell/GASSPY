@@ -441,9 +441,6 @@ class FamilyTree():
             self.den = cupy.asarray(self.den, dtype=self.dtype)
             self.cell_index_to_gasspydb = cupy.asarray(self.cell_index_to_gasspydb)
 
-        if self.accel == "cuda":
-            self.energy = cupy.asarray(self.energy)
-
         if self.accel == "torch":
             self.energy = torch.as_tensor(self.energy).cuda(self.cuda_device)
 
