@@ -154,7 +154,7 @@ class traced_ray_class(object):
             self.move_to_pinned_memory()
 
 
-    def save_hdf5(self, h5file):
+    def save_hdf5(self, h5file, no_ray_splitting=False):
         """
             Saves the ray structure object as a group within an hdf5 file
             arguments:
@@ -164,8 +164,8 @@ class traced_ray_class(object):
         
         # Save all the ray segment fields as their own group
         grp = h5file.create_group("ray_segments")
-        grp.create_dataset("global_rayid", self.NraySegUsed, dtype = ray_dtypes["global_rayid"], data = self.global_rayid_ofSegment)
-        grp.create_dataset("dump_number", self.NraySegUsed, dtype = ray_dtypes["dump_number"], data = self.dump_number_ofSegment)
+        grp.create_dataset("global_rayid", (self.NraySegUsed,), dtype = ray_dtypes["global_rayid"], data = self.global_rayid_ofSegment)
+        grp.create_dataset("dump_number", (self.NraySegUsed,), dtype = ray_dtypes["dump_number"], data = self.dump_number_ofSegment)
 
         for field in self.traced_vars:
             assert field in self.__dict__.keys(), "Field %s has not been created in traced_rays. Has the finalize trace method been called?" % (field)
@@ -173,7 +173,8 @@ class traced_ray_class(object):
 
         
         # Save the split events and the linage information as its own dataset
-        h5file.create_dataset("splitEvents", data = self.splitEvents.get())
+        if not no_ray_splitting:
+            h5file.create_dataset("splitEvents", data = self.splitEvents.get())
 
     def reset(self):
         # Delete all the reduced arrays and reallocate the large _cpu arrays if needed

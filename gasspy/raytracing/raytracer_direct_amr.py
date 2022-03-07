@@ -112,7 +112,7 @@ class raytracer_class:
         h5file = h5py.File(filename, "w")
 
         # Save the traced rays object for later use in RT
-        self.traced_rays.save_hdf5(h5file)
+        self.traced_rays.save_hdf5(h5file, self.no_ray_splitting)
         # Save the global_rays
         self.global_rays.save_hdf5(h5file)
 

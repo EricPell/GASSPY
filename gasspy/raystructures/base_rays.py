@@ -165,10 +165,10 @@ class base_ray_class:
 
         for field in fields:
             assert field in self.contained_fields, "Field %s does not exist in %s data structure" % (field, self.class_name)
-            if self.on_gpu:
-                grp.create_dataset(field, self.nrays, dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays].get())
+            if self.on_cpu:
+                grp.create_dataset(field, (self.nrays,), dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays])
             else:
-                grp.create_dataset(field, self.nrays, dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays])
+                grp.create_dataset(field, (self.nrays,), dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays].get())
 
     def load_hdf5(self, h5file):
         """
