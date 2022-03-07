@@ -25,7 +25,7 @@ class global_ray_class(base_ray_class):
         ]
     class_name = "global_rays"
 
-    def __init__(self, nalloc = None, on_cpu = True, contained_fields = None):
+    def __init__(self, nalloc = None, on_cpu = False, contained_fields = None):
         self.not_allocated = True
         self.nrays = 0
 
