@@ -4,6 +4,7 @@ This routine performs a spectra RT on an AMR grid
 from inspect import trace
 import sys, os
 from pathlib import Path
+import pickle
 import numpy as np
 import cupy
 import torch
@@ -13,6 +14,7 @@ from astropy import constants as const
 from gasspy.raystructures import global_ray_class
 import yaml
 
+#cupy.cuda.set_allocator(cupy.cuda.MemoryAsyncPool().malloc)
 cupy.cuda.set_allocator(cupy.cuda.MemoryPool(cupy.cuda.malloc_managed).malloc)
 
 class FamilyTree():
@@ -35,9 +37,9 @@ class FamilyTree():
         massden=True,
         mu=1.1,
         los_angle=None,
-        accel="torch",
+        accel="cuda",
         dtype=np.float32,
-        liteVRAM=True,
+        liteVRAM=False,
         Nraster=4,
         useGasspyEnergyWindows=True,
         make_spec_subdirs=True,
@@ -138,7 +140,20 @@ class FamilyTree():
         self.traced_rays = traced_rays
         self.global_rayDF_deprecated = global_rayDF_deprecated
         self.config_yaml = config_yaml
-        
+
+        self.multiply = cupy.ElementwiseKernel(
+        'float64 x, float64 y', 'float64 z',
+        '''
+        z = x*y;
+        ''', 'multipy')
+
+        self.extinct = cupy.ElementwiseKernel(
+        'float64 x, float64 y', 'float64 z',
+        '''
+        z = exp(-x*y);
+        ''', 'extinction')
+
+
     def process_all(self,i0=0):
         
         for root_i in range(i0, len(self.ancenstors)):
@@ -175,7 +190,9 @@ class FamilyTree():
         elif isinstance(self.energy, torch.Tensor):
             self.spechdf5_out.create_dataset("E", data=self.energy.cpu().numpy())
 
-        self.spec_stream = cupy.cuda.Stream()
+        self.spec_stream = cupy.cuda.Stream(non_blocking=True)
+        self.compute_stream = cupy.cuda.Stream(non_blocking=True)
+
 
     def write_spec_save_hdf5(self, new_data, grow=True):
         n_E, n_spec = new_data['flux'].shape
@@ -297,7 +314,7 @@ class FamilyTree():
             if self.energy_lims is not None:
                 self.Emask = np.full(self.energy.shape, False, dtype = np.bool8)
                 for i in range(len(self.energy_lims)):
-                    self.Emask[(self.energy >= self.energy_lims[i][0]) * (self.energy <= self.energy_lims[i][1])] = True
+                    self.Emask[(self.energy >= self.energy_lims[i,0]) * (self.energy <= self.energy_lims[i,1])] = True
 
             if self.Emask is not None:
                 self.energy = self.energy[self.Emask]
@@ -414,22 +431,33 @@ class FamilyTree():
         if self.opc_per_NH:
             self.den = np.append(self.den, np.array([0], dtype = self.dtype))
 
+    def pinned_array(self, array):
+        # first constructing pinned memory
+        mem = cupy.cuda.alloc_pinned_memory(array.nbytes)
+        src = np.frombuffer(
+                    mem, array.dtype, array.size).reshape(array.shape)
+        src[...] = array
+        return src
+
+
     def move_to_GPU(self):
         if self.accel == "torch":
             self.energy = torch.as_tensor(self.energy).cuda(self.cuda_device)
         else:
             self.energy = cupy.asarray(self.energy)
 
-        if self.accel in ["torch", "cuda"] and not self.liteVRAM:
+        if self.liteVRAM:
+            self.raydump_dict["pathlength"] = self.pinned_array(np.array(self.raydump_dict["pathlength"], dtype=self.dtype))
+            # self.raydump_dict["cell_index"] = self.pinned_array(np.array(self.raydump_dict["cell_index"], dtype=np.int64))
 
-            self.den = cupy.asarray(self.den, dtype=self.dtype)
-            self.cell_index_to_gasspydb = cupy.asarray(self.cell_index_to_gasspydb)
-            self.raydump_dict["cell_index"] = cupy.asarray(self.raydump_dict["cell_index"], dtype=cupy.int64)
+        else:
+            self.raydump_dict["pathlength"] = cupy.asarray(self.raydump_dict["pathlength"], dtype=self.dtype)
 
+        self.raydump_dict["cell_index"] = cupy.asarray(self.raydump_dict["cell_index"], dtype=cupy.int64)
         self.em = cupy.asarray(self.em, dtype=self.dtype)
         self.op = cupy.asarray(self.op, dtype=self.dtype)
-        self.raydump_dict["pathlength"] = cupy.asarray(self.raydump_dict["pathlength"], dtype=self.dtype)
-    
+        self.den = cupy.asarray(self.den, dtype=self.dtype)
+        self.cell_index_to_gasspydb = cupy.asarray(self.cell_index_to_gasspydb)
 
     def cleaning(self):
         """These cleaning operations ensure that the input data conforms to expectations of the radiative transfer algorithms""" 
@@ -498,149 +526,158 @@ class FamilyTree():
                 print(key, self.raydump_dict[key])
 
     def get_spec_root(self, root_i, cuda_device):
-        self.set_branch(root_i)
+        with self.compute_stream:
+            self.set_branch(root_i)
 
-        rt_tetris_maps = {}
+            rt_tetris_maps = {}
 
-        """
-        By default the index map exists on the GPU
-        """
-        rt_tetris_maps[0] = cupy.arange(1)
-
-        if self.accel == "torch":
-            rt_tetris_maps[0] = torch.as_tensor(rt_tetris_maps[0])
-
-
-        my_segment_IDs = {0: [None]}
-
-        my_N_spect = self.Nraster**self.max_level
-        #output_array_cpu = cupyx.zeros_pinned((my_N_spect, self.energy.shape[0]))
-
-        if self.accel == "torch":
-            output_array_gpu = torch.zeros((self.energy.shape[0], my_N_spect), requires_grad=False, device=cuda_device, dtype=self.torch_dtype)
-        elif self.accel == "cuda":
-            output_array_gpu = cupy.zeros((self.energy.shape[0], my_N_spect), dtype=self.dtype)
-
-        my_l_i = 0
-        # These are the ray dumps of the first root
-
-        branch_gid = self.branch[0]
-        
-        i0, Nsegs = self.raydump_dict["ray_index0"][branch_gid], self.raydump_dict["Nsegs"][branch_gid]
-        i1 = i0+Nsegs
-
-        my_cell_indexes = self.raydump_dict["cell_index"][i0:i1]
-        gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
-
-        save_GIDs = {my_l_i:np.array([branch_gid])}
-
-        # Check if using Tensors
-        if self.accel == "torch":
-            my_Em = torch.as_tensor(self.em.take(gasspy_id, axis=1), device=cuda_device)
-            my_Opc = torch.as_tensor(self.op.take(gasspy_id, axis=1), device=cuda_device)
-
-            my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"][i0:i1], device=cuda_device)
-
-            if self.opc_per_NH:
-                my_den = torch.as_tensor(self.den.take(my_cell_indexes), device=cuda_device)
-                my_Opc = torch.mul(my_den, my_Opc)
-
-            dF = torch.mul(my_Em, my_pathlenths).sum(axis=[2,1])
-            dTau = torch.exp(-torch.mul(my_Opc,my_pathlenths).sum(axis=[2, 1]))
-
-        elif self.accel == "cuda":
-            my_Em  = cupy.asarray(self.em.take(gasspy_id, axis=1))
-            my_Opc = cupy.asarray(self.op.take(gasspy_id, axis=1))
-
-            my_pathlenths = cupy.asarray(self.raydump_dict["pathlength"][i0:i1])
-
-            if self.opc_per_NH:
-                my_den = cupy.asarray(self.den.take(my_cell_indexes))
-                my_Opc = cupy.multiply(my_den, my_Opc)
-
-            dF = cupy.multiply(my_Em, my_pathlenths).sum(axis=[2,1])
-            dTau = cupy.exp(-cupy.multiply(my_Opc,my_pathlenths).sum(axis=[2, 1]))
-
-        output_array_gpu[:, 0] = dF[:] * dTau[:]
-
-        for my_l_i, my_l in enumerate(list(self.branch.values())[1:]):
-            
-            # Check for the number of dead rays. Some times dumps contain all dead rays. 
-            dead_index = np.argwhere(self.branch[my_l_i+1] == -1)
-
-            # If there are live rays in this level, proceed
-            if len(dead_index) != len(self.branch[my_l_i+1]):
-                my_l_i += 1
-
-                Nsegs_branch = self.numlib.array([self.raydump_dict["Nsegs"][gid] for gid in my_l])
-
-                save_GIDs[my_l_i] = my_l.copy()
-
-                save_GIDs[my_l_i][dead_index] = save_GIDs[my_l_i-1][dead_index // self.Nraster]
-
-                try:
-                    rt_tetris_maps[my_l_i]
-                except:
-                    rt_tetris_maps[my_l_i] = cupy.arange(int(self.Nraster**(my_l_i)))
-                    if self.accel == "torch":
-                        rt_tetris_maps[my_l_i] = torch.as_tensor(rt_tetris_maps[my_l_i], device=cuda_device)
-
-                my_segment_IDs[my_l_i] = self.numlib.full((len(self.branch[my_l_i]),self.numlib.int(Nsegs_branch.max())), -1, dtype=np.int64)
-
-                for branch_gid_i, branch_gid in enumerate(my_l):
-                    i0, Nsegs = self.raydump_dict["ray_index0"][branch_gid], self.raydump_dict["Nsegs"][branch_gid]
-                    i1 = i0+Nsegs                
-                    my_segment_IDs[my_l_i][branch_gid_i, :Nsegs] = self.numlib.arange(self.numlib.int(i0),self.numlib.int(i1))[:]
-
-                # Using take we can get each branch at at time, returning a self.Nraster^level set of arrays which each contain many different path lengths etc.
-                my_cell_indexes = self.raydump_dict["cell_index"].take(my_segment_IDs[my_l_i], axis=0)
-                gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
-                
-                if self.accel == "torch":
-                    my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"].take(my_segment_IDs[my_l_i], axis=0), device=cuda_device)
-                    my_Em = torch.as_tensor(self.em.take(gasspy_id, axis=1), device=cuda_device)
-                    my_Opc = torch.as_tensor(self.op.take(gasspy_id, axis=1), device=cuda_device)
-
-                    if self.opc_per_NH:
-                        my_den = torch.as_tensor(self.den.take(my_cell_indexes), device=cuda_device)
-                        my_Opc = torch.mul(my_den, my_Opc)
-
-                    dF = torch.mul(my_Em, my_pathlenths).sum(axis=[3, 2])
-                    dTau = torch.exp(-torch.mul(my_Opc, my_pathlenths).sum(axis=[3, 2]))
-                    output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[:,torch.tile(rt_tetris_maps[my_l_i-1],dims=(self.Nraster,1)).T.ravel()] + dF[:]) * dTau[:])
-
-                else:
-                    my_pathlenths = cupy.asarray(self.raydump_dict["pathlength"].take(my_segment_IDs[my_l_i], axis=0))
-                    my_Em = cupy.asarray(self.em.take(gasspy_id, axis=1))
-                    my_Opc = cupy.asarray(self.op.take(gasspy_id, axis=1))
-
-                    if self.opc_per_NH:
-                        my_den = cupy.asarray(self.den.take(my_cell_indexes))
-                        my_Opc = cupy.multiply(my_den, my_Opc)
-
-                    dF = (my_Em[:, :] * my_pathlenths).sum(axis=[2, 3])
-                    dTau = cupy.exp((-my_Opc[:, :] * my_pathlenths).sum(axis=[2, 3]))
-                    output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[:,cupy.tile(rt_tetris_maps[my_l_i-1],self.Nraster)] + dF[:]) * dTau[:])
-
-        if self.spec_save_type == "hdf5":
-            out_GIDs, out_GID_i = np.unique(save_GIDs[my_l_i], return_index=True)
+            """
+            By default the index map exists on the GPU
+            """
+            rt_tetris_maps[0] = cupy.arange(1)
 
             if self.accel == "torch":
-                save_data = {'flux':output_array_gpu[:,out_GID_i].cpu().numpy()}
+                rt_tetris_maps[0] = torch.as_tensor(rt_tetris_maps[0])
+
+
+            my_segment_IDs = {0: [None]}
+
+            my_N_spect = self.Nraster**self.max_level
+            #output_array_cpu = cupyx.zeros_pinned((my_N_spect, self.energy.shape[0]))
+
+            if self.accel == "torch":
+                output_array_gpu = torch.zeros((self.energy.shape[0], my_N_spect), requires_grad=False, device=cuda_device, dtype=self.torch_dtype)
             elif self.accel == "cuda":
-                # Note: Should be a stream
-                save_data = {'flux':cupy.asnumpy(output_array_gpu[:,out_GID_i], stream=self.spec_stream)}
+                output_array_gpu = cupy.zeros((self.energy.shape[0], my_N_spect), dtype=self.dtype)
 
-            if self.liteVRAM:
-                save_data.update({'x':self.new_global_rays.xp[out_GIDs],
-                'y':self.new_global_rays.yp[out_GIDs],
-                'ray_lrefine':self.new_global_rays.ray_lrefine[out_GIDs]})
-            else:
-                save_data.update({'x':self.new_global_rays.xp[out_GIDs].get(),
-                'y':self.new_global_rays.yp[out_GIDs].get(),
-                'ray_lrefine':self.new_global_rays.ray_lrefine[out_GIDs].get()})
-            self.write_spec_save_hdf5(save_data)
+            my_l_i = 0
+            # These are the ray dumps of the first root
 
-        elif self.spec_save_type == "numpy":
-            np.save("%s%s%sspec_%i.npy"%(self.root_dir, self.gasspy_subdir, self.gasspy_spec_subdir, root_i), output_array_gpu.cpu().numpy())
+            branch_gid = self.branch[0]
+            
+            i0, Nsegs = self.raydump_dict["ray_index0"][branch_gid], self.raydump_dict["Nsegs"][branch_gid]
+            i1 = i0+Nsegs
+
+            my_cell_indexes = self.raydump_dict["cell_index"][i0:i1]
+            gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
+
+            save_GIDs = {my_l_i:np.array([branch_gid])}
+
+            # Check if using Tensors
+            if self.accel == "torch":
+                my_Em = torch.as_tensor(self.em.take(gasspy_id, axis=1), device=cuda_device)
+                my_Opc = torch.as_tensor(self.op.take(gasspy_id, axis=1), device=cuda_device)
+
+                my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"][i0:i1], device=cuda_device)
+
+                if self.opc_per_NH:
+                    my_den = torch.as_tensor(self.den.take(my_cell_indexes), device=cuda_device)
+                    my_Opc = torch.mul(my_den, my_Opc)
+
+                dF = torch.mul(my_Em, my_pathlenths).sum(axis=[2,1])
+                dTau = torch.exp(-torch.mul(my_Opc,my_pathlenths).sum(axis=[2, 1]))
+                
+                output_array_gpu[:, 0] = torch.mul(dF, dTau)[:]
+                
+
+            elif self.accel == "cuda":
+                my_Em  = cupy.asarray(self.em.take(gasspy_id, axis=1))
+                my_Opc = cupy.asarray(self.op.take(gasspy_id, axis=1))
+
+                my_pathlenths = cupy.asarray(self.raydump_dict["pathlength"][i0:i1])
+
+                if self.opc_per_NH:
+                    my_den = cupy.asarray(self.den.take(my_cell_indexes))
+                    my_Opc = cupy.multiply(my_den, my_Opc)
+
+                dF = cupy.multiply(my_Em, my_pathlenths).sum(axis=[2,1])
+                dTau = cupy.exp(-cupy.multiply(my_Opc,my_pathlenths).sum(axis=[2, 1]))
+
+                output_array_gpu[:, 0] = cupy.multiply(dF, dTau)[:]
+
+            for my_l_i, my_l in enumerate(list(self.branch.values())[1:]):
+                
+                # Check for the number of dead rays. Some times dumps contain all dead rays. 
+                dead_index = np.argwhere(self.branch[my_l_i+1] == -1)
+
+                # If there are live rays in this level, proceed
+                if len(dead_index) != len(self.branch[my_l_i+1]):
+                    my_l_i += 1
+
+                    Nsegs_branch = self.numlib.array([self.raydump_dict["Nsegs"][gid] for gid in my_l])
+
+                    save_GIDs[my_l_i] = my_l.copy()
+
+                    save_GIDs[my_l_i][dead_index] = save_GIDs[my_l_i-1][dead_index // self.Nraster]
+
+                    try:
+                        rt_tetris_maps[my_l_i]
+                    except:
+                        rt_tetris_maps[my_l_i] = cupy.arange(int(self.Nraster**(my_l_i)))
+                        if self.accel == "torch":
+                            rt_tetris_maps[my_l_i] = torch.as_tensor(rt_tetris_maps[my_l_i], device=cuda_device)
+
+                    my_segment_IDs[my_l_i] = self.numlib.full((len(self.branch[my_l_i]),self.numlib.int(Nsegs_branch.max())), -1, dtype=np.int64)
+
+                    for branch_gid_i, branch_gid in enumerate(my_l):
+                        i0, Nsegs = self.raydump_dict["ray_index0"][branch_gid], self.raydump_dict["Nsegs"][branch_gid]
+                        i1 = i0+Nsegs                
+                        my_segment_IDs[my_l_i][branch_gid_i, :Nsegs] = self.numlib.arange(self.numlib.int(i0),self.numlib.int(i1))[:]
+
+                    # Using take we can get each branch at at time, returning a self.Nraster^level set of arrays which each contain many different path lengths etc.
+                    my_cell_indexes = self.raydump_dict["cell_index"].take(my_segment_IDs[my_l_i], axis=0)
+                    gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
+                    
+                    if self.accel == "torch":
+                        my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"].take(my_segment_IDs[my_l_i], axis=0), device=cuda_device)
+                        my_Em = torch.as_tensor(self.em.take(gasspy_id, axis=1), device=cuda_device)
+                        my_Opc = torch.as_tensor(self.op.take(gasspy_id, axis=1), device=cuda_device)
+
+                        if self.opc_per_NH:
+                            my_den = torch.as_tensor(self.den.take(my_cell_indexes), device=cuda_device)
+                            my_Opc = torch.mul(my_den, my_Opc)
+
+                        dF = torch.mul(my_Em, my_pathlenths).sum(axis=[3, 2])
+                        dTau = torch.exp(-torch.mul(my_Opc, my_pathlenths).sum(axis=[3, 2]))
+                        output_array_gpu[:,rt_tetris_maps[my_l_i]] = torch.mul(torch.add(output_array_gpu[:,torch.tile(rt_tetris_maps[my_l_i-1],dims=(self.Nraster,1)).T.ravel()], dF[:]), dTau[:])
+
+                    else:
+                        my_pathlenths = cupy.asarray(self.raydump_dict["pathlength"].take(my_segment_IDs[my_l_i], axis=0))
+                        my_Em = cupy.asarray(self.em.take(gasspy_id, axis=1))
+                        my_Opc = cupy.asarray(self.op.take(gasspy_id, axis=1))
+
+                        if self.opc_per_NH:
+                            my_den = cupy.asarray(self.den.take(my_cell_indexes))
+                            my_Opc = cupy.multiply(my_den, my_Opc)
+
+                        output_array_gpu[:,rt_tetris_maps[my_l_i]] = cupy.multiply(cupy.add(output_array_gpu[:,cupy.tile(rt_tetris_maps[my_l_i-1],self.Nraster)], cupy.multiply(my_Em[:, :],my_pathlenths).sum(axis=[2, 3])), cupy.exp((cupy.multiply(-my_Opc[:, :], my_pathlenths)).sum(axis=[2, 3])))[:]
+
+                        # dF = cupy.multiply(my_Em[:, :],my_pathlenths).sum(axis=[2, 3])
+                        # dTau = cupy.exp((cupy.multiply(-my_Opc[:, :], my_pathlenths)).sum(axis=[2, 3]))
+                        # output_array_gpu[:,rt_tetris_maps[my_l_i]] = cupy.multiply(cupy.add(output_array_gpu[:,cupy.tile(rt_tetris_maps[my_l_i-1],self.Nraster)], dF), dTau)[:]
+
+            if self.spec_save_type == "hdf5":
+                out_GIDs, out_GID_i = np.unique(save_GIDs[my_l_i], return_index=True)
+
+                if self.accel == "torch":
+                    save_data = {'flux':output_array_gpu[:,out_GID_i].detach().cpu().numpy()}
+                elif self.accel == "cuda":
+                    # Note: Should be a stream
+                    # We do this to ensure that the outarray doesn't get out of sync while streaming
+                    save_array = cupy.array(output_array_gpu[:,out_GID_i])
+                    save_data = {'flux':cupy.asnumpy(save_array, stream=self.spec_stream)}
+
+                if self.liteVRAM:
+                    save_data.update({'x':self.new_global_rays.xp[out_GIDs],
+                    'y':self.new_global_rays.yp[out_GIDs],
+                    'ray_lrefine':self.new_global_rays.ray_lrefine[out_GIDs]})
+                else:
+                    save_data.update({'x':self.new_global_rays.xp[out_GIDs].get(),
+                    'y':self.new_global_rays.yp[out_GIDs].get(),
+                    'ray_lrefine':self.new_global_rays.ray_lrefine[out_GIDs].get()})
+                self.write_spec_save_hdf5(save_data)
+
+            elif self.spec_save_type == "numpy":
+                np.save("%s%s%sspec_%i.npy"%(self.root_dir, self.gasspy_subdir, self.gasspy_spec_subdir, root_i), output_array_gpu.cpu().numpy())
+        cupy.cuda.get_current_stream().synchronize()
 

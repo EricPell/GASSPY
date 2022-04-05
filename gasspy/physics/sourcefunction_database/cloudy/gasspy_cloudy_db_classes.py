@@ -378,13 +378,13 @@ class gasspy_to_cloudy(object):
         if model_is_ionization_front:
             """If an IF then we need to average over the entire cell"""
             self.outfile.write("save diffuse continuum last zone \".em\"\n")
-            self.outfile.write("save opacity total last every\".opc\"\n")
+            self.outfile.write("save opacity total last every \".opc\"\n")
         else:
             """If not an IF we use the last zone to estimate emissivity and opacity"""
             self.outfile.write("save diffuse continuum last \".em\"\n")
             self.outfile.write("save opacity total last \".opc\"\n")
 
-        self.outfile.write("save opacities grain last\".grnopc\"\n")
+        self.outfile.write("save opacities grain last \".grnopc\"\n")
 
     def set_cloudy_init_file(self, init_file):
         """ Write command to cloudy input file to use custom init file """

@@ -6,7 +6,7 @@ import os
 import time
 import numpy as np
 import torch
-import gasspy.radtransfer.__rt__ as __rt_branch__
+import gasspy.radtransfer.__rt__ as __rt__
 import time
 from astropy import constants as const
 
@@ -17,7 +17,7 @@ cuda_device = 'cuda:0'
 
 for trace in ("000002_trace.hdf5",):
     print(trace)
-    mytree = __rt_branch__.FamilyTree(
+    mytree = __rt__.FamilyTree(
         root_dir=root_dir,
         gasspy_subdir="GASSPY",
         traced_rays=trace,
