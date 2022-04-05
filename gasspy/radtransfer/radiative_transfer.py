@@ -36,7 +36,8 @@ for trace in ("000002_trace.hdf5",):
         spec_save_name="gasspy_spec"+trace,
         dtype=np.float64,
         spec_save_type="hdf5",
-        cuda_device=cuda_device
+        cuda_device=cuda_device,
+        N_max_spec=64
     )
 
     t = time.time()

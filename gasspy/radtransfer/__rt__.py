@@ -1,7 +1,6 @@
 """
 This routine performs a spectra RT on an AMR grid
 """
-from inspect import trace
 import sys
 import os
 from pathlib import Path
@@ -16,7 +15,7 @@ from gasspy.radtransfer.hdf5_writer import HDF5_SAVE #, RT_IO
 #from gasspy.radtransfer import RadiativeTransferData
 
 #cupy.cuda.set_allocator(cupy.cuda.MemoryAsyncPool().malloc)
-cupy.cuda.set_allocator(cupy.cuda.MemoryPool(cupy.cuda.malloc_managed).malloc)
+#cupy.cuda.set_allocator(cupy.cuda.MemoryPool(cupy.cuda.malloc_managed).malloc)
 torch.set_grad_enabled(False)
 
 class FamilyTree(RT_DATA_Controller,HDF5_SAVE):
@@ -213,8 +212,11 @@ class FamilyTree(RT_DATA_Controller,HDF5_SAVE):
         # A ray may die outside the box, and as a result have an index larger than the simulation. We set that to -1.
         self.raydump_dict["cell_index"]["cpu"][self.raydump_dict["cell_index"]["cpu"] > len(self.cell_index_to_gasspydb) - 1] = -1
 
+        try:
+            del(self.saved3d)
+        except:
+            "I guess it's already gone"
         del(self.raydump_dict['splitEvents'])
-        del(self.saved3d)
 
     def gather_roots(self, root_i):
         N_branches = 0
@@ -305,7 +307,8 @@ class FamilyTree(RT_DATA_Controller,HDF5_SAVE):
     def get_spec_root(self, root_i, cuda_device):
         torch.cuda.empty_cache()
         self.mempool.free_all_blocks()
-        my_cell_indexes = {"cpu":None,"device":None}
+        my_cell_indexes = {"cpu":None, cuda_device:None}
+
         if True:
             self.gather_roots(root_i)
             rt_tetris_maps = {}
@@ -323,7 +326,7 @@ class FamilyTree(RT_DATA_Controller,HDF5_SAVE):
                 rt_tetris_maps[0] = {'old': torch.as_tensor(rt_tetris_maps[0])}
                 rt_tetris_maps[0]['new'] = rt_tetris_maps[0]['old']
 
-            my_raydump_indexes = {0: [None]}
+            my_raydump_indexes = {"cpu":{0: [None]}, cuda_device:{0: [None]}}
 
             my_N_spect = self.N_roots * self.Nraster ** self.max_level
             #output_array_cpu = cupyx.zeros_pinned((my_N_spect, self.energy.shape[0]))
@@ -374,73 +377,77 @@ class FamilyTree(RT_DATA_Controller,HDF5_SAVE):
                                 "new": cupy.arange(my_N_spect*self.Nraster**my_l_i)
                             }
 
-                    my_raydump_indexes[my_l_i] = self.numlib.full(
-                        (len(self.branch[my_l_i]), self.numlib.int(Nsegs_per_ray.max())), -1, dtype=np.int64)
+                    for pair in [[np,"cpu"], [cupy, cuda_device]]:
+                        numlib, dev = pair
+                        my_raydump_indexes[dev][my_l_i] = torch.full((len(self.branch[my_l_i]), numlib.int(Nsegs_per_ray.max())), -1, device=dev)
 
-                    for branch_gid_i, branch_gid in enumerate(my_l):
-                        i0, Nsegs = self.raydump_dict["ray_index0"][branch_gid], self.raydump_dict["Nsegs"][branch_gid]
-                        i1 = i0+Nsegs
-                        my_raydump_indexes[my_l_i][branch_gid_i, :Nsegs] = self.numlib.arange(
-                            self.numlib.int(i0), self.numlib.int(i1))[:]
+                        for branch_gid_i, branch_gid in enumerate(my_l):
+                            i0, Nsegs = self.raydump_dict["ray_index0"][branch_gid], self.raydump_dict["Nsegs"][branch_gid]
+                            i1 = i0+Nsegs
+                            my_raydump_indexes[dev][my_l_i][branch_gid_i, :numlib.int(Nsegs)] = torch.arange(
+                                numlib.int(i0), numlib.int(i1))[:]
+
+                    # Only torch currently supported, as it's an order of magnitude faster and nearly memory bandwidth limited
+                    my_pathlenths = self.raydump_dict["pathlength"][my_raydump_indexes[self.pathlength_device][my_l_i]].cuda()
+
+                    # While not always the most efficient, reshaping the dumps to a single dump times cells is generally faster.
+                    # This also removes one additional cumsum to combine them later.
+                    tmp_nrays, tmp_ndumps, tmp_cells = my_pathlenths.shape
+
+                    # Remove on dimension from pathlengths
+                    my_pathlenths = my_pathlenths.reshape((tmp_nrays, tmp_ndumps*tmp_cells))
 
                     # Using take we can get each branch at at time, returning a self.Nraster^level set of arrays which each contain many different path lengths etc.
-                    my_cell_indexes["cpu"] = self.raydump_dict["cell_index"]["cpu"].take(
-                        my_raydump_indexes[my_l_i], axis=0)
-                    my_cell_indexes[self.cuda_device] = cupy.array(my_cell_indexes["cpu"], device=self.cuda_device)
+                    my_cell_indexes["cpu"] = torch.Tensor.pin_memory(self.raydump_dict["cell_index"]["cpu"][my_raydump_indexes["cpu"][my_l_i]].reshape((tmp_nrays, tmp_ndumps*tmp_cells)))
 
-                    gasspy_id = {"cpu": self.cell_index_to_gasspydb["cpu"][my_cell_indexes["cpu"]], self.cuda_device : self.cell_index_to_gasspydb[self.cuda_device][my_cell_indexes[self.cuda_device]]}
 
-                    if self.accel == "torch":
-                        my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"].take(
-                            my_raydump_indexes[my_l_i], axis=0), device=cuda_device)
+                    # I don't know if it's faster or not to reshape on device, or to copy from host to device. I assume the first. But it's too expensive.
+                    # my_cell_indexes[cuda_device] = self.raydump_dict["cell_index"][cuda_device].take(
+                    #     my_raydump_indexes[cuda_device][my_l_i], axis=0).reshape((tmp_nrays, tmp_ndumps*tmp_cells))
 
-                        my_Em = torch.as_tensor(self.em.take(
-                            gasspy_id[self.em_device], axis=1), device=cuda_device)
+                    my_cell_indexes[cuda_device] = my_cell_indexes["cpu"].cuda()
 
-                        my_Opc = torch.as_tensor(self.op.take(
-                            gasspy_id[self.op_device], axis=1), device=cuda_device)
+                    gasspy_id = {"cpu": self.cell_index_to_gasspydb["cpu"][my_cell_indexes["cpu"]], cuda_device : self.cell_index_to_gasspydb[cuda_device][my_cell_indexes[self.cuda_device]]}
 
-                        if self.opc_per_NH:
-                            my_den = torch.as_tensor(self.den.take(
-                                my_cell_indexes[self.den_device]), device=cuda_device)
-                            my_Opc = torch.mul(my_den, my_Opc)
+                    # my_Opc = torch.as_tensor(self.op.take(
+                    #     gasspy_id[self.op_device], axis=1), device=cuda_device)
 
-                        # First get the sum of the opc*path along each cell segment
-                        Ext = torch.cumsum(torch.mul(my_Opc, my_pathlenths), 3)
-                        # The last value in that segment is the value that needs to be added to the next, for the cummulative sum to work over
-                        # dimensions 1 and 2. So, we need the last value for each cell segment, cumulative sum, and added to to total for each dump
+                    torch.cuda.empty_cache()
+                    
+                    if self.opc_per_NH:
+                        Ext = torch.multiply(
+                            self.op[:,gasspy_id[self.op_device]].cuda(), 
+                            self.den[my_cell_indexes[self.den_device]].cuda())
+                        torch.multiply(Ext, my_pathlenths, out=Ext)
 
-                        # So what we do is for every group of segments past the first [:,1:] we add to it the cumulative sum of all the prior segments
-                        # starting with the first
-
-                        Ext[:, :, -1][:, 1:] = Ext[:, :, -1][:, 1:] + \
-                            torch.cumsum(Ext[:, :, -1][:, :-1], 1)
-
-                        Ext = torch.exp(-Ext)
-
-                        dF = torch.mul(torch.mul(my_Em, my_pathlenths), Ext).sum(
-                            axis=[3, 2])
-
-                        output_array_gpu[:, rt_tetris_maps[my_l_i]["new"]] = torch.mul(output_array_gpu[:, rt_tetris_maps[my_l_i]["old"]], Ext[:, :, -1, -1][:])
-
-                        output_array_gpu[:, rt_tetris_maps[my_l_i]["new"]] = torch.add(output_array_gpu[:, rt_tetris_maps[my_l_i]["new"]], dF)
+                        torch.cumsum(Ext.flip(2),2, out=Ext)
+                        torch.exp(-Ext.flip(2), out=Ext)
 
                     else:
-                        my_pathlenths = cupy.asarray(
-                            self.raydump_dict["pathlength"].take(my_raydump_indexes[my_l_i], axis=0))
-                        my_Em = cupy.asarray(self.em.take(gasspy_id, axis=1))
-                        my_Opc = cupy.asarray(self.op.take(gasspy_id, axis=1))
+                        Ext = torch.exp(
+                            -torch.cumsum(
+                                torch.mul(self.op[:,gasspy_id[self.op_device]].cuda(), my_pathlenths.cuda()).flip(2)
+                                , 2).flip(2))
 
-                        if self.opc_per_NH:
-                            my_den = cupy.asarray(
-                                self.den.take(my_cell_indexes))
-                            my_Opc = cupy.multiply(my_den, my_Opc)
+                    # First get the sum of the opc*path along each cell segment
+                    # Make sure to flip the cummulative sum twice
+                    # The first flip allows us to sum from the back forward, what happens to the ray in terms of amount of exinction
+                    # where the first cell is the most extinct, not the least
+                    
+                    # But the previous flip has the correct extinction, but from end to start.
+                    # We need to flip it once more to get next extinction from start to end.
 
-                        dF = cupy.multiply(cupy.multiply(my_Em, my_pathlenths), cupy.exp(
-                            cupy.multiply(-my_Opc, my_pathlenths))).sum(axis=[2, 3])
+                    # Kill if works
+                    # my_Em = torch.as_tensor(self.em.take(
+                    #     gasspy_id[self.em_device], axis=1), device=cuda_device)
 
-                        output_array_gpu[:, rt_tetris_maps[my_l_i]["new"]] = cupy.add(
-                            output_array_gpu[:, rt_tetris_maps[my_l_i]["old"]], dF)
+                    # 
+                    net_new_Flux_per_cell = torch.mul(torch.mul(self.em[:,gasspy_id[self.em_device]].cuda(), my_pathlenths.cuda()), Ext).sum(axis=[2])
+
+                    # In the output array, take the prior levels flux and attenuate it by the 
+                    output_array_gpu[:, rt_tetris_maps[my_l_i]["new"]] = torch.mul(output_array_gpu[:, rt_tetris_maps[my_l_i]["old"]], Ext[..., 0][:])
+
+                    output_array_gpu[:, rt_tetris_maps[my_l_i]["new"]] = torch.add(output_array_gpu[:, rt_tetris_maps[my_l_i]["new"]], net_new_Flux_per_cell)
 
             if self.spec_save_type == "hdf5":
                 out_GIDs, out_GID_i = np.unique(

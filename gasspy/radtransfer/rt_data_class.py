@@ -26,42 +26,44 @@ class RT_DATA_Controller():
     # flags: tensor, tensor_cpu, numpy, cupy
 
     def move_to_GPU(self):
-        if self.accel == "torch":
-            self.energy = torch.as_tensor(self.energy).cuda(self.cuda_device)
-        else:
-            self.energy = cupy.asarray(self.energy)
-
-        self.raydump_dict["cell_index"][self.cuda_device] = cupy.asarray(
-            self.raydump_dict["cell_index"]["cpu"], dtype=cupy.int64)
-
+        self.energy = torch.as_tensor(self.energy).cuda(self.cuda_device)
+        self.raydump_dict["cell_index"]["cpu"] = torch.Tensor.pin_memory(torch.tensor(self.raydump_dict["cell_index"]["cpu"]))
 
         if self.liteVRAM:
             self.raydump_dict["pathlength"] = self.pinned_array(
                 np.array(self.raydump_dict["pathlength"], dtype=self.dtype))
-            self.em = self.pinned_array(self.em)
-            self.op = self.pinned_array(self.op)
-            self.den = self.pinned_array(self.den)
+            self.em = torch.Torch.pinned_memory(torch.Tensor(self.em))
+            self.op = torch.Torch.pinned_memory(torch.Tensor(self.op))
+            self.den = torch.Torch.pinned_memory(torch.Tensor(self.den))
 
+            self.pathlength_device = "cpu"
             self.em_device = "cpu"
             self.op_device = "cpu"
             self.den_device = "cpu"
 
         else:
-            self.raydump_dict["pathlength"] = cupy.asarray(
-                self.raydump_dict["pathlength"], dtype=self.dtype)
-
-            self.raydump_dict["cell_index"][self.cuda_device] = cupy.asarray(
-                self.raydump_dict["cell_index"]["cpu"], dtype=cupy.int64)
-
-            self.em = cupy.asarray(self.em, dtype=self.dtype)
+            self.pathlength_device = "cpu"
+            self.den_device = "cpu"
             self.em_device = self.cuda_device
-            self.op = cupy.asarray(self.op, dtype=self.dtype)
             self.op_device = self.cuda_device
-            self.den = cupy.asarray(self.den, dtype=self.dtype)
-            self.den_device = self.cuda_device
 
-            self.cell_index_to_gasspydb[self.cuda_device] = cupy.asarray(
-                self.cell_index_to_gasspydb["cpu"])
+
+            self.raydump_dict["pathlength"] = torch.Tensor.pin_memory(torch.as_tensor(self.raydump_dict["pathlength"].astype(self.dtype), device=self.pathlength_device))
+
+            # self.pathlength_device = self.cuda_device
+            # self.em = cupy.asarray(self.em, dtype=self.dtype)
+            # self.em_device = self.cuda_device
+            # self.op = cupy.asarray(self.op, dtype=self.dtype)
+            # self.op_device = self.cuda_device
+            # self.den = cupy.asarray(self.den, dtype=self.dtype)
+            # self.den_device = self.cuda_device
+
+            self.em = torch.as_tensor(self.em.astype(self.dtype)).cuda()
+            self.op = torch.as_tensor(self.op.astype(self.dtype)).cuda()
+            self.den = torch.as_tensor(self.den.astype(self.dtype), device=self.den_device)
+
+            self.cell_index_to_gasspydb["cpu"] = torch.Tensor.pin_memory(torch.as_tensor(self.cell_index_to_gasspydb["cpu"]))
+            self.cell_index_to_gasspydb[self.cuda_device] = self.cell_index_to_gasspydb["cpu"].cuda()
         
     def padding(self):
         # The last element of each of the following arrays is assumed to be zero, and is used for out of bound indexes, which will have values -1.
@@ -221,6 +223,8 @@ class RT_DATA_Controller():
         self.cell_index_to_gasspydb = {}
         self.cell_index_to_gasspydb["cpu"] = np.unique(
             self.saved3d, axis=0, return_inverse=True)[1]
+        
+        del(self.saved3d)
         
         self.cell_index_to_gasspydb[self.cuda_device] = cupy.asarray(self.cell_index_to_gasspydb["cpu"])
 
