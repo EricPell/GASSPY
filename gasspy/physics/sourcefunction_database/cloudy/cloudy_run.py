@@ -20,20 +20,8 @@ class processor_class(object):
     """
     docstring
     """
-    def __init__(self, command_line):
-
-        parser = argparse.ArgumentParser(prog=command_line[0])
-        
-        parser.add_argument('--Ncores', metavar='Ncores', type=int,
-            default=len(os.sched_getaffinity(0)) - len(os.sched_getaffinity(0))//16,
-            help="Specify number of CPU cores (default: all cores)")
-
-        parser.add_argument('--cloudy_path', metavar='Cloudy path', type=str, default=None, help="Define path to cloudy executable. Use environ 'CLOUDY_EXE' by default")
-        parser.add_argument('--indirs', type=str, nargs='+', default=["./cloudy-output"], help='an integer for the accumulator')
-        parser.add_argument('--log', action='store_true')
-
-        self.args = parser.parse_args(command_line[1:])
-
+    def __init__(self, args):
+        self.args = args
         if self.args.cloudy_path == None:
             try:
                 self.args.cloudy_path = os.environ["CLOUDY_PATH"]
@@ -115,8 +103,18 @@ class processor_class(object):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    
+    parser.add_argument('--Ncores', metavar='Ncores', type=int,
+        default=len(os.sched_getaffinity(0)) - len(os.sched_getaffinity(0))//16,
+        help="Specify number of CPU cores (default: all cores)")
+    parser.add_argument('--cloudy_path', metavar='Cloudy path', type=str, default=None, help="Define path to cloudy executable. Use environ 'CLOUDY_EXE' by default")
+    parser.add_argument('--indirs', type=str, nargs='+', default=["./cloudy-output"], help='an integer for the accumulator')
+    parser.add_argument('--log', action='store_true')
+    args = parser.parse_args()
+    
     starttime = time.time()
-    processor = processor_class(sys.argv)
+    processor = processor_class(args)
     exec_list = processor.preproc(starttime)
     processor.pool_handler(exec_list)
     endtime = time.time()
