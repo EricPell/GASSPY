@@ -231,8 +231,8 @@ class uniq_dict_creator(object):
         N_original = np.shape(self.stacked)[0]
 
         #TODO: Replace pandas with a numpy.unique(axis=?)
-        self.unique = pd.DataFrame(self.stacked).drop_duplicates()
-        del(self.stacked)
+        self.unique = pd.DataFrame(np.unique(self.stacked,axis = 0))
+        #del(self.stacked)
 
         self.unique.columns = self.field_header
 
