@@ -237,9 +237,14 @@ class ModelCollector():
         #     self.read_in(name)
         #     self.read_mol(name)
         #     self.read_em(name)
-
-        i = 0
-        self.all(name=files[0])
+        self.skip = True
+        i = -1
+        while self.skip:
+            i += 1
+            if i >= len(files):
+                sys.exit("None of the cloudy outputs were readable")
+            print("gasspy-%i\r"%(i))
+            self.all(name=files[i])
 
         if self.single_files == False:
             self.e_bins = self.energy_bins.copy()
