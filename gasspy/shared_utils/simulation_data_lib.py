@@ -8,7 +8,7 @@ class subcell_model_class :
     def __init__(self, datadir, disableAutoloader=False):
         """ Load a subcell model from datadir"""
         self.datadir = datadir
-        self.model_dict = gasspy_io.read_dict(datadir+"/gasspy.indexed_avg_em")
+        self.model_dict = gasspy_io.read_dict(datadir+"/gasspy_avg_em_pkl.npy")
         
 
     def DF_from_dict(self, labels, missing = 0.0):
@@ -47,22 +47,10 @@ class simulation_data_class:
             self.config_yaml = yaml.load(file, Loader=yaml.FullLoader)
 
         try:
-            Ncells = self.config_yaml["Ncells"]
-            
-            for i, N in enumerate(np.array(Ncells,dtype="int")):
-                self.__dict__[["Nx", "Ny", "Nz"][i]] = N
-        except:
-            sys.exit("YOU FUCKED UP 1")
-
-        try:
             origin = self.config_yaml["origin"]
             self.config_yaml["origin"] = np.array(origin,dtype="float")
         except:
             sys.exit("YOU FUCKED UP 2")
-    
-        # will be a class
-        self.subcell_models = subcell_model_class(datadir)
-        self.subcell_model_id = None
         
         self.__dict__.update(self.config_yaml)
     
