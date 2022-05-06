@@ -46,7 +46,6 @@ class mesh_generator(object):
         #E0 = [900, 0.0]
         R0 = [300, 33.33333]
 
-        assert "CLOUDY_DATA_PATH" in os.environ, "CLOUDY_DATA_PATH is not defined in the environment"
         assert os.path.isdir(self.cloudy_data_dir), "Cloudy is not installed at %s"%(self.cloudy_data_dir.strip("/data/"))
 
         assert np.issubdtype(type(R), np.number), "Error: To speed up velocity shifting in radtran, multiple resolving powers are not currently supported"
