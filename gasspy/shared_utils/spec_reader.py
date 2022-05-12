@@ -6,7 +6,7 @@ import psutil
 from pathlib import Path
 import sys
 
-from gasspy.shared_utils.spectra_functions import broadband
+from gasspy.shared_utils.spectra_functions import broadband, integrated_line
 
 
 class spec_reader:
@@ -24,6 +24,9 @@ class spec_reader:
             gasspy_spec_subdir : string (name of the spectra subdirectory within GASSPY sub-directory)
             maxmem_GB: float (maximum amount of system memory we will try to use. NOTE: this is just and estimate so be conservative)
         """
+        self.root_dir = root_dir
+        self.gasspy_subdir = gasspy_subdir
+        self.gasspy_spec_subdir = gasspy_spec_subdir
         if not isinstance(spec_file, h5py._hl.files.File):
             assert isinstance(spec_file, str), "provided spec_file is neither a string or open hd5 file"
             if not spec_file.endswith(".hdf5"):
@@ -35,7 +38,7 @@ class spec_reader:
             else:
                 sys.exit("Could not find the traced rays file\n"+\
                 "Provided path: %s"%spec_file+\
-                "Try looking in \"./\" and %s\n"%(self.root_dir+self.gasspy_projection_subdir)+\
+                "Try looking in \"./\" and %s\n"%(self.root_dir+self.gasspy_spec_subdir)+\
                 "Aborting...")            
 
             self.spec_file = h5py.File(tmp_path, "r")
@@ -50,7 +53,10 @@ class spec_reader:
         # Load the energy bins
         self.Energies = self.spec_file["E"][:]
         # TODO: calculate size of energy bins prior to this, where we actually have all the information needed....
-        self.deltaEneregies = 1
+        self.deltaEnergies = np.zeros(self.Energies.shape)
+        self.deltaEnergies[1:-1] = self.Energies[2:] - self.Energies[:-2]
+        self.deltaEnergies[0] = self.deltaEnergies[1]
+        self.deltaEnergies[-1] = self.deltaEnergies[-2]
         
         # set maximum used memory
         if maxmem_GB is not None:
@@ -108,7 +114,7 @@ class spec_reader:
         if Elims is None:
             Elims = np.array([np.min(self.Energies)-1, np.max(self.Energies) + 1])
         Eidxs = np.where( (self.Energies >= Elims[0]) * (self.Energies < Elims[1]))[0]
-
+        
         # If nx or ny are not defined we use the maximum of the providied rays
         outmap_ray_lrefine = np.max(self.ray_lrefine)
         if outmap_nx is None:
@@ -164,9 +170,7 @@ class spec_reader:
                 fields = np.zeros((nrays_now, outmap_nfields))
                 flux = window_method(Energies, deltaEnergies, self.read_rays(idxs_now, Eidxs))
                 fields[:,0] = flux[:,0]
-                fields[:,1] = lref
-                fields[:,2] = idxs_now
-                fields[:,2][idxs_now%2 == 1] = - idxs_now[idxs_now%2 == 1]
+                
                 # Determine where in the map the ray is
                 map_xstart = self.xp[idxs_now] - 0.5*ray_dx - xlims[0]
                 map_xend   = self.xp[idxs_now] + 0.5*ray_dx - xlims[0]
@@ -235,7 +239,7 @@ class spec_reader:
         # Go back to surface brightness
         outmap = outmap/outmap_dx/outmap_dy 
         return outmap
-    def read_spec(self, x, y, Elims = None):
+    def read_spec(self, x, y, Elims = None, return_integrated_line = False, return_broadband = True):
         """
             Finds the closest matching ray to a set of xy coordinates and returns its spectra and energies
             arguments:
@@ -251,5 +255,14 @@ class spec_reader:
         
         # find the closest matching ray
         idx = np.argmin((self.xp - x)**2 + (self.yp - y)**2)
-
-        return self.Energies[Eidxs], self.read_rays([idx], Eidxs)[0,:]
+        fluxes = self.read_rays([idx], Eidxs)
+        if return_integrated_line :
+            if return_broadband:
+                return self.Energies[Eidxs], fluxes[0,:], integrated_line(self.Energies[Eidxs], self.deltaEnergies[Eidxs], fluxes)[0], broadband(self.Energies[Eidxs], self.deltaEnergies[Eidxs], fluxes)[0]
+            else:
+                return self.Energies[Eidxs], fluxes[0,:], integrated_line(self.Energies[Eidxs], self.deltaEnergies[Eidxs], fluxes)[0]
+        else:
+            if return_broadband:
+                return self.Energies[Eidxs], fluxes[0,:], broadband(self.Energies[Eidxs], self.deltaEnergies[Eidxs], fluxes)[0]
+            else:
+                return self.Energies[Eidxs], fluxes[0,:]

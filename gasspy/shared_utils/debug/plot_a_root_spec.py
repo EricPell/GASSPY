@@ -36,8 +36,10 @@ fig = plt.figure()
 for i in range(len(args.xp)):
     xp = args.xp[i]
     yp = args.yp[i]
-    Eplot, flux = reader.read_spec(xp, yp, Elims = Elims)
+    Eplot, flux, line, bband= reader.read_spec(xp, yp, Elims = Elims, return_integrated_line = True, return_broadband = True)
+
     plt.plot(Eplot, flux, label = "xp = %.4e, yp=%.4e"%(xp,yp))
+    print("xp = %.4e, yp = %.4e: line = %.4e bband = %.4e"%(xp, yp, line, bband))
 plt.legend()
 plt.xscale("log")
 plt.yscale("log")

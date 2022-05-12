@@ -1,5 +1,6 @@
 from inspect import trace
 from sys import path
+from tkinter import W
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.io import fits
@@ -11,6 +12,7 @@ import sys
 import h5py
 from gasspy.raystructures import global_ray_class
 import argparse
+import importlib.util
 
 
 """
@@ -19,8 +21,10 @@ import argparse
 ap=argparse.ArgumentParser()
 
 #---------------outputs-----------------------------
-ap.add_argument('f', nargs='+', default = ["/home/loki/research/cinn3d/inputs/ramses/SEED1_35MSUN_CDMASK_WINDUV2/GASSPY/projections/000000_trace_hdf5"])
-ap.add_argument("--simdir", default="/home/loki/research/cinn3d/inputs/ramses/SEED1_35MSUN_CDMASK_WINDUV2")
+ap.add_argument('f', nargs='+')
+ap.add_argument("--simdir", default="./")
+ap.add_argument("--gasspydir", default="GASSPY")
+ap.add_argument("--simulation_reader_dir", default="./", help="directory to the simulation_reader class that describes how to load the simulation")
 args=ap.parse_args()
 
 
@@ -50,35 +54,33 @@ def arange_indexes(start, end):
     cupy.cumsum(i, out=i)
     return i
 
-
-
-def load_field(field_name):
-    # Loads a field from the simdir
-    with fits.open(simdir + "/" + field_name + "/celllist_"+field_name+"_00051.fits") as F:
-        data = F[0].data
-    return data
-
-
 # Open up the YAML config
-with open(r"%s/GASSPY/gasspy_config.yaml"%simdir) as fil:
-    yamlfile = yaml.load(fil, Loader = yaml.FullLoader)
+with open(r"%s/gasspy_config.yaml"%simdir) as fil:
+    gasspy_config = yaml.load(fil, Loader = yaml.FullLoader)
+## Load the simulation data class from directory
+spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
+reader_mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(reader_mod)
+sim_reader = reader_mod.Simulation_Reader(args.simdir, args.gasspydir, gasspy_config["sim_reader_args"])
+
+
 
 
 # Load denisty from the simulation
-cell_dens = cupy.array(load_field("rho"), dtype = cupy.float64)/mH
-cell_HIIdensity = cupy.array(load_field("rho"), dtype = cupy.float64)*cupy.array(load_field("xHII"), dtype = cupy.float64)/mH
-cell_temperatue = cupy.array(load_field("T"), dtype = cupy.float64)
-cell_velocity = cupy.array(load_field("vz"), dtype = cupy.float64)*1e5
+cell_dens = cupy.array(sim_reader.get_field("rho"), dtype = cupy.float64)/mH
+cell_HIIdensity = cupy.array(sim_reader.get_field("rho"), dtype = cupy.float64)*cupy.array(sim_reader.get_field("xHII"), dtype = cupy.float64)/mH
+cell_temperatue = cupy.array(sim_reader.get_field("T"), dtype = cupy.float64)
+cell_velocity = cupy.array(sim_reader.get_field("vz"), dtype = cupy.float64)*1e5
 
 # Take the amr refinement and index1D from our own calcualtions to make sure dtypes matches
-cell_amr_lrefine = cupy.load(simdir+"/GASSPY/amr_lrefine.npy")
-cell_index1D     = cupy.load(simdir+"/GASSPY/index1D.npy")
+cell_amr_lrefine = cupy.array(sim_reader.get_field("amr_lrefine"))
+cell_index1D     = cupy.array(sim_reader.get_index1D())
 
 # Load properties of the grid from the yaml file
-min_lref = yamlfile["amr_lrefine_min"]
-max_lref = yamlfile["amr_lrefine_max"]
-boxlen  = yamlfile["sim_size_x"]
-scalel  = yamlfile["sim_unit_length"]
+min_lref = gasspy_config["amr_lrefine_min"]
+max_lref = gasspy_config["amr_lrefine_max"]
+boxlen  = gasspy_config["sim_size_x"]
+scalel  = gasspy_config["sim_unit_length"]
 
 # Pre caclualte all cell sizes
 dx_lrefs = boxlen/2**(np.arange(min_lref, max_lref+1))
@@ -380,14 +382,12 @@ for trace_file in trace_files:
     del(plot_HII)
 
     figsize = (14,6)
-    fig = plt.figure(figsize = figsize)
-    ax = plt.subplot(121)
-    ax.imshow(rgb_map, origin = "lower")
-    ax2 = plt.subplot(122)
-    ax2.imshow(plot_lrefine.T, origin = "lower")
+    fig, ax = plt.subplots(nrows= 1, ncols = 2, sharex = True, sharey = True, figsize = figsize)
+    ax[0].imshow(rgb_map, origin = "lower", extent = [0,1,0,1])
+    ax[1].imshow(plot_lrefine.T, origin = "lower", extent = [0,1,0,1])
     plotfile = trace_file[:-11]+ "_plot.png"
     plt.savefig(plotfile)
-    #plt.show()
+    plt.show()
     del(rgb_map)
     plt.cla()
     plt.clf()
