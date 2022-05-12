@@ -10,6 +10,8 @@ import os
 import glob
 import sys
 
+from gasspy.shared_utils import loop_progress
+
 class ModelCollector():
     """Worker class for reading and collecting cloudy models into a gasspy db entry"""
     def __init__(
@@ -266,7 +268,9 @@ class ModelCollector():
             for i in range(i+1, len(files)):
                 if i % 100 == 0:
                     gc.collect()
-                    print("gasspy-%i\r"%(i))
+                    #print("gasspy-%i\r"%(i))
+                    loop_progress.print_progress(i, len(files), start = "\t ")
+                
                 self.all("gasspy-%i"%i)
                 if self.skip is False:
                     pass
