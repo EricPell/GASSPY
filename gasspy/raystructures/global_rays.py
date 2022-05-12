@@ -56,8 +56,6 @@ class global_ray_class(base_ray_class):
             returns:
                     global_rayid : array of integers (indexes of the new rays in the global_ray class )
         """
-        if "global_rayid" in self.__dict__.keys():
-            print("1)", self.global_rayid)
 
         # If the new number of rays exceed the allocated ones, allocate more
         if nrays + self.nrays > self.nalloc:
@@ -66,7 +64,6 @@ class global_ray_class(base_ray_class):
         # Determine the global_rayids
         new_global_rayid = self.numlib.arange(self.nrays, self.nrays + nrays, dtype=ray_dtypes["global_rayid"])
         self.global_rayid[new_global_rayid] = new_global_rayid
-        print("2)", self.global_rayid)
         if fields is not None:
             for field in fields.keys():
                 if "global_rayid"  == field:

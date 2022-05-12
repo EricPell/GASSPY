@@ -10,11 +10,9 @@ from gasspy.raytracing.utils.cuda_kernels import raytrace_low_mem_code_string, g
 from gasspy.shared_utils.functions import sorted_in1d
 
 
-
-debug_ray = 856890
 class raytracer_class:
-    def __init__(self, sim_data, obs_plane = None, line_lables = None, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 20, NcellBuff  = 64, raster=1, no_ray_splitting = False):
-        self.set_new_sim_data(sim_data, line_lables)
+    def __init__(self, sim_reader, gasspy_config, obs_plane = None, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 20, NcellBuff  = 64, raster=1, no_ray_splitting = False):
+        self.set_new_sim_data(sim_reader, gasspy_config)
         """
             Input:
                 sim_data, required - simulation_data_class object containing the needed data from the simulation
@@ -120,24 +118,24 @@ class raytracer_class:
         h5file.close()
 
         return
-    def set_new_sim_data(self, sim_data, line_lables = None):
+    def set_new_sim_data(self, sim_reader, gasspy_config):
         """
             Method to take an observer plane set internal values 
         """
 
         # AMR and grid definitions
-        self.amr_lrefine_min = sim_data.config_yaml["amr_lrefine_min"]
-        self.amr_lrefine_max = sim_data.config_yaml["amr_lrefine_max"]
-        self.sim_size_x = sim_data.config_yaml["sim_size_x"]
-        self.sim_size_y = sim_data.config_yaml["sim_size_y"]
-        self.sim_size_z = sim_data.config_yaml["sim_size_z"]
+        self.amr_lrefine_min = gasspy_config["amr_lrefine_min"]
+        self.amr_lrefine_max = gasspy_config["amr_lrefine_max"]
+        self.sim_size_x = gasspy_config["sim_size_x"]
+        self.sim_size_y = gasspy_config["sim_size_y"]
+        self.sim_size_z = gasspy_config["sim_size_z"]
 
         # midpoint of the simulation
         self.sim_size_half = cupy.array([self.sim_size_x/2, self.sim_size_y/2, self.sim_size_z/2])
 
 
         # required resolution of the raytrace
-        self.ray_max_area_frac = sim_data.config_yaml["ray_max_area_frac"]
+        self.ray_max_area_frac = gasspy_config["ray_max_area_frac"]
 
         # Maximum number of cells in a given direction and the size of a cell for a given refinement level
         self.Nmax_lref = 2**(cupy.arange(self.amr_lrefine_min, self.amr_lrefine_max+1)).astype(ray_dtypes["index1D"])
@@ -150,8 +148,8 @@ class raytracer_class:
         self.cell_smallest_area = cupy.min(self.dx_lref, axis = 1)**2
 
         # get per cell variables
-        self.grid_index1D     = cupy.array(sim_data.get_index1D())
-        self.grid_amr_lrefine = cupy.array(sim_data.get_amr_lrefine())
+        self.grid_index1D     = cupy.array(sim_reader.get_index1D())
+        self.grid_amr_lrefine = cupy.array(sim_reader.get_field("amr_lrefine"))
         # remember the associated cell index
         self.grid_cell_index = cupy.arange(len(self.grid_amr_lrefine))
 
@@ -173,7 +171,7 @@ class raytracer_class:
         self.get_index1D_kernel = cupy.RawKernel(self.get_index1D_code_string, '__get_index1D__')
 
         # save reference to sim_data
-        self.sim_data = sim_data  
+        self.sim_reader = sim_reader 
 
     def set_obsplane(self, obs_plane):
         """
@@ -827,10 +825,10 @@ if __name__ == "__main__":
     from gasspy.raytracing.observers import observer_plane_class
     import numpy as np
     import cProfile 
-
-    no_ray_splitting = True
+    sys.exit("Need to fix this call with the new simulation_reader class before usage")
+    no_ray_splitting = False
     save = True
-    datadir = "/home/loki/research/cinn3d/inputs/ramses/SEED1_35MSUN_CDMASK_WINDUV2/GASSPY"
+    datadir = "/mnt/data/research/cinn3d/inputs/ramses/loke_devel_SEED1_35MSUN_CSMASK_WINDUV/GASSPY/"
     sim_data = simulation_data_class(datadir = datadir)
     raytracer = raytracer_class(sim_data, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 10, NcellBuff  = 32, raster=1, no_ray_splitting=no_ray_splitting)
 
@@ -848,7 +846,7 @@ if __name__ == "__main__":
         obsplane = observer_plane_class(sim_data, pitch = pitch[i], yaw = yaw[i], roll = roll[i])
         raytracer.update_obsplane(obs_plane=obsplane)
         raytracer.raytrace_run()
-        #raytracer.save_trace(datadir+"/projections/%06d_trace.hdf5"%i)
+        raytracer.save_trace(datadir+"/projections/%06d_trace.hdf5"%i)
         raytracer.reset_trace()
     pr.disable()
     pr.dump_stats('profile_ray_struct')

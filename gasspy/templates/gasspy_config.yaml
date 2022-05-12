@@ -88,4 +88,11 @@ Nyp : 512
 ray_max_area_frac : 0.25
 
 
+#########################
+# Radiative transfer parameters
+#########################
 
+# Energy limits. Only specify if not all Ebins are wanted
+#Elims : 
+#    - [3e-2, 3e-1]
+#    - [3e-4, 3e-3]

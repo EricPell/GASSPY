@@ -29,7 +29,7 @@ class FamilyTree():
         em=None,
         op=None,
         opc_per_NH=False,
-        saved3d=None,
+        cell_index_to_gasspydb=None,
         vel=None,
         den=None,
         massden=True,
@@ -120,7 +120,6 @@ class FamilyTree():
         self.useGasspyEnergyWindows = useGasspyEnergyWindows
 
         self.energy_lims = energy_lims
-
         self.raydump_dict = {}
 
         self.los_angle = los_angle
@@ -134,14 +133,14 @@ class FamilyTree():
         self.em = em
         self.op = op
         self.vel = vel
-        self.saved3d = saved3d
+        self.cell_index_to_gasspydb = cell_index_to_gasspydb
         self.traced_rays = traced_rays
         self.global_rayDF_deprecated = global_rayDF_deprecated
         self.config_yaml = config_yaml
 
     def process_all(self,):
-        
-        for root_i in range(len(self.ancenstors)):
+        print(len(self.energy)) 
+        for root_i in range(0, len(self.ancenstors)):
             self.get_spec_root(root_i, self.cuda_device)
             if root_i % 1000 == 0:
                 print(root_i)
@@ -174,7 +173,6 @@ class FamilyTree():
 
     def write_spec_save_hdf5(self, new_data, grow=True):
         n_E, n_spec = new_data['flux'].shape
-
         for key in new_data.keys():
             new_data_shape = new_data[key].shape
 
@@ -210,7 +208,7 @@ class FamilyTree():
         self.load_energy_bins()
         self.load_em()
         self.load_op()
-        self.load_saved3d()
+        #self.load_saved3d()
         self.load_new_global_rays()
         self.load_cell_index_to_gasspydb()
         self.load_velocity_data()
@@ -245,16 +243,17 @@ class FamilyTree():
             self.den /= self.mu * const.m_p.cgs.value
 
     def load_config_yaml(self):
-        if self.config_yaml is None:
-            assert Path(self.root_dir+self.gasspy_subdir+"gasspy_config.yaml").is_file(), "Error: gasspy_config.yaml is not given and does not exists in simulation GASSPY directory"
-            self.config_yaml = self.root_dir+self.gasspy_subdir+"gasspy_config.yaml"
+        if isinstance(self.config_yaml, str):
+            if self.config_yaml is None:
+                assert Path(self.root_dir+self.gasspy_subdir+"gasspy_config.yaml").is_file(), "Error: gasspy_config.yaml is not given and does not exists in simulation GASSPY directory"
+                self.config_yaml = self.root_dir+self.gasspy_subdir+"gasspy_config.yaml"
                     
-        with open(r'%s'%(self.config_yaml)) as file:
-            # The FullLoader parameter handles the conversion from YAML
-            # scalar values to Python the dictionary format
-            self.config_dict = yaml.load(file, Loader=yaml.FullLoader)
+            with open(r'%s'%(self.config_yaml)) as file:
+                # The FullLoader parameter handles the conversion from YAML
+                # scalar values to Python the dictionary format
+                self.config_yaml = yaml.load(file, Loader=yaml.FullLoader)
         
-        self.sim_unit_length = self.config_dict["sim_unit_length"]
+        self.sim_unit_length = self.config_yaml["sim_unit_length"]
 
     def load_new_global_rays(self):
         self.new_global_rays = global_ray_class(on_cpu=self.liteVRAM)
@@ -361,9 +360,16 @@ class FamilyTree():
             # save only the inverse_indexes to cell_index_to_gasspydb
 
     def load_cell_index_to_gasspydb(self):
-            self.cell_index_to_gasspydb = np.unique(self.saved3d, axis=0, return_inverse=True)[1]
+        if str == type(self.cell_index_to_gasspydb):
+            if Path(self.cell_index_to_gasspydb).is_file():
+                tmp_path = self.cell_index_to_gasspydb
+            else:
+                sys.exit("Could not find path to cell_gasspy_index: %s"%self.cell_index_to_gasspydb)
 
-            self.NSimCells = len(self.cell_index_to_gasspydb)
+            self.cell_index_to_gasspydb = np.load(tmp_path)
+            # save only the inverse_indexes to cell_index_to_gasspydb
+
+        self.NSimCells = len(self.cell_index_to_gasspydb)
 
     def load_velocity_data(self):
         if str == type(self.vel):
@@ -387,13 +393,13 @@ class FamilyTree():
         # Initialize the raydump N_segs and index into ray_buffer_dumps with -1
         self.raydump_dict["ray_index0"] = self.numlib.full(maxGID+1,-1).astype(np.int64)
         self.raydump_dict["Nsegs"] = self.numlib.full(maxGID+1,-1).astype(np.int64)
-
+        
         # Get the unique values and the first index of array with that value, and Counts. 
         # This ONLY works because segment global_rayid is sorted.
         unique_gid, i0, Nsegs = np.unique(self.raydump_dict['segment_global_rayid'], return_counts=True, return_index=True)
 
-        self.raydump_dict["ray_index0"][unique_gid] = i0
-        self.raydump_dict["Nsegs"][unique_gid] = Nsegs
+        self.raydump_dict["ray_index0"][unique_gid] = i0.astype(np.int64)
+        self.raydump_dict["Nsegs"][unique_gid] = Nsegs.astype(np.int64)
 
         self.raydump_dict['NcellPerRaySeg'] = self.raydump_dict["pathlength"].shape[1]
         self.family_tree = {}
@@ -448,8 +454,8 @@ class FamilyTree():
         # A ray may die outside the box, and as a result have an index larger than the simulation. We set that to -1.
         self.raydump_dict["cell_index"][self.raydump_dict["cell_index"] > len(self.cell_index_to_gasspydb) - 1] = -1
 
-        del(self.raydump_dict['splitEvents'])
-        del(self.saved3d)      
+        #del(self.raydump_dict['splitEvents'])
+        #del(self.saved3d)      
 
     def set_branch(self, root_i):
         """ Get the branch of root i"""
@@ -458,10 +464,9 @@ class FamilyTree():
 
         # This initalizes the trace down from parent
         gid = self.ancenstors[root_i]
-
         new_parent_gids = cupy.array([gid], dtype=cupy.int64)
-
         self.branch[level] = self.numlib.int(gid)
+
         eol = -1
 
         while eol < 4**(level-1):
@@ -515,7 +520,6 @@ class FamilyTree():
         if self.accel == "torch":
             rt_tetris_maps[0] = torch.as_tensor(rt_tetris_maps[0])
 
-
         my_segment_IDs = {0: [None]}
 
         my_N_spect = self.Nraster**self.max_level
@@ -534,25 +538,25 @@ class FamilyTree():
 
         my_cell_indexes = self.raydump_dict["cell_index"][i0:i1]
         gasspy_id = self.cell_index_to_gasspydb[my_cell_indexes]
-
         save_GIDs = {my_l_i:np.array([branch_gid])}
 
         # Check if using Tensors
         if self.accel == "torch":
             my_Em = torch.as_tensor(self.em.take(gasspy_id, axis=1), device=cuda_device)
             my_Opc = torch.as_tensor(self.op.take(gasspy_id, axis=1), device=cuda_device)
-
             my_pathlenths = torch.as_tensor(self.raydump_dict["pathlength"][i0:i1], device=cuda_device)
 
             if self.opc_per_NH:
                 my_den = torch.as_tensor(self.den.take(my_cell_indexes), device=cuda_device)
                 my_Opc = torch.mul(my_den, my_Opc)
 
-            dF = torch.mul(my_Em, my_pathlenths).sum(axis=[2,1])
+            cum_Opc = torch.cumsum(torch.flip(torch.multiply(my_Opc, my_pathlenths), dims = [1,2]), dim=2)
+            cum_Opc[:,1:,:] = torch.add(cum_Opc[:,1:,:], torch.cumsum(cum_Opc[:,: -1,-1], dim = 1)[:,:,None])
+            cum_Opc = torch.flip(cum_Opc, dims = [1,2])
+            dF = torch.mul(torch.mul(my_Em, my_pathlenths),torch.exp(-cum_Opc)).sum(axis=[2,1])
             dTau = torch.exp(-torch.mul(my_Opc,my_pathlenths).sum(axis=[2, 1]))
 
-        output_array_gpu[:, 0] = dF[:] * dTau[:]
-
+        output_array_gpu[:, 0] = dF[:] # * dTau[:]
         for my_l_i, my_l in enumerate(list(self.branch.values())[1:]):
             
             # Check for the number of dead rays. Some times dumps contain all dead rays. 
@@ -595,9 +599,12 @@ class FamilyTree():
                         my_den = torch.as_tensor(self.den.take(my_cell_indexes), device=cuda_device)
                         my_Opc = torch.mul(my_den, my_Opc)
 
-                    dF = torch.mul(my_Em, my_pathlenths).sum(axis=[3, 2])
+                    cum_Opc = torch.cumsum(torch.flip(torch.multiply(my_Opc, my_pathlenths), dims = [2,3]), dim=3)
+                    cum_Opc[:,:,1:,:] = torch.add(cum_Opc[:,:,1:,:], torch.cumsum(cum_Opc[:,:,: -1,-1], dim = 2)[:,:,:,None])
+                    cum_Opc = torch.flip(cum_Opc, dims = [2,3])
+                    dF = torch.mul(torch.mul(my_Em, my_pathlenths),torch.exp(-cum_Opc)).sum(axis=[3,2])
                     dTau = torch.exp(-torch.mul(my_Opc, my_pathlenths).sum(axis=[3, 2]))
-                    output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[:,torch.tile(rt_tetris_maps[my_l_i-1],dims=(self.Nraster,1)).T.ravel()] + dF[:]) * dTau[:])
+                    output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[:,torch.tile(rt_tetris_maps[my_l_i-1],dims=(self.Nraster,1)).T.ravel()]* dTau[:]) + dF[:])
 
                 else:
                     my_pathlenths = cupy.asarray(self.raydump_dict["pathlength"].take(my_segment_IDs[my_l_i], axis=0))
@@ -608,9 +615,12 @@ class FamilyTree():
                         my_den = cupy.as_array(self.den.take(my_cell_indexes), device=cuda_device)
                         my_Opc = cupy.multiply(my_den, my_Opc)
 
-                    dF = (my_Em[:, :] * my_pathlenths).sum(axis=[2, 3])
+                    cum_Opc = cupy.cumsum(cupy.multiply(my_Opc, my_pathlenths), axis=3)
+                    cum_Opc[:,:,1:,:] = cupy.add(cum_Opc[:,:,1:,:], cupy.expand_dims(cupy.cumsum(cum_Opc[:,:,: -1,-1], axis = 2),-1))
+
+                    dF = cupy.multiply(cupy.multiply(my_Em[:, :],my_pathlenths),cupy.exp(-cum_Opc)).sum(axis=[2, 3])
                     dTau = cupy.exp((-my_Opc[:, :] * my_pathlenths).sum(axis=[2, 3]))
-                    output_array_gpu[:,rt_tetris_maps[my_l_i]] = ((output_array_gpu[cupy.tile(rt_tetris_maps[my_l_i-1],self.Nraster)] + dF[:]) * dTau[:])
+                    output_array_gpu[:,rt_tetris_maps[my_l_i]] = (output_array_gpu[cupy.tile(rt_tetris_maps[my_l_i-1],self.Nraster)] * dTau[:] + dF[:])
 
             # Per child...
             # Using the 1D simulation/model index extract the emissivity and opacity
@@ -637,7 +647,6 @@ class FamilyTree():
                 'y':self.new_global_rays.yp[out_GIDs].get(),
                 'ray_lrefine':self.new_global_rays.ray_lrefine[out_GIDs].get()})
             self.write_spec_save_hdf5(save_data)
-
         elif self.spec_save_type == "numpy":
             np.save("%s%s%sspec_%i.npy"%(self.root_dir, self.gasspy_subdir, self.gasspy_spec_subdir, root_i), output_array_gpu.cpu().numpy())
 

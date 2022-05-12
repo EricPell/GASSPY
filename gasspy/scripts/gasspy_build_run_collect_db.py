@@ -23,13 +23,14 @@ from gasspy.physics.sourcefunction_database.cloudy import gasspy_cloudy_db_class
 from gasspy.io import gasspy_io
 
 ap = argparse.ArgumentParser()
-#-------------DIRECTORIES---------------#
+#-------------DIRECTORIES AND FILES---------------#
 ap.add_argument("--simdir", default="./", help="Directory of the simulation and also default work directory")
 ap.add_argument("--workdir", default= None, help="work directory. If not specified its the same as simdir")
-ap.add_argument("--gasspydir", default="GASSPY", help="directory inside of workdir to put the GASSPY files")
-ap.add_argument("--indirs", default="cloudy-output", help = "directory inside of workdir where to put and run the cloudy models")
+ap.add_argument("--gasspydir", default="GASSPY", help="directory inside of simdir to put the GASSPY files")
+ap.add_argument("--modeldir" , default="GASSPY", help = "directory inside of workdir where to read, put and run the cloudy models")
 ap.add_argument("--cloudy_path", default = None, help="Path to the cloudy installation. If not specified, use environment variable 'CLOUDY_PATH'")
 ap.add_argument("--simulation_reader_dir", default="./", help="directory to the simulation_reader class that describes how to load the simulation")
+ap.add_argument("--sim_prefix", default = None, help="prefix to put before all snapshot specific files")
 #-------------Run parameters-----------#
 ap.add_argument("--recompile_cloudy_spectra_mesh", action="store_true", help="Recompile the cloudy with the defined spectra mesh")
 ap.add_argument("--cloudy_spectra_mesh_mode", default="select_C17", help="What list of lines and windows do we draw from (NOTE: only one option implemented) \n\tselect_C17 lines from physics/sourcefunction_database/cloudy/select_cloudy_lines")
@@ -48,12 +49,13 @@ else:
     workdir = args.simdir
 os.chdir(workdir)
 
-## create GASSPY dir and indirs
+## create GASSPY dir where all files specific to this snapshot is kept
 if not os.path.exists(args.gasspydir):
     os.makedirs(args.gasspydir)
 
-if not os.path.exists(args.indirs):
-    os.makedirs(args.indirs)
+
+if not os.path.exists(args.modeldir):
+    os.makedirs(args.modeldir)
 
 ## unpack the cloudy path
 if args.cloudy_path is None:
@@ -63,6 +65,12 @@ else:
 ## unpack number of processes to use
 Ncores = args.Ncores
 
+## set prefix to snapshot specific files
+if args.sim_prefix is not None:
+    ## add an underscore
+    sim_prefix = args.sim_prefix + "_"
+else:
+    sim_prefix = ""
 ###########################################
 # II) Cloudy recompilation with specified spectra mesh
 ###########################################
@@ -110,7 +118,7 @@ gasspy_config = gasspy_io.read_fluxdef("./gasspy_config.yaml")
 spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
 reader_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reader_mod)
-sim_reader = reader_mod.Simulation_Reader(args.simdir, gasspy_config["sim_reader_args"])
+sim_reader = reader_mod.Simulation_Reader(args.simdir, args.gasspydir, gasspy_config["sim_reader_args"])
 
 
 
@@ -119,7 +127,12 @@ sim_reader = reader_mod.Simulation_Reader(args.simdir, gasspy_config["sim_reader
 ###############################
 print("\nBuilding database of models")
 ## initialize the creator class
-creator = gasspy_cloudy_db_classes.uniq_dict_creator()
+creator = gasspy_cloudy_db_classes.uniq_dict_creator(
+    save_compressed3d = True,
+    gasspy_modeldir = args.modeldir,
+    gasspy_subdir = args.gasspydir,
+    sim_prefix = sim_prefix
+)
 
 ## load the required fields
 creator.simdata = {
@@ -150,17 +163,14 @@ for field in fluxdef.keys():
     assert field in gasspy_config["compression_ratio"]["fluxes"].keys(), "Compression ratio not defined in gasspy_config.yaml for flux field %s"%field
     creator.compression_ratio["fluxes"][field] = (gasspy_config["compression_ratio"]["fluxes"][field][0], gasspy_config["compression_ratio"]["fluxes"][field][1])
 
-## specify savefiles for the creator
-creator.save_compressed3d = "saved3d_cloudyfields"
-creator.outdir = "./"
-creator.outname = "gasspy"
 ## compress and trim the simulation data
-creator.compress_simdata()
-creator.trim()
+print(" - Compressing simulation data")
+creator.process_simdata()
 
 ## Initialize the gasspy_to_cloudy converter
-gasspy_to_cloudy = gasspy_cloudy_db_classes.gasspy_to_cloudy(outdir=creator.outdir, outname =creator.outname, CLOUDY_INIT_FILE="spec_postprocess-c17.ini")
+gasspy_to_cloudy = gasspy_cloudy_db_classes.gasspy_to_cloudy(gasspy_modeldir=creator.gasspy_modeldir, CLOUDY_INIT_FILE="spec_postprocess-c17.ini")
 ## Process the trimmed simulation data
+print(" - Creating cloudy .in files")
 gasspy_to_cloudy.process_grid()
 
 ## Do some cleanup
@@ -181,7 +191,7 @@ class AttrDict(dict):
 
 cloudy_run_dict = {
     "Ncores": Ncores,
-    "indirs": [args.indirs],
+    "indirs": [args.modeldir + "/cloudy-output/"],
     "cloudy_path": args.cloudy_path,
     "log" : True
 }
@@ -194,8 +204,9 @@ processor = cloudy_run.processor_class(cloudy_run_args)
 exec_list = processor.preproc(starttime)
 
 ## Start threads to run all needed models
-processor.pool_handler(exec_list)
-endtime = time.time()
+if len(exec_list) > 0:
+    processor.pool_handler(exec_list)
+    endtime = time.time()
 
 ## print to stats to logfile
 if not processor.args.log:
@@ -224,7 +235,7 @@ del(processor)
 #VI) Collect the models
 ####################################
 print("\nCollecting all the cloudy models into individual files")
-collector = cloudy_model_collector.ModelCollector(cloudy_dir=args.indirs, out_dir=args.gasspydir)
+collector = cloudy_model_collector.ModelCollector(cloudy_dir=args.modeldir + "/cloudy-output/", out_dir=args.modeldir)
 collector.use_gpu = False
 collector.all_opacities = False
 collector.clear_energy = False

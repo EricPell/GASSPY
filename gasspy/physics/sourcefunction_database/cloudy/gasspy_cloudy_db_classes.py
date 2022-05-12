@@ -1,8 +1,9 @@
 #!/usr/bin/python
 """ Append launch directory to python path for importing config files """
+from enum import unique
 import os
+from re import S
 import sys
-from gasspy.shared_utils import compress
 import numpy as np
 import pickle
 import astropy.table.table as table
@@ -14,13 +15,15 @@ from multiprocessing import Pool
 import pandas as pd
 import gc
 import yaml
+
+from gasspy.shared_utils import compress, loop_progress
 import gasspy, pathlib
 gasspy_path = pathlib.Path(gasspy.__file__).resolve().parent
 
 from . import gasspy_cloudy_db_defaults as defaults
 sys.path.append(os.getcwd())
 
-LastModDate = "2022.02.14.EWP"
+LastModDate = "2022.05.06.LO"
 
 class uniq_dict_creator(object):
     def __init__(self, **kwags):
@@ -35,13 +38,11 @@ class uniq_dict_creator(object):
 
         self.unified_fluxes = False
 
-        self.outname = "test"
-        self.outdir = "./"
-        self.gasspy_subdir="GASSPY"
+        self.gasspy_modeldir = "GASSPY"
+        self.gasspy_subdir   = "GASSPY"
+        self.sim_prefix=""
         self.save_compressed3d = False
 
-        self.dxxyz = ["dx", "x", "y", "z"]
-        self.gasfields = ["dens", "temp"]
         # gas mass density, temperature, fraction of atomic H (iha), ionized (ihp) and molecular (ih2),
         # and various gas fractions.
 
@@ -58,10 +59,6 @@ class uniq_dict_creator(object):
             'temp':(1, 5.0),\
             'fluxes':{
             'default':(1,5.0)}}
-            # 'FUV':(1, 5.0),\
-            # 'HII':(1, 5.0),\
-            # 'HeII':(1, 5.0),\
-            # 'HeIII':(1, 5.0)}
 
         self.simdata = {
             "temp"  :None,
@@ -96,13 +93,29 @@ class uniq_dict_creator(object):
         assert type(self.gasspy_subdir) == str, "gasspy_subdir not a string"
         if not self.gasspy_subdir.endswith("/"):
             self.gasspy_subdir = self.gasspy_subdir + "/"
-        if not self.gasspy_subdir[0] == "/":
-            self.gasspy_subdir = "/" + self.gasspy_subdir
+
+        if not self.gasspy_modeldir.endswith("/"):
+            self.gasspy_modeldir = self.gasspy_modeldir + "/"
 
 
-    def pool_handler(self,func, exec_list,Ncores=16):
-        p = Pool(min(len(exec_list), Ncores))
-        p.map(func, exec_list)
+        ## Try to load the model table
+        self.load_model_table()
+
+    def load_model_table(self):
+        """
+            Method to load the model table, if it exists, otherwise set class to create a new table
+        """
+        ## If the directory does not exist we need to create it
+        if not os.path.exists(self.gasspy_modeldir):
+            os.makedirs(self.gasspy_modeldir)
+        ## If path exists, then the new models are to be appended to this dataset, otherwise its again a new dataset
+        if os.path.exists(self.gasspy_modeldir + "gasspy_unique.pkl"):
+            self.new_table = False
+            self.previous_model_table = pd.read_pickle(self.gasspy_modeldir + "gasspy_unique.pkl").to_numpy()
+            self.Nstart = len(self.previous_model_table)
+        else:
+            self.new_table = True
+        return
     
     def mask_data(self, simdata):
         """ Set masks based on mask parameters read in by the defaults library, or by myconfig"""
@@ -204,17 +217,7 @@ class uniq_dict_creator(object):
                     i_field+=1
 
         self.stacked = np.array(self.stacked).T
-        if self.save_compressed3d is not False:
-            np.save(file=self.outdir+self.gasspy_subdir+self.save_compressed3d+".npy", arr=self.stacked)
-
-            # with open(self.outdir+"/"+self.save_compressed3d,'wb') as f:
-            #     np.save(f, self.stacked)
-            # Read:
-            # with open(save_compressed3d,'rb') as f:
-            #    np.load(f)
-        
         pass
-
 
     def trim(self):
         """
@@ -231,15 +234,77 @@ class uniq_dict_creator(object):
         N_original = np.shape(self.stacked)[0]
 
         #TODO: Replace pandas with a numpy.unique(axis=?)
-        self.unique = pd.DataFrame(np.unique(self.stacked,axis = 0))
+        self.unique_models, self.cell_model_idx = np.unique(self.stacked, axis = 0, return_inverse = True)
         #del(self.stacked)
+        
+        self.N_unique = self.unique_models.shape[0]
 
-        self.unique.columns = self.field_header
+        self.append_to_dataset()
+        return
 
+    def append_to_dataset(self):
+        """
+            Method to append the dataset to the old dataset, merging models already calculated
+        """
+        if self.new_table:
+            # if this is a new table, set cell_gasspy_index to the one given by the unique
+            self.cell_gasspy_index = self.cell_model_idx
+            print("\t %d unique models in this dataset, out of which %d are new"%(self.N_unique,self.N_unique))
 
-        self.unique = self.unique.reset_index(drop=True)
-        self.unique.to_pickle(self.outdir+self.gasspy_subdir+self.outname+"_unique.pkl")
+            return
+        # Otherwise, we need to find which models have already been calculated and merge the datasets
 
+        # Initialize the array
+        self.cell_gasspy_index = np.zeros(self.cell_model_idx.shape)
+        # Integer to keep track of how many models have been merged
+        n_merged = 0
+
+        # Array to keep track of which models are merged into the old database
+        new = np.full(len(self.unique_models), False, dtype=np.bool8)
+        
+        # Loop over models and see if they are a duplicate of a previous run
+        print("\t Matching to previous dataset")
+        for id in range(self.N_unique):
+            isrow = np.all(self.previous_model_table == self.unique_models[id], axis = 1)
+            loop_progress.print_progress(id, self.N_unique,start="\t ")
+            # If this model is not in the previous data set, then its a new model
+            if np.sum(isrow) == 0:
+                self.cell_gasspy_index[self.cell_model_idx == id] = self.Nstart + id - n_merged
+                new[id] = True
+                continue
+            else:
+                # otherwise determine which of the old models corresponds to this one
+                gasspy_id = np.where(isrow)[0]
+                # Update the gasspy_index appropriatly
+                self.cell_gasspy_index[self.cell_model_idx == id] = gasspy_id
+                # Mark this model as a duplicate
+                new[id] = False
+                # Increase the merge counter
+                n_merged += 1
+        # If cells have merged then we need to remove them from the list
+        if n_merged > 0:
+            self.unique_models = self.unique_models[new] 
+        
+        print("\t %d unique models in this dataset, out of which %d are new"%(self.N_unique,self.N_unique - n_merged))
+
+        # Append the new models
+        if len(self.unique_models) > 0:
+            self.unique_models = np.append(self.previous_model_table, self.unique_models, axis = 0)
+        else:
+            self.unique_models = self.previous_model_table.copy()
+        
+        del self.previous_model_table
+        return
+
+    def save_model_parameters(self):
+        """
+            Method to save the model parameters 
+        """
+        self.unique_db = pd.DataFrame(self.unique_models)
+        self.unique_db.columns = self.field_header
+        self.unique_db = self.unique_db.reset_index(drop=True)
+        self.unique_db.to_pickle(self.gasspy_modeldir+"gasspy_unique.pkl")
+        
         # Save the flux definition to a yaml file
         flux_def = {}
         for field in self.compressedsimdata['fluxes'].keys():
@@ -247,20 +312,43 @@ class uniq_dict_creator(object):
             for fluxkey in self.compressedsimdata["fluxes"][field].keys():
                 if fluxkey != "data":
                     flux_def[field][fluxkey] = self.compressedsimdata["fluxes"][field][fluxkey]
-        with open(self.outdir+self.gasspy_subdir+self.outname+"_fluxdef.yaml",'w') as yamlfile:
+        with open(self.gasspy_modeldir+"gasspy_fluxdef.yaml",'w') as yamlfile:
             data = yaml.dump(flux_def,yamlfile)
-            print("flux definition written to yaml file")
+            print("\t flux definition written to yaml file")
+        return
 
-        del(self.compressedsimdata)
-        self.N_unique = self.unique.shape[0]
+    def save_cell_information(self):
+        """
+            Save the per cell information 
+        """
+        # If the directory for the cell data has not been created, we need to write it here
+        cell_data_path = self.gasspy_subdir + "/cell_data/"
+        if not os.path.exists(cell_data_path) :
+            os.makedirs(cell_data_path)
 
-        return(self.N_unique/self.N_cells)
+        # Save the cell to gasspy_index mapping and if wanted the saved compression of the cells
+        np.save(cell_data_path + self.sim_prefix + "cell_gasspy_index.npy", self.cell_gasspy_index)
+        if self.save_compressed3d:
+            np.save(file=cell_data_path + self.sim_prefix +"cell_compressed3D.npy", arr=self.stacked)
+
+        return
+
+
+    def process_simdata(self):
+        """
+            Wrapper method
+        """
+        self.compress_simdata()
+        self.trim()
+        #sys.exit()
+        self.save_model_parameters()
+        self.save_cell_information()
+        #sys.exit(0)
+        return 
 
 class gasspy_to_cloudy(object):
     def __init__(self,
-    outdir=None,
-    outname=None,
-    gasspy_subdir="GASSPY",
+    gasspy_modeldir="GASSPY",
     fluxdef_file=None,
     unique_panda_pickle_file=None,
     ForceFullDepth=False,
@@ -269,32 +357,21 @@ class gasspy_to_cloudy(object):
         self.__dict__.update(defaults.parameters)
 
         self.MaxNumberModels = int(1e5)
-        if outdir != None:
-            self.outdir = outdir
-        else:
-            self.outdir = "./"
 
-        if not gasspy_subdir.endswith("/"):
-            gasspy_subdir = gasspy_subdir + "/"
-        if not gasspy_subdir[0] == "/":
-            gasspy_subdir = "/" + gasspy_subdir
+        if not gasspy_modeldir.endswith("/"):
+            gasspy_modeldir = gasspy_modeldir + "/"
 
-        self.gasspy_subdir = gasspy_subdir
-
-        if outname != None:
-            self.outname = outname
-        else:
-            self.outname = "gasspy"
+        self.gasspy_modeldir = gasspy_modeldir
 
         if fluxdef_file != None:
             self.fluxdef_file = fluxdef_file
         else:
-            self.fluxdef_file = "%s/%s_fluxdef.yaml"%(self.outdir,self.outname)
+            self.fluxdef_file = "%s/gasspy_fluxdef.yaml"%(self.gasspy_modeldir)
         
         if unique_panda_pickle_file != None:
             self.unique_panda_pickle_file = unique_panda_pickle_file
         else:
-            self.unique_panda_pickle_file = "%s%s/%s_unique.pkl"%(self.outdir, self.gasspy_subdir, self.outname)
+            self.unique_panda_pickle_file = "%s/gasspy_unique.pkl"%(self.gasspy_modeldir)
 
         self.IF_ionfrac=IF_ionfrac
         try:
@@ -350,12 +427,12 @@ class gasspy_to_cloudy(object):
     def open_output(self, UniqID):
         """pass this a dictionary of parameters and values. Loop over and create prefix. Open output """
         try:
-            os.stat(self.outdir+"/cloudy-output")
+            os.stat(self.gasspy_modeldir+"/cloudy-output")
         except:
-            os.mkdir(self.outdir+"/cloudy-output")
+            os.mkdir(self.gasspy_modeldir+"/cloudy-output")
 
-        prefix = "%s-%s"%(self.outname, UniqID)
-        self.outfile = open(self.outdir+"/cloudy-output/"+prefix+".in", 'w')
+        prefix = "gasspy-%s"%(UniqID)
+        self.outfile = open(self.gasspy_modeldir+"/cloudy-output/"+prefix+".in", 'w')
         self.outfile.write("set save prefix \"%s\""%(prefix)+"\n")
 
     def check_for_if(self, cell_depth, cell_hden, cell_phi_ih, alpha=4.0e-13):
@@ -499,17 +576,17 @@ class gasspy_to_cloudy(object):
         make user defined seds using the energy bins defined by the user
         """
         try:
-            os.stat(self.outdir+"/cloudy-output")
+            os.stat(self.gasspy_modeldir+"/cloudy-output")
         except:
-            os.mkdir(self.outdir+"/cloudy-output")
+            os.mkdir(self.gasspy_modeldir+"/cloudy-output")
 
         for field in self.fluxdef.keys():
             if self.fluxdef[field]['shape'].endswith(".sed"):
-                sedfile = self.outdir+"/cloudy-output/%s"%(self.fluxdef[field]['shape'])
+                sedfile = self.gasspy_modeldir+"/cloudy-output/%s"%(self.fluxdef[field]['shape'])
                 os.popen("cp %s %s"%(self.fluxdef[field]['shape'], sedfile))
             
             else:
-                sedfile = self.outdir+"/cloudy-output/%s_%s.sed"%(self.save_prefix, field)
+                sedfile = self.gasspy_modeldir+"/cloudy-output/%s_%s.sed"%(self.save_prefix, field)
                 outfile = open(sedfile, 'w')
                 if self.unique_panda_pickle["fluxes"][field]["shape"] == 'const':
                     outfile.write("%f -35.0 nuFnu\n"%(self.fluxdef[field]["Emin"]*0.99/13.6) )

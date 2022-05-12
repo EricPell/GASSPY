@@ -42,15 +42,20 @@ class Simulation_Reader():
         "HeIII" : "NpHeIII",
     }
 
-    def __init__(self, simdir, arg_dict):
+    def __init__(self, simdir, gasspy_subdir, arg_dict):
         """
             arguments:
                 arg_dict: dictionary (a dictionary of arguments needed by the reader to load the simulation data)
         """
 
         self.simdir = simdir
-        assert arg_dict["output_number"] is not None, "Error: No output number selected!"
+        self.gasspy_subdir = gasspy_subdir
+        assert "output_number" in arg_dict.keys(), "Error: No output number selected!"
         self.output_number = int(arg_dict["output_number"])
+        if "save_raytrace_vars" in arg_dict.keys():
+            self.save_raytrace_vars = arg_dict["save_raytrace_vars"]
+        else:
+            self.save_raytrace_vars = False
         self.__load_info_file__()
         
         return
@@ -96,7 +101,25 @@ class Simulation_Reader():
         """
         return self.get_field("rho")/1e-24
 
-    
+    # Specific fucntion to calculate or load the index1D of the cells
+    # Which in is the index of each cell in a raveled array sorted by x,y,z assuming that the entire simulation is on its refinement level
+    # - Cannot have any arguments
+    # - Must return the ravelled list for all cells
+    def get_index1D(self):
+
+        # In this case, we might want to save the derived variable.
+        # We can implement a load, and create a file on first use
+        # To follow convention, this should be put in gasspy_subdir/cell_data
+        index1D_file = self.gasspy_subdir + "/cell_data/%05d_index1D.npy"%self.output_number
+        if os.path.exists(index1D_file) and self.save_raytrace_vars:
+            return np.load(index1D_file)
+        # Otherwise we need to calculate the index
+        index1D = self.__calc_index1D__()
+        if self.save_raytrace_vars:
+            np.save(index1D_file, index1D)
+        return index1D
+
+
     ######
     #
     #   Internal functions specific to this simulation
@@ -119,3 +142,14 @@ class Simulation_Reader():
         amr_lrefine = self.get_field("amr_lrefine")
         boxlen = self.sim_info["boxlen"]
         return boxlen/2**amr_lrefine.astype(np.float32)
+
+    # Method to calculate index1D
+    def __calc_index1D__(self):
+        xs = self.get_field("x")
+        ys = self.get_field("y")
+        zs = self.get_field("z")
+        amrlevel = self.get_field("amrlevel")
+
+        dxs = self.sim_info["boxlen"]/2**(amrlevel.astype(float))
+        
+        return (xs/dxs).astype(int)*2**(amrlevel*2) + (ys/dxs).astype(int)*2**(amrlevel) + (zs/dxs).astype(int)

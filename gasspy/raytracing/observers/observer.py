@@ -6,7 +6,7 @@ from gasspy.settings.defaults import ray_dtypes, ray_defaults
 from gasspy.raystructures.global_rays import global_ray_class
 
 class observer_plane_class:
-    def __init__(self, sim_data, Nxp = None, Nyp = None, 
+    def __init__(self, config_yaml, Nxp = None, Nyp = None, 
                                 detector_size_x = None, detector_size_y = None,
                                 z_subsamples = 3, scale_l_cgs = None, 
                                 planeDefinitionMethod = None, **kwargs):
@@ -14,29 +14,29 @@ class observer_plane_class:
         # if not defined assume that the simulation data is cubic, and take the plot grid to use the same dimensions
         if Nxp is not None:
             self.Nxp = Nxp
-        elif "Nxp" in sim_data.config_yaml.keys():
-            self.Nxp = sim_data.config_yaml["Nxp"]
+        elif "Nxp" in config_yaml.keys():
+            self.Nxp = config_yaml["Nxp"]
         else:
-            self.Nxp = sim_data.Ncells[0]
+            self.Nxp = 2**config_yaml["amr_lrefine_min"]
 
         if Nyp is not None:
             self.Nyp = Nyp
-        elif "Nyp" in sim_data.config_yaml.keys():
-            self.Nyp = sim_data.config_yaml["Nyp"]
+        elif "Nyp" in config_yaml.keys():
+            self.Nyp = config_yaml["Nyp"]
         else:
-            self.Nyp = sim_data.Ncells[1]
+            self.Nyp = 2**config_yaml["amr_lrefine_min"]
 
         if detector_size_x is not None:
             self.detector_size_x = detector_size_x
-        elif "detector_size_x" in sim_data.config_yaml:
-            self.detector_size_x = sim_data.config_yaml["detector_size_x"]
+        elif "detector_size_x" in config_yaml:
+            self.detector_size_x = config_yaml["detector_size_x"]
         else:
             self.detector_size_x = 1
 
         if detector_size_y is not None:
             self.detector_size_y = detector_size_y
-        elif "detector_size_y" in sim_data.config_yaml:
-            self.detector_size_y = sim_data.config_yaml["detector_size_y"]
+        elif "detector_size_y" in config_yaml:
+            self.detector_size_y = config_yaml["detector_size_y"]
         else:
             self.detector_size_y = 1
 
@@ -60,21 +60,18 @@ class observer_plane_class:
             self.xp, self.yp, self.ray_lrefine, self.Nrays = planeDefinitionMethod()
 
 
-        if "sim_size_x" in sim_data.config_yaml:
-            self.NumZ = np.sqrt(
-                                sim_data.config_yaml["sim_size_x"]**2 + 
-                                sim_data.config_yaml["sim_size_y"]**2 + 
-                                sim_data.config_yaml["sim_size_z"]**2 
-                               )
-        else:
-            self.NumZ = np.sqrt(np.sum(np.square(sim_data.Ncells)))
+        self.NumZ = np.sqrt(
+                            config_yaml["sim_size_x"]**2 + 
+                            config_yaml["sim_size_y"]**2 + 
+                            config_yaml["sim_size_z"]**2 
+                            )
         
         self.pitch = 0 
         self.yaw   = 0
         self.roll  = 0
 
         # Note : not coded, but sim_data origin should default cuberoot(ncells)/2 if not defined by user
-        self.rot_origin = sim_data.origin
+        self.rot_origin = config_yaml["origin"]
         self.xp0_s =   0.0
         self.yp0_s =   0.0
         self.zp0_s =   -0.5 * self.NumZ 
