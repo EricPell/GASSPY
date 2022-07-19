@@ -4,7 +4,6 @@ from re import M
 import pandas
 import numpy as np
 import cupy
-import cudf
 import gc
 import os 
 import glob
@@ -18,10 +17,15 @@ class ModelCollector():
         self, cloudy_dir="cloudy_output",
         out_dir="GASSPY/",
         db_name="gasspy",
-        use_gpu=False,
         all_opacities=True,
         clear_energy=False,
-        single_files=False
+        single_files=False,
+        out_files = {
+            "em": True,
+            "grnopc": True,
+            "opc": True,
+            "mol":True
+        }
     ):  
 
         self.clear_energy = clear_energy
@@ -41,7 +45,6 @@ class ModelCollector():
 
         self.db_name = db_name
 
-        self.use_gpu = use_gpu
         self.all_opacities = all_opacities
         self.energy_limits = None
 
@@ -59,53 +62,32 @@ class ModelCollector():
         self.n_zones = None
 
         self.skip = False
-
+        self.out_files = out_files
 
     def read_em(self, filename, suff=".em"):
         """ Read the multizone emissivity spectrum """
-        if self.use_gpu:
-            try:
-                mydf = cudf.read_csv(
-                    self.cloudy_dir+filename+suff,
-                    delimiter="\t",
-                    comment="#",
-                    header=None)
-            except:
-                print("failed to read %s"%(self.cloudy_dir+filename+suff))
-                self.skip = True
-        else:
-            mydf = pandas.read_csv(
-                self.cloudy_dir+filename+suff,
-                delimiter="\t",
-                comment="#",
-                header=None)
+        if not self.out_files["em"]:
+            return
+
+        mydf = pandas.read_csv(
+            self.cloudy_dir+filename+suff,
+            delimiter="\t",
+            comment="#",
+            header=None)
 
         if self.em_everyzone:
-            if self.use_gpu:
-                data = cupy.zeros(mydf.shape)
-                for col_i, col in enumerate(mydf.columns):
-                    data[:,col_i] = cupy.asarray(mydf[col])[:]
+            data = np.array(mydf)
 
-                if self.energy_bins is None:
-                    self.energy_bins = data[0,:]
-            else:
-                data = np.array(mydf)
-
-                if self.energy_bins is None:
-                    self.energy_bins = data[0,:]
+            if self.energy_bins is None:
+                self.energy_bins = data[0,:]
 
             data = data[1:,:]
             self.avg_em = (data.T * self.delta_r).sum(axis=1)/float(self.total_depth)
         
         else:
-            if self.use_gpu:
-                if self.energy_bins is None:
-                    self.energy_bins = cupy.array(mydf[mydf.columns[0]])
-                self.avg_em = cupy.array(mydf[mydf.columns[3]])
-            else:
-                if self.energy_bins is None:
-                    self.energy_bins = np.array(mydf[mydf.columns[0]])
-                self.avg_em = np.array(mydf[mydf.columns[3]])
+            if self.energy_bins is None:
+                self.energy_bins = np.array(mydf[mydf.columns[0]])
+            self.avg_em = np.array(mydf[mydf.columns[3]])
         
         if self.n_energy_bins is None:
             self.n_energy_bins = len(self.energy_bins)
@@ -114,19 +96,16 @@ class ModelCollector():
 
     def read_mol(self, filename, suff=".mol"):
         """Read the molecular data file, mostly to get out the depth array of the model"""
+        if not self.out_files["em"]:
+            return
         with open(self.cloudy_dir+filename+suff,"r") as f:
             if len(f.readlines()) < 2:
                 self.skip = True
 
         if not self.skip:
-            if self.use_gpu:
-                data = cudf.read_csv(self.cloudy_dir+filename+suff, delimiter="\t")
-                depth = cupy.asarray(data["#depth"])
-                self.total_depth = cupy.array([cupy.sum(depth),])
-            else:
-                data = pandas.read_csv(self.cloudy_dir+filename+suff, delimiter="\t")
-                depth = np.asarray(data["#depth"])
-                self.total_depth = cupy.array([np.sum(depth),])
+            data = pandas.read_csv(self.cloudy_dir+filename+suff, delimiter="\t")
+            depth = np.asarray(data["#depth"])
+            self.total_depth = np.array([np.sum(depth),])
 
             self.n_zones = len(depth)
 
@@ -139,10 +118,9 @@ class ModelCollector():
 
     def read_grnopc(self, filename, suff=".grnopc"):
         """ Read the multizone opacity spectrum"""
-        if self.use_gpu:
-            mydf = cudf.read_csv(self.cloudy_dir+filename+suff, delimiter="\t", skip_blank_lines=True)
-        else:
-            mydf = pandas.read_csv(self.cloudy_dir+filename+suff, delimiter="\t", skip_blank_lines=True)
+        if not self.out_files["grnopc"]:
+            return
+        mydf = pandas.read_csv(self.cloudy_dir+filename+suff, delimiter="\t", skip_blank_lines=True)
 
         # Currently cloudy outputs a grain opacity file with an extra column and delimiter. This fixes that.
         if mydf.columns[0] == "#grain":
@@ -152,60 +130,36 @@ class ModelCollector():
             del mydf["junk"]
 
         # #grain  nu/Ryd  abs+scat*(1-g)  abs     scat*(1-g)      scat    scat*(1-g)/[abs+scat*(1-g)]
-        if self.use_gpu:
-            self.grn_opc = cupy.asarray(mydf["abs"])
-        else:
-            self.grn_opc = np.asarray(mydf["abs"])
+        self.grn_opc = np.asarray(mydf["abs"])
 
     def read_opc(self, filename, suff=".opc"):
         """ Read the multizone opacity spectrum"""
-        if self.use_gpu:
-            mydf = cudf.read_csv(self.cloudy_dir+filename+suff, delimiter="\t",skip_blank_lines=True)
-        else:
-            mydf = pandas.read_csv(self.cloudy_dir+filename+suff, delimiter="\t",skip_blank_lines=True)
+        if not self.out_files["opc"]:
+            return
+
+
+        mydf = pandas.read_csv(self.cloudy_dir+filename+suff, delimiter="\t",skip_blank_lines=True)
 
         if self.opacity_everyzone:
 
             del mydf["#nu/Ryd"], mydf["elem"], mydf["Albedo"]
 
-            if self.use_gpu:
-                if self.all_opacities is True:
-                    tau = cupy.zeros((self.n_energy_bins,len(mydf.columns)))
-                    for col_i, col in enumerate(mydf.columns):
-                        tau[:,col_i] = (self.delta_r[0] * cupy.asarray(mydf[col].iloc[0:self.n_energy_bins]))[:]
-                else:
-                    total_opc = cupy.asarray(mydf["Tot opac"])
-                    tau = cupy.zeros(self.n_energy_bins)
-                    tau[:] = (self.delta_r[0] * total_opc[0:self.n_energy_bins])[:]
-
-                #delta_tau = (opc.iloc[0:self.n_energy_bins] * float(self.delta_r[0])).to_cupy()
+            if self.all_opacities is True:
+                tau = (mydf.iloc[0:self.n_energy_bins] * float(self.delta_r[0])).to_numpy()            
             else:
-                if self.all_opacities is True:
-                    tau = (mydf.iloc[0:self.n_energy_bins] * float(self.delta_r[0])).to_numpy()            
-                else:
-                    tau = (mydf["Tot opac"].iloc[0:self.n_energy_bins] * float(self.delta_r[0])).to_numpy()
+                tau = (mydf["Tot opac"].iloc[0:self.n_energy_bins] * float(self.delta_r[0])).to_numpy()
 
             for izone in range(1, self.n_zones):
-                if self.use_gpu:
-                    if self.all_opacities is True:
-                        for col_i, col in enumerate(mydf.columns):
-                            tau[:,col_i] += cupy.asarray(mydf[col].iloc[izone*self.n_energy_bins:(izone+1)*self.n_energy_bins]) * self.delta_r[izone]
-                    else:
-                        tau[:] += (self.delta_r[izone] * total_opc[izone*self.n_energy_bins:(izone+1)*self.n_energy_bins])[:]
+                if self.all_opacities is True:
+                    tau[:] += (mydf.iloc[izone*self.n_energy_bins:(izone+1)*self.n_energy_bins] * self.delta_r[izone]).to_numpy()[:]
                 else:
-                    if self.all_opacities is True:
-                        tau[:] += (mydf.iloc[izone*self.n_energy_bins:(izone+1)*self.n_energy_bins] * self.delta_r[izone]).to_numpy()[:]
-                    else:
-                        tau[:] += (mydf["Tot opac"].iloc[izone*self.n_energy_bins:(izone+1)*self.n_energy_bins] * self.delta_r[izone]).to_numpy()[:]
+                    tau[:] += (mydf["Tot opac"].iloc[izone*self.n_energy_bins:(izone+1)*self.n_energy_bins] * self.delta_r[izone]).to_numpy()[:]
             
             self.tot_opc = tau / float(self.total_depth)
 
         else:
             #nu/Ryd	Tot opac	Abs opac	Scat opac	Albedo	elem
-            if self.use_gpu:
-                self.tot_opc = cupy.asarray(mydf["Tot opac"])
-            else:
-                self.tot_opc = np.asarray(mydf["Tot opac"])
+            self.tot_opc = np.asarray(mydf["Tot opac"])
 
 
     def read_in(self, filename, suff=".in"):
@@ -221,8 +175,6 @@ class ModelCollector():
                     self.opacity_everyzone = "every" in line
                 if "save diffuse continuum" in line:
                     self.em_everyzone = "zone" in line
-
-            #self.use_gpu = self.em_everyzone
 
     def collect(self, single_file=None, delete_files = False):
         if single_file is not None:
@@ -255,14 +207,9 @@ class ModelCollector():
             self.save_tot_opc = np.zeros((self.n_energy_bins, len(files)))
             self.save_grn_opc = np.zeros((self.n_energy_bins, len(files)))
 
-            if self.use_gpu is True:
-                self.save_avg_em[:,i] = cupy.asnumpy(self.avg_em)[:]
-                self.save_tot_opc[:,i] = cupy.asnumpy(self.tot_opc)[:]
-                self.save_grn_opc[:,i] = cupy.asnumpy(self.grn_opc)[:]
-            else:
-                self.save_avg_em[:,i] = self.avg_em[:]
-                self.save_tot_opc[:,i] = self.tot_opc[:]
-                self.save_grn_opc[:,i] = self.grn_opc[:]
+            self.save_avg_em[:,i] = self.avg_em[:]
+            self.save_tot_opc[:,i] = self.tot_opc[:]
+            self.save_grn_opc[:,i] = self.grn_opc[:]
 
             self.clear()
             for i in range(i+1, len(files)):
@@ -273,41 +220,25 @@ class ModelCollector():
                 
                 self.all("gasspy-%i"%i)
                 if self.skip is False:
-                    pass
-                    if self.use_gpu is True:
-                        self.save_avg_em[:,i] = cupy.asnumpy(self.avg_em)[:]
-                        self.save_tot_opc[:,i] = cupy.asnumpy(self.tot_opc)[:]
-                        self.save_grn_opc[:,i] = cupy.asnumpy(self.grn_opc)[:]
-                    else:
-                        self.save_avg_em[:,i] = self.avg_em[:]
-                        self.save_tot_opc[:,i] = self.tot_opc[:]
-                        self.save_grn_opc[:,i] = self.grn_opc[:]
+                    self.save_avg_em[:,i] = self.avg_em[:]
+                    self.save_tot_opc[:,i] = self.tot_opc[:]
+                    self.save_grn_opc[:,i] = self.grn_opc[:]
                 else:
                     print("Skipping gasspy-%i"%i)
                 self.clear()
         else:
             if self.skip:
-                if self.use_gpu is True:
-                    self.avg_em  = cupy.zeros(1)
-                    self.tot_opc = cupy.zeros(1)
-                    self.grn_opc = cupy.zeros(1)
-                else:
-                    self.avg_em  = np.zeros(1)
-                    self.tot_opc = np.zeros(1)
-                    self.grn_opc = np.zeros(1)
+                self.avg_em  = np.zeros(1)
+                self.tot_opc = np.zeros(1)
+                self.grn_opc = np.zeros(1)
 
             name = files[0]
             self.save_single(name)
 
     def save_single(self, name):
-        if self.use_gpu is True:
-            cupy.save(self.cloudy_dir+"%s_avg_em.pkl"%name, self.avg_em, allow_pickle=True)
-            cupy.save(self.cloudy_dir+"%s_tot_opc.pkl"%name, self.tot_opc, allow_pickle=True)
-            cupy.save(self.cloudy_dir+"%s_grn_opc.pkl"%name, self.grn_opc, allow_pickle=True)
-        else:
-            np.save(self.cloudy_dir+"%s_avg_em.pkl"%name, self.avg_em, allow_pickle=True)
-            np.save(self.cloudy_dir+"%s_tot_opc.pkl"%name, self.tot_opc, allow_pickle=True)
-            np.save(self.cloudy_dir+"%s_grn_opc.pkl"%name, self.grn_opc, allow_pickle=True)
+        np.save(self.cloudy_dir+"%s_avg_em.pkl"%name, self.avg_em, allow_pickle=True)
+        np.save(self.cloudy_dir+"%s_tot_opc.pkl"%name, self.tot_opc, allow_pickle=True)
+        np.save(self.cloudy_dir+"%s_grn_opc.pkl"%name, self.grn_opc, allow_pickle=True)
 
     def save_to_db(self):
         """Save the model to an gasspy database"""
