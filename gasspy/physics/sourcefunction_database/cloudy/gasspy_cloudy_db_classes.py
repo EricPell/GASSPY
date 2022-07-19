@@ -3,6 +3,7 @@
 from enum import unique
 import os
 from re import S
+import shutil
 import sys
 import numpy as np
 import pickle
@@ -215,7 +216,6 @@ class uniq_dict_creator(object):
                     self.field_header[i_field]=flux_type
                     # self.compressedsimdata["fluxes"][flux_type]["data"] = [:self.N_unique]
                     i_field+=1
-
         self.stacked = np.array(self.stacked).T
         pass
 
@@ -348,6 +348,7 @@ class uniq_dict_creator(object):
 
 class gasspy_to_cloudy(object):
     def __init__(self,
+    gasspy_config,
     gasspy_modeldir="GASSPY",
     fluxdef_file=None,
     unique_panda_pickle_file=None,
@@ -393,6 +394,8 @@ class gasspy_to_cloudy(object):
         self.unify_flux_defs()
 
         self.ForceFullDepth=ForceFullDepth
+        self.gasspy_config = gasspy_config
+        self.set_ini_file()
 
     def unify_flux_defs(self):
         """ 
@@ -444,7 +447,7 @@ class gasspy_to_cloudy(object):
             is_IF = False
             for cell_phi_ih_limit in cell_phi_ih:
                 # alpha = 4.0e-13 # H recombinations per second cm-6
-                ion_depth = cell_phi_ih_limit /(alpha * 10**(cell_hden)**2)
+                ion_depth = cell_phi_ih_limit /(alpha * (10**(cell_hden))**2)
 
                 # Change hardcoded 1e13 to mean free path of ionizing photon in H0.
                 if ion_depth <= cell_depth and ion_depth/cell_depth > self.IF_ionfrac:
@@ -595,14 +598,27 @@ class gasspy_to_cloudy(object):
                     outfile.write("%f -35.0 nuFnu\n"%(self.fluxdef[field]["Emax"]*1.01/13.6) )
                 outfile.close()
 
+
+
+    def set_ini_file(self):
+        try:
+            os.stat(self.gasspy_modeldir+"/cloudy-output")
+        except:
+            os.mkdir(self.gasspy_modeldir+"/cloudy-output")
+        # TODO: make a default that is used when not specified
+        assert "cloudy_ini" in self.gasspy_config, "Need and .ini file to run cloudy"
+        path = self.gasspy_config["cloudy_ini"]
+        self.CLOUDY_INIT_FILE = path.split("/")[-1] 
+        shutil.copy(path, self.gasspy_modeldir + "/cloudy-output/" + self.CLOUDY_INIT_FILE)
+        return
+
     def process_grid(self, model_limit=-1, N0=0):
         # dx + gas fields, which could be more than den and temp
         max_depth = {}
         N_models = self.unique_panda_pickle.shape[0]
 
         #This is the maximum number of possible unique IDs. In the end we will populate this from 0 to N_unique, and crop the array. This prevents repeated copies that result form appending.
-        uniqueIDs = np.array(range(N_models)) + N0
-
+        uniqueIDs = np.array(range(N_models)) + N0        
         for i in range(N_models):
             # How to access the density variable for the 0th position.
             # self.unique_panda_pickle['dens'].loc[0]
@@ -617,6 +633,7 @@ class gasspy_to_cloudy(object):
                 print(uniqueIDs[i], current_model_parameters["depth"], current_model_parameters["hden"], current_model_parameters["temp"], rad_fluxes_string)
 
         self.make_user_seds()
+
 
     # def compute_cell(self, cell_i):
     #     if cell_i%self.print_every == 0:

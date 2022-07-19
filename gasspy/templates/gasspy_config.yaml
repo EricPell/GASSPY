@@ -70,7 +70,8 @@ compression_ratio:
     HeIII:
       - 1
       - 5.0    
-
+# Path to ini file for cloudy
+cloudy_ini : "/path/to/GASSPY/gasspy/physics/sourcefunction_database/cloudy/init_files/spec_postprocess_atomic_no_qheat-c17.ini"
 ##########################
 # Raytracer  parameters
 ##########################
