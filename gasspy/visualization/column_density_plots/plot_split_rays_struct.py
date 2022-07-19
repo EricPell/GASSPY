@@ -67,10 +67,10 @@ sim_reader = reader_mod.Simulation_Reader(args.simdir, args.gasspydir, gasspy_co
 
 
 # Load denisty from the simulation
-cell_dens = cupy.array(sim_reader.get_field("rho"), dtype = cupy.float64)/mH
-cell_HIIdensity = cupy.array(sim_reader.get_field("rho"), dtype = cupy.float64)*cupy.array(sim_reader.get_field("xHII"), dtype = cupy.float64)/mH
-cell_temperatue = cupy.array(sim_reader.get_field("T"), dtype = cupy.float64)
-cell_velocity = cupy.array(sim_reader.get_field("vz"), dtype = cupy.float64)*1e5
+cell_dens = cupy.array(sim_reader.get_field("dens"), dtype = cupy.float64)/mH
+cell_HIIdensity = cupy.array(sim_reader.get_field("dens"), dtype = cupy.float64)*cupy.array(sim_reader.get_field("xHII"), dtype = cupy.float64)/mH
+
+
 
 # Take the amr refinement and index1D from our own calcualtions to make sure dtypes matches
 cell_amr_lrefine = cupy.array(sim_reader.get_field("amr_lrefine"))
@@ -89,13 +89,11 @@ dx_lrefs = boxlen/2**(np.arange(min_lref, max_lref+1))
 # Add all NULL values at the end
 cell_dens = cupy.append(cell_dens, [0])
 cell_HIIdensity = cupy.append(cell_HIIdensity, [0])
-cell_temperatue = cupy.append(cell_temperatue, [1])
-cell_velocity = cupy.append(cell_velocity, [0])
 
 cell_pseudo_fields = cupy.zeros((len(cell_dens), 2))
 cell_pseudo_fields[:,0] = cell_dens
 cell_pseudo_fields[:,1] = cell_HIIdensity
-
+print(np.min(cell_pseudo_fields, axis = 0), np.max(cell_pseudo_fields, axis = 0))
 
 """
     LOAD TRACE DATA
@@ -312,7 +310,7 @@ for trace_file in trace_files:
 
 
 
-
+    print(np.min(leaf_ray_pseudofields, axis = 0), np.max(leaf_ray_pseudofields, axis = 0))
 
     dx_plot = 2**(-float(max_ray_lrefine))
     Nplot = int(2**max_ray_lrefine)
@@ -361,7 +359,7 @@ for trace_file in trace_files:
 
     def add_norm(data, rgb_vals, zmin = None, zmax = None):
         if zmin is None:
-            zmin = max(np.min(data), 1e10)
+            zmin = max(np.min(data), np.max(data)/1e5)
         if zmax is None:
             zmax = np.max(data)
 
@@ -373,7 +371,7 @@ for trace_file in trace_files:
 
 
     print(np.min(plot_dens), np.max(plot_dens))
-    rgb_map = add_norm(plot_dens, np.array([0.55,0.25,0.75]), zmax = 5e22)
+    rgb_map = add_norm(plot_dens, np.array([0.55,0.25,0.75]))
     rgb_map += add_norm(plot_HII, np.array([0.8,0.8,0.15]))
     rgb_map[rgb_map >= 1] = 1
     rgb_map[rgb_map <= 0] = 0

@@ -15,35 +15,64 @@ max_lref = 11
 
 class ray_debugger(FamilyTree):
     def __init__(self, 
-            root_dir="./", 
-            gasspy_subdir="GASSPY", 
-            gasspy_spec_subdir="spec", 
-            gasspy_projection_subdir="projections", 
-            traced_rays=None, 
-            global_rayDF_deprecated=None, 
-            energy=None, 
-            energy_lims=None, 
-            Emask=None, 
-            em=None, 
-            op=None, 
-            opc_per_NH=False, 
-            saved3d=None, 
-            vel=None,
-            den=None, 
-            massden=True, 
-            mu=1.1, 
-            los_angle=None, 
-            accel="torch", 
-            dtype=..., 
-            liteVRAM=True, 
-            Nraster=4,
-            useGasspyEnergyWindows=True, 
-            make_spec_subdirs=True, 
-            config_yaml=None, 
-            spec_save_type="hdf5", 
-            spec_save_name="gasspy_spec", 
-            cuda_device=None):
-        super().__init__(root_dir, gasspy_subdir, gasspy_spec_subdir, gasspy_projection_subdir, traced_rays, global_rayDF_deprecated, energy, energy_lims, Emask, em, op, opc_per_NH, saved3d, vel, den, massden, mu, los_angle, accel, dtype, liteVRAM, Nraster, useGasspyEnergyWindows, make_spec_subdirs, config_yaml, spec_save_type, spec_save_name, cuda_device)
+        root_dir="./",
+        gasspy_subdir="GASSPY",
+        gasspy_spec_subdir="spec",
+        gasspy_projection_subdir="projections",
+        traced_rays=None,
+        global_rayDF_deprecated=None,
+        energy=None,
+        energy_lims=None,
+        Emask=None,
+        em=None,
+        op=None,
+        opc_per_NH=False,
+        cell_index_to_gasspydb=None,
+        vel=None,
+        den=None,
+        massden=True,
+        mu=1.1,
+        los_angle=None,
+        accel="torch",
+        dtype=np.float32,
+        liteVRAM=True,
+        Nraster=4,
+        useGasspyEnergyWindows=True,
+        make_spec_subdirs=True,
+        config_yaml=None,
+        spec_save_type="hdf5",
+        spec_save_name="gasspy_spec",
+        cuda_device=None,
+        doppler_shift = False):
+        super().__init__(
+            root_dir=root_dir,
+            gasspy_subdir=gasspy_subdir,
+            gasspy_spec_subdir=gasspy_spec_subdir,
+            gasspy_projection_subdir=gasspy_projection_subdir,
+            traced_rays=traced_rays,
+            energy=energy,
+            energy_lims=energy_lims,
+            Emask=Emask,
+            em=em,
+            op=op,
+            opc_per_NH=opc_per_NH,
+            cell_index_to_gasspydb=cell_index_to_gasspydb,
+            vel=vel,
+            den=den,
+            massden=massden,
+            mu=mu,
+            accel=accel,
+            dtype=dtype,
+            liteVRAM=liteVRAM,
+            Nraster=Nraster,
+            useGasspyEnergyWindows=useGasspyEnergyWindows,
+            make_spec_subdirs=make_spec_subdirs,
+            config_yaml=config_yaml,
+            spec_save_type=spec_save_type,
+            spec_save_name=spec_save_name,
+            cuda_device=cuda_device,
+            doppler_shift = doppler_shift  
+        )
         self.rayid = -1
 
     def load_new_global_rays(self):
@@ -146,7 +175,10 @@ class ray_debugger(FamilyTree):
             energy_np = self.energy.cpu().numpy()
         else: 
             energy_np = self.energy.get()
-        Eidxs = np.where( (energy_np >= Elims[0]) * (energy_np < Elims[1]))[0]
+        if Elims is not None:
+            Eidxs = np.where( (energy_np >= Elims[0]) * (energy_np < Elims[1]))[0]
+        else:
+            Eidxs = np.arange(0,len(energy_np))
         if self.accel == "torch":
             my_Em  = torch.as_tensor(self.em.take(self.path_ray_gasspy_id, axis = 1).take(Eidxs, axis = 0), device = cuda_device)
             my_Opc = torch.as_tensor(self.op.take(self.path_ray_gasspy_id, axis = 1).take(Eidxs, axis = 0), device = cuda_device)
@@ -298,7 +330,6 @@ if __name__ == "__main__":
         energy_lims=None,
         em=args.em,
         op=args.op,
-        saved3d=args.saved3d,
         vel=args.root_dir+args.vel,
         den=args.root_dir+args.den,
         opc_per_NH=args.opc_per_NH,
@@ -309,8 +340,10 @@ if __name__ == "__main__":
         spec_save_name=args.spec_save_name,
         dtype=dtype,
         spec_save_type=args.spec_save_type,
+        config_yaml=args.config_yaml,
+        cell_index_to_gasspydb = args.gasspy_id,
         cuda_device=cuda_device
-    )
+    )   
 
     if args.out_hdf5 is not None:
         outfile = args.out_hdf5 
@@ -323,7 +356,10 @@ if __name__ == "__main__":
 
     ray_debug.load_all()
     import matplotlib.pyplot as plt
-    Elims = np.array([args.Emin, args.Emax])
+    if args.Emax is not None:
+        Elims = np.array([args.Emin, args.Emax])
+    else:
+        Elims = None
     fig , axes = plt.subplots(figsize = (8,2), ncols=4, nrows = 1, sharex=True)
     axemis = axes[0]
     axflux = axes[1]

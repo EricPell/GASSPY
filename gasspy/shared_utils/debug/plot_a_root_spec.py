@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import argparse
+import astropy.units as u
 from gasspy.shared_utils.spec_reader import spec_reader
-
+from gasspy.io import gasspy_io
 ap=argparse.ArgumentParser()
 
 #---------------outputs-----------------------------
@@ -14,12 +15,23 @@ ap.add_argument("--Emin", default = None, type=float)
 ap.add_argument("--Emax", default = None, type=float)
 ap.add_argument("--xp", required = True, nargs = "+", type = float)
 ap.add_argument("--yp", required = True, nargs = "+", type = float)
-
+ap.add_argument("--colors", nargs = "+", default = None)
+ap.add_argument("--ylims", nargs = 2, default = None, type = float)
+ap.add_argument("--outpath", default = None)
+ap.add_argument("--no_legend", action = "store_true")
 args=ap.parse_args()
 
 assert len(args.xp) == len(args.yp), "xp and yp are required to have the same shape"
 
 reader = spec_reader(args.f, maxmem_GB=None)
+
+# Figure out physical size of the plot
+gasspy_config = gasspy_io.read_fluxdef("./gasspy_config.yaml")
+
+xsize = reader.observer_size_x * gasspy_config["sim_unit_length"]/((1*u.pc).cgs.value)
+ysize = reader.observer_size_y * gasspy_config["sim_unit_length"]/((1*u.pc).cgs.value)
+
+
 if args.Emin is None:
     Emin = np.min(reader.Energies)
 else:
@@ -32,15 +44,30 @@ else:
 
 Elims = np.array([Emin, Emax])
 
-fig = plt.figure()
-for i in range(len(args.xp)):
-    xp = args.xp[i]
-    yp = args.yp[i]
-    Eplot, flux, line, bband= reader.read_spec(xp, yp, Elims = Elims, return_integrated_line = True, return_broadband = True)
+colors = [None for i in range(len(args.xp))]
+if args.colors is not None:
+    for i, col in enumerate(args.colors):
+        colors[i] = args.colors[i]
 
-    plt.plot(Eplot, flux, label = "xp = %.4e, yp=%.4e"%(xp,yp))
+
+fig = plt.figure(figsize = (5,4))
+for i in range(len(args.xp)):
+    xp = args.xp[i]/xsize
+    yp = args.yp[i]/ysize
+    Eplot, flux, line, bband= reader.read_spec(xp, yp, Elims = Elims, return_integrated_line = True, return_broadband = True)
+    np.save("spec_%f_%f.npy"%(args.xp[i], args.yp[i]),np.array([Eplot,flux]) )
+    plt.plot(Eplot, flux, label = "xp = %.3e, yp=%.3e"%(xp,yp), color = colors[i], marker = "x")
     print("xp = %.4e, yp = %.4e: line = %.4e bband = %.4e"%(xp, yp, line, bband))
-plt.legend()
+if not args.no_legend:
+    plt.legend()
 plt.xscale("log")
 plt.yscale("log")
-plt.show()
+plt.ylabel(r"$4\pi \nu J_\nu$ [erg/cm$^2$/s]")
+plt.xlim(Emin, Emax)
+plt.ylim(args.ylims)
+plt.xlabel(r"$E_\gamma$ [Ryd]")
+if args.outpath is not None:
+    plt.savefig(args.outpath)
+    plt.close(fig)
+else:
+    plt.show()
