@@ -63,7 +63,7 @@ class traced_ray_class(object):
             Method to set the global_rayid and dump number of the next (specified) number of ray segments
         """
         if(self.NraySegUsed + NraySeg_transfered > self.NraySegMax):
-            print(self.NraySegMax, self.NraySegUsed + NraySeg_transfered) 
+            print(self.NraySegMax, self.NraySegUsed + NraySeg_transfered, NraySeg_transfered) 
       
         assert self.NraySegUsed + NraySeg_transfered <= self.NraySegMax, "No more ray segments are available"
       
@@ -89,7 +89,7 @@ class traced_ray_class(object):
 
         pass 
 
-    def finalize_trace(self, delete_pinned = False):
+    def finalize_trace(self, delete_pinned = True):
         idx_sort = cupy.lexsort(cupy.array([self.dump_number_ofSegment[:self.NraySegUsed], self.global_rayid_ofSegment[:self.NraySegUsed]]))
         self.global_rayid_ofSegment = self.global_rayid_ofSegment[idx_sort.get()]   
         self.dump_number_ofSegment  = self.dump_number_ofSegment[idx_sort.get()]   
