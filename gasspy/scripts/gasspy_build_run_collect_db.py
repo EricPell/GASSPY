@@ -1,5 +1,5 @@
 """
-    Author: Loke Ohlin 
+    Author: Loke Ohlin & Eric Pellegrini
     Date: 05-2022
     Purpose: wrapper script to build, run and collect the database in one call rather than 3
     Usage: Fire and forget: call using arguments to describe the wanted directory structure. 
@@ -12,10 +12,8 @@
 
 import time
 import os
-import sys, pathlib
 import numpy as np
 from astropy.io import fits
-import yaml
 import argparse
 import importlib.util
 
@@ -95,7 +93,7 @@ if args.recompile_cloudy_spectra_mesh:
                 E0[i] = Ryd_Ang / (float(label.strip("m"))*1e4)
 
         # Size of the high resolution window
-        delta = E0 * 1000.0/3e5
+        delta = E0 * 0.5*(1/(1-1000.0/3e5) - 1/(1+1000/3e5))
         # Resolving power
         R = 10000
 
@@ -143,7 +141,7 @@ creator.simdata = {
 }
 ## load the fluxes of the radiation fields
 for field in fluxdef.keys():
-    creator.simdata["fluxes"][field]["data"] = np.log10(sim_reader.get_field(field))    
+    creator.simdata["fluxes"][field]["data"] = np.log10(np.maximum(sim_reader.get_field(field),1e-40))    
 
 ## Specify the cutoff limit for the fluxes
 creator.log10_flux_low_limit = {}
@@ -168,7 +166,7 @@ print(" - Compressing simulation data")
 creator.process_simdata()
 
 ## Initialize the gasspy_to_cloudy converter
-gasspy_to_cloudy = gasspy_cloudy_db_classes.gasspy_to_cloudy(gasspy_modeldir=creator.gasspy_modeldir, CLOUDY_INIT_FILE="spec_postprocess-c17.ini")
+gasspy_to_cloudy = gasspy_cloudy_db_classes.gasspy_to_cloudy(gasspy_config, gasspy_modeldir=creator.gasspy_modeldir, CLOUDY_INIT_FILE="spec_postprocess-c17.ini")
 ## Process the trimmed simulation data
 print(" - Creating cloudy .in files")
 gasspy_to_cloudy.process_grid()
