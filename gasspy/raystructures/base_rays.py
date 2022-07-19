@@ -109,7 +109,7 @@ class base_ray_class:
         else:
             for field in self.contained_fields:
                 self.__dict__[field] = self.numlib.append(self.__dict__[field], self.numlib.full(nalloc, ray_defaults[field], dtype=ray_dtypes[field]))
-            self.nalloc += self.nalloc
+            self.nalloc += nalloc
 
         return
 
@@ -169,7 +169,8 @@ class base_ray_class:
             if self.on_cpu:
                 grp.create_dataset(field, self.nrays, dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays])
             else:
-                grp.create_dataset(field, self.nrays, dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays].get())
+                print(field, self.__dict__[field].shape, self.__dict__[field][:self.nrays].get().shape, (self.nrays,))
+                grp.create_dataset(field, (self.nrays,), dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays].get())
 
     def load_hdf5(self, h5file):
         """
