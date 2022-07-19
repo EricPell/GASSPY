@@ -94,6 +94,7 @@ class raytracer_class:
         self.dump_buff(cupy.arange(self.active_rays.nactive))
         
         # Finalize the pipe 
+        print("   Finalizing trace")
         self.amr_lrefine_pipe.finalize()
         self.index1D_pipe.finalize()
         self.cell_index_pipe.finalize()
@@ -101,7 +102,7 @@ class raytracer_class:
 
 
         # Tell the traced rays object that the trace is done, such that it can trim the data and move it out of pinned memory
-        self.traced_rays.finalize_trace()
+        self.traced_rays.finalize_trace()        
         # Generate the mapping from a global_rayid to its ray segment dumps
         self.traced_rays.create_mapping_dict(self.global_rays.nrays)
 
@@ -741,6 +742,7 @@ class raytracer_class:
         pass            
     
     def raytrace_onestep(self):
+
         # Determine how many blocks to run 
         blocks_per_grid = ((self.active_rays.nactive  + self.threads_per_block - 1)//self.threads_per_block)
 
@@ -821,32 +823,87 @@ class raytracer_class:
         pass
 
 if __name__ == "__main__":
+    import numpy as np
+    import os
+    import importlib.util
+    import argparse
+    
     from gasspy.shared_utils.simulation_data_lib import simulation_data_class
     from gasspy.raytracing.observers import observer_plane_class
-    import numpy as np
-    import cProfile 
-    sys.exit("Need to fix this call with the new simulation_reader class before usage")
-    no_ray_splitting = False
-    save = True
-    datadir = "/mnt/data/research/cinn3d/inputs/ramses/loke_devel_SEED1_35MSUN_CSMASK_WINDUV/GASSPY/"
-    sim_data = simulation_data_class(datadir = datadir)
-    raytracer = raytracer_class(sim_data, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 10, NcellBuff  = 32, raster=1, no_ray_splitting=no_ray_splitting)
+    from gasspy.io import gasspy_io
 
-    nframes = 19
+    ap = argparse.ArgumentParser()
+    #-------------DIRECTORIES AND FILES---------------#
+    ap.add_argument("--simdir", default="./", help="Directory of the simulation and also default work directory")
+    ap.add_argument("--workdir", default= None, help="work directory. If not specified its the same as simdir")
+    ap.add_argument("--gasspydir", default="GASSPY", help="directory inside of simdir to put the GASSPY files")
+    ap.add_argument("--simulation_reader_dir", default="./", help="directory to the simulation_reader class that describes how to load the simulation")
+    ap.add_argument("--sim_prefix", default = None, help="prefix to put before all snapshot specific files")
 
-    pitch = np.zeros(nframes)
-    yaw   = np.linspace(0,180, nframes) 
-    roll  = np.zeros(nframes)
+    ## parse the commandline argument
+    args = ap.parse_args()
+    
+    ## move to workdir
+    if args.workdir is not None:
+        workdir = args.workdir
+    else:
+        workdir = args.simdir
+    os.chdir(workdir)
+    
+    ## create GASSPY dir where all files specific to this snapshot is kept
+    if not os.path.exists(args.gasspydir):
+        sys.exit("ERROR : cant find directory %s"%args.gasspydir)
+    
+    if not os.path.exists(args.gasspydir+"/projections/"):
+        os.makedirs(args.gasspydir+"/projections/")
+    
+    if not os.path.exists(args.modeldir):
+        sys.exit("ERROR : cant find directory %s"%args.modeldir)
+    
+    ## set prefix to snapshot specific files
+    if args.sim_prefix is not None:
+        ## add an underscore
+        sim_prefix = args.sim_prefix + "_"
+    else:
+        sim_prefix = ""
+    
+    ## Load the gasspy_config yaml
+    gasspy_config = gasspy_io.read_fluxdef("./gasspy_config.yaml")
 
-    N_frames = 1
-    pr = cProfile.Profile()
-    pr.enable()
-    for i in range(nframes):
-        print(i)
-        obsplane = observer_plane_class(sim_data, pitch = pitch[i], yaw = yaw[i], roll = roll[i])
-        raytracer.update_obsplane(obs_plane=obsplane)
-        raytracer.raytrace_run()
-        raytracer.save_trace(datadir+"/projections/%06d_trace.hdf5"%i)
-        raytracer.reset_trace()
-    pr.disable()
-    pr.dump_stats('profile_ray_struct')
+    ## Load the simulation data class from directory
+    spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
+    reader_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader_mod)
+    sim_reader = reader_mod.Simulation_Reader(args.simdir, args.gasspydir, gasspy_config["sim_reader_args"]) 
+    ## Determine maximum memory usage
+    if "max_mem_GPU" in gasspy_config.keys():
+        max_mem_GPU = gasspy_config["max_mem_GPU"]
+    else:
+        max_mem_GPU = 4
+    
+    if "max_mem_CPU" in gasspy_config.keys():
+        max_mem_CPU = gasspy_config["max_mem_CPU"]
+    else:
+        max_mem_CPU = 14
+    
+    ## Initialize the raytracer
+    raytracer = raytracer_class(sim_reader, gasspy_config, bufferSizeCPU_GB = max_mem_CPU, bufferSizeGPU_GB = max_mem_GPU)
+
+    ## Define the observer class   
+    observer = observer_plane_class(gasspy_config)
+
+    ## set observer
+    raytracer.update_obsplane(obs_plane = observer)
+
+    ## run
+    print(" - running raytrace")
+    raytracer.raytrace_run()
+
+    if args.trace_file is not None:
+        trace_file = args.gasspydir+"/projections/"+args.trace_file
+    else:
+        trace_file = args.gasspydir+"/projections/"+sim_prefix+"trace.hdf5"
+    ## save TODO: stop this and just keep in memory
+    print(" - saving trace")
+    raytracer.save_trace(trace_file)
+
