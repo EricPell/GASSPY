@@ -45,10 +45,10 @@ class processor_class(object):
         exec_list = []
         skip_log = open("skip.log", "w")
         for indir in self.args.indirs:
-            skip = False
             l = glob.glob("%s/*.in"%(indir))
             l = [l[i].split("/")[-1] for i in range(len(l))]
-            for cloudy_in in l:           
+            for cloudy_in in l:        
+                skip = False
                 if ignore_existing:
                     if self.check_complete("%s/%s"%(indir, cloudy_in.replace(".in",".out"))):
                         skip = True
@@ -102,6 +102,35 @@ class processor_class(object):
         p.map(self.run_proc, exec_list)
 
 
+class Cleaner:
+    def __init__(self,indirs = ["./cloudy_output"], clean_in = False, clean_on_init = False):
+        self.indirs = indir
+        if not isinstance(self.indirs, list):
+            self.indirs = [self.indirs]
+        for indir in self.indirs:         
+            if Path(indir).exists == False:
+                sys.exit("Supplied path %s not found"%(indir))
+
+        if clean_on_init == 1:
+            self.clean_all_files()
+
+    def clean_all_files(self):
+        cwd = os.getcwd()
+        for indir in self.indirs:
+            os.chdir(indir)
+            if self.clean_in:
+                self.clean_files(".in")
+            self.clean_files(".out")
+            self.clean_files(".em")
+            self.clean_files(".grnopc")
+            self.clean_files(".opc")
+            self.clean_files(".mol")
+            os.chdir(cwd)
+    def clean_files(suffix, dir="./"):
+        for f in glob.glob("%s/*%s"%(dir, suffix)):
+            os.remove(f)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     
@@ -111,8 +140,13 @@ if __name__ == "__main__":
     parser.add_argument('--cloudy_path', metavar='Cloudy path', type=str, default=None, help="Define path to cloudy executable. Use environ 'CLOUDY_EXE' by default")
     parser.add_argument('--indirs', type=str, nargs='+', default=["./cloudy-output"], help='an integer for the accumulator')
     parser.add_argument('--log', action='store_true')
+    parser.add_argument('--clean', action='store_true')
     args = parser.parse_args()
     
+
+    if args.clean:
+        cleaner = Cleaner(indirs=args.indirs,clean_in=False, clean_on_init=True)
+        sys.exit(0)
     starttime = time.time()
     processor = processor_class(args)
     exec_list = processor.preproc(starttime)
