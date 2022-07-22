@@ -1,18 +1,32 @@
-from inspect import trace
 from sys import path
-from tkinter import W
 import numpy as np
 import matplotlib.pyplot as plt
-from astropy.io import fits
-from torch import full
+import matplotlib.colors as mcol
+import matplotlib.pyplot as plt
+import mhealpy as mhpix
+
 import yaml
 import cupy
 import cupyx
 import sys
 import h5py
-from gasspy.raystructures import global_ray_class
 import argparse
 import importlib.util
+
+from gasspy.raystructures import global_ray_class
+from gasspy.io import gasspy_io
+
+
+def add_norm(data, rgb_vals, zmin = None, zmax = None):
+    if zmin is None:
+        zmin = max(np.min(data), np.max(data)/1e5)
+    if zmax is None:
+        zmax = np.max(data)
+    norm = mcol.LogNorm(vmin = zmin, vmax = zmax)
+    rgb_map = np.zeros((data.shape[0],data.shape[1],3))
+    data = norm(data).data
+    rgb_map = data[:,:,np.newaxis]*rgb_vals
+    return rgb_map
 
 
 """
@@ -55,7 +69,7 @@ def arange_indexes(start, end):
     return i
 
 # Open up the YAML config
-with open(r"%s/gasspy_config.yaml"%simdir) as fil:
+with open(r"gasspy_config.yaml") as fil:
     gasspy_config = yaml.load(fil, Loader = yaml.FullLoader)
 ## Load the simulation data class from directory
 spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
@@ -106,6 +120,10 @@ for trace_file in trace_files:
     global_rays = global_ray_class()
     global_rays.load_hdf5(h5file)
 
+
+    trace_gasspy_config = {}
+    gasspy_io.read_gasspy_config_hdf5(trace_gasspy_config, h5file)
+
     # Figure out which rays are leaf rays (defines as those with no child split event)
     ileafs = cupy.where(global_rays.get_field("cevid") == -1)[0]
     leaf_rays = global_rays.get_subset(ileafs)
@@ -138,6 +156,7 @@ for trace_file in trace_files:
 
     # Previously everything has been in boxlen=1 units, so we need to scale that
     ray_pathlength  = h5file["ray_segments"]["pathlength"][:,:]*scalel
+    ray_ray_area =h5file["ray_segments"]["ray_area"][:,:]*scalel**2
 
     # Number of cells in a segment (eg the buffer size)
     NcellPerSeg = ray_amr_lrefine.shape[1]
@@ -158,7 +177,7 @@ for trace_file in trace_files:
 
     # bytes per ray segment
     # Number of fields + rayid + amr_lrefine + index1D
-    perSeg = (2* Nfields * np.float64(1).itemsize + ray_index1D.itemsize + ray_amr_lrefine.itemsize + ray_pathlength.itemsize)* NcellPerSeg
+    perSeg = (2* Nfields * np.float64(1).itemsize + ray_index1D.itemsize + ray_amr_lrefine.itemsize + ray_pathlength.itemsize + ray_ray_area.itemsize)* NcellPerSeg
 
     # Arrays to keep track of where things are
     ray_idx_in_gpu = cupy.full(global_rays.nrays, -1, dtype = int)
@@ -193,7 +212,7 @@ for trace_file in trace_files:
             child_rayid = splitEvents[parent_rays["cevid"].get(),1:].ravel().astype(int).get()
 
             # Duplicate all values by four and add to the cpu fields
-            ray_pseudofields_cpu[ray_idx_in_cpu[child_rayid],:] = parent_pseudofields.repeat(4, axis = 0)
+            ray_pseudofields_cpu[ray_idx_in_cpu[child_rayid],:] = parent_pseudofields.repeat(4, axis = 0)/4
 
         iray_start = 0
         while iray_start < nrays_at_lref:
@@ -219,6 +238,7 @@ for trace_file in trace_files:
             seg_amr_lrefine_at_ray_lref = ray_amr_lrefine[idx,:]
             seg_index1D_at_ray_lref = ray_index1D[idx,:]
             seg_pathlength_at_ray_lref = ray_pathlength[idx,:]
+            seg_ray_area_at_ray_lref = ray_ray_area[idx,:]
             seg_cell_index_at_ray_lref = ray_cell_index[idx,:]
             seg_global_rayid_at_ray_lref = ray_global_rayid[idx]
 
@@ -248,10 +268,12 @@ for trace_file in trace_files:
 
                 cell_index     = cupy.array(seg_cell_index_at_ray_lref[iseg_start:iseg_end, : ])
                 pathlength  = cupy.array(seg_pathlength_at_ray_lref[iseg_start:iseg_end,:])
+                ray_area    = cupy.array(seg_ray_area_at_ray_lref[iseg_start:iseg_end,:])
+
                 global_rayid = cupy.array(seg_global_rayid_at_ray_lref[iseg_start:iseg_end]) 
 
 
-                field = pathlength[:,:,cupy.newaxis] * cell_pseudo_fields[cell_index,:]
+                field = (pathlength*ray_area)[:,:,cupy.newaxis] * cell_pseudo_fields[cell_index,:]
 
                 if cupy.any(field < 0):
                     print("??????????") 
@@ -311,83 +333,89 @@ for trace_file in trace_files:
 
 
     print(np.min(leaf_ray_pseudofields, axis = 0), np.max(leaf_ray_pseudofields, axis = 0))
-
+    leaf_ray_pseudofields[leaf_ray_pseudofields <=0 ] = 1e-40
     dx_plot = 2**(-float(max_ray_lrefine))
     Nplot = int(2**max_ray_lrefine)
 
-    plot_dens = np.zeros((Nplot,Nplot))
-    plot_HII  = np.zeros((Nplot,Nplot))
-    plot_nrays = np.zeros((Nplot,Nplot))    
-    plot_lrefine = np.zeros((Nplot, Nplot))
-    for lref in range(min_ray_lrefine, max_ray_lrefine + 1):
-        dx_ray = 2**(-float(lref))
-        Ncell_per_ray = 4**(max_ray_lrefine - lref)
+    if trace_gasspy_config["observer_type"] == "healpix":
+        leaf_ray_lrefine = leaf_rays["ray_lrefine"].get().astype(int)
+        leaf_xp = leaf_rays["xp"].get().astype(int)
+        leaf_nsides = 2**(leaf_ray_lrefine - 1)
+        leaf_areas = mhpix.nside2pixarea(leaf_nsides)
+        leaf_uniqs = 4*leaf_nsides*leaf_nsides + leaf_xp
+        leaf_dens = np.log10(leaf_ray_pseudofields[index_in_leaf_arrays[leaf_rays["global_rayid"].get()],0]/leaf_areas)
+        leaf_HII = np.log10(leaf_ray_pseudofields[index_in_leaf_arrays[leaf_rays["global_rayid"].get()],1]/leaf_areas)
+        print(len(leaf_HII))
 
-        idx_at_lref = cupy.where(leaf_rays["ray_lrefine"] == lref)[0]
-        rays_at_lref = {}
-        for key in leaf_rays.keys():
-            rays_at_lref[key] = leaf_rays[key][idx_at_lref]
+        fig, (axes_dens, axes_HII) = plt.subplots(1,2, dpi = 400, subplot_kw = {'projection': 'mollview'})
 
-        xplot_min = ((rays_at_lref["xp"] - 0.5*dx_ray)/dx_plot).astype(int).get()
-        xplot_max = ((rays_at_lref["xp"] + 0.5*dx_ray)/dx_plot).astype(int).get()
-        yplot_min = ((rays_at_lref["yp"] - 0.5*dx_ray)/dx_plot).astype(int).get()
-        yplot_max = ((rays_at_lref["yp"] + 0.5*dx_ray)/dx_plot).astype(int).get()
+        dens_hmap = mhpix.HealpixMap(leaf_dens, leaf_uniqs, density = True)
+        HII_hmap = mhpix.HealpixMap(leaf_HII, leaf_uniqs, density = True)
+        
+        dens_hmap.plot(axes_dens, cmap = "BuPu_r", vmin = np.max(leaf_dens)-4)
+        HII_hmap.plot(axes_HII, cmap = "BuPu_r", vmin = np.max(leaf_HII)-4)
+        axes_dens.set_title(r"$n_\mathrm{HI}$ [atoms/sr]")
+        axes_HII.set_title(r"$n_\mathrm{HII}$ [atoms/sr]")
 
-        # get indexes in plot
-        dens = leaf_ray_pseudofields[index_in_leaf_arrays[rays_at_lref["global_rayid"].get()],0]
-        HII = leaf_ray_pseudofields[index_in_leaf_arrays[rays_at_lref["global_rayid"].get()],1]
-        #dens = np.sum(leaf_ray_emissivity[index_in_leaf_arrays[rays_at_lref["global_rayid"].values.get()],:], axis = 1)
+        plt.show()
+        pass
+    else:
+        plot_dens = np.zeros((Nplot,Nplot))
+        plot_HII  = np.zeros((Nplot,Nplot))
+        plot_nrays = np.zeros((Nplot,Nplot))    
+        plot_lrefine = np.zeros((Nplot, Nplot))
+        for lref in range(min_ray_lrefine, max_ray_lrefine + 1):
+            dx_ray = 2**(-float(lref))
+            Ncell_per_ray = 4**(max_ray_lrefine - lref)
 
-        for iray in range(len(xplot_min)):
-            plot_dens[xplot_min[iray]:xplot_max[iray], yplot_min[iray]:yplot_max[iray]] += dens[iray]
-            plot_HII[xplot_min[iray]:xplot_max[iray], yplot_min[iray]:yplot_max[iray]] += HII[iray]
-            plot_nrays[xplot_min[iray]:xplot_max[iray], yplot_min[iray]:yplot_max[iray]] += 1
-            plot_lrefine[xplot_min[iray]:xplot_max[iray], yplot_min[iray]:yplot_max[iray]] = lref
+            idx_at_lref = cupy.where(leaf_rays["ray_lrefine"] == lref)[0]
+            rays_at_lref = {}
+            for key in leaf_rays.keys():
+                rays_at_lref[key] = leaf_rays[key][idx_at_lref]
 
+            xplot_min = ((rays_at_lref["xp"] - 0.5*dx_ray)/dx_plot).astype(int).get()
+            xplot_max = ((rays_at_lref["xp"] + 0.5*dx_ray)/dx_plot).astype(int).get()
+            yplot_min = ((rays_at_lref["yp"] - 0.5*dx_ray)/dx_plot).astype(int).get()
+            yplot_max = ((rays_at_lref["yp"] + 0.5*dx_ray)/dx_plot).astype(int).get()
 
-    mask = plot_nrays > 1
-    plot_dens[mask] = plot_dens[mask]/plot_nrays[mask]
-    plot_HII[mask]  = plot_HII[mask]/plot_nrays[mask]
-    del(plot_nrays)
-    #del(leaf_ray_pseudofields)
-    pathdir = "/home/loki/Runs/spectra_test/"
+            # get indexes in plot
+            dens = leaf_ray_pseudofields[index_in_leaf_arrays[rays_at_lref["global_rayid"].get()],0]
+            HII = leaf_ray_pseudofields[index_in_leaf_arrays[rays_at_lref["global_rayid"].get()],1]
+            #dens = np.sum(leaf_ray_emissivity[index_in_leaf_arrays[rays_at_lref["global_rayid"].values.get()],:], axis = 1)
 
-    import matplotlib as mpl
-    import matplotlib.colors as mcol
-    import matplotlib.pyplot as plt
-    import matplotlib.gridspec as gridspec
-
-    def add_norm(data, rgb_vals, zmin = None, zmax = None):
-        if zmin is None:
-            zmin = max(np.min(data), np.max(data)/1e5)
-        if zmax is None:
-            zmax = np.max(data)
-
-        norm = mcol.LogNorm(vmin = zmin, vmax = zmax)
-        rgb_map = np.zeros((data.shape[0],data.shape[1],3))
-        data = norm(data).data
-        rgb_map = data[:,:,np.newaxis]*rgb_vals
-        return rgb_map
+            for iray in range(len(xplot_min)):
+                plot_dens[xplot_min[iray]:xplot_max[iray], yplot_min[iray]:yplot_max[iray]] += dens[iray]
+                plot_HII[xplot_min[iray]:xplot_max[iray], yplot_min[iray]:yplot_max[iray]] += HII[iray]
+                plot_nrays[xplot_min[iray]:xplot_max[iray], yplot_min[iray]:yplot_max[iray]] += 1
+                plot_lrefine[xplot_min[iray]:xplot_max[iray], yplot_min[iray]:yplot_max[iray]] = lref
 
 
-    print(np.min(plot_dens), np.max(plot_dens))
-    rgb_map = add_norm(plot_dens, np.array([0.55,0.25,0.75]))
-    rgb_map += add_norm(plot_HII, np.array([0.8,0.8,0.15]))
-    rgb_map[rgb_map >= 1] = 1
-    rgb_map[rgb_map <= 0] = 0
-    rgb_map  = rgb_map.transpose(1,0,2)
-    plot_dens = plot_dens.transpose()
-    del(plot_HII)
+        mask = plot_nrays > 1
+        plot_dens[mask] = plot_dens[mask]/plot_nrays[mask]
+        plot_HII[mask]  = plot_HII[mask]/plot_nrays[mask]
+        del(plot_nrays)
+        #del(leaf_ray_pseudofields)
+        pathdir = "/home/loki/Runs/spectra_test/"
 
-    figsize = (14,6)
-    fig, ax = plt.subplots(nrows= 1, ncols = 2, sharex = True, sharey = True, figsize = figsize)
-    ax[0].imshow(rgb_map, origin = "lower", extent = [0,1,0,1])
-    ax[1].imshow(plot_lrefine.T, origin = "lower", extent = [0,1,0,1])
-    plotfile = trace_file[:-11]+ "_plot.png"
-    plt.savefig(plotfile)
-    plt.show()
-    del(rgb_map)
-    plt.cla()
-    plt.clf()
-    plt.close("all")
-    plt.close(fig)
+
+        print(np.min(plot_dens), np.max(plot_dens))
+        rgb_map = add_norm(plot_dens, np.array([0.55,0.25,0.75]))
+        rgb_map += add_norm(plot_HII, np.array([0.8,0.8,0.15]))
+        rgb_map[rgb_map >= 1] = 1
+        rgb_map[rgb_map <= 0] = 0
+        rgb_map  = rgb_map.transpose(1,0,2)
+        plot_dens = plot_dens.transpose()
+        del(plot_HII)
+
+        figsize = (14,6)
+        fig, ax = plt.subplots(nrows= 1, ncols = 2, sharex = True, sharey = True, figsize = figsize)
+        ax[0].imshow(rgb_map, origin = "lower", extent = [0,1,0,1])
+        ax[1].imshow(plot_lrefine.T, origin = "lower", extent = [0,1,0,1])
+        plotfile = trace_file[:-11]+ "_plot.png"
+        plt.savefig(plotfile)
+        plt.show()
+        del(rgb_map)
+        plt.cla()
+        plt.clf()
+        plt.close("all")
+        plt.close(fig)
