@@ -76,6 +76,19 @@ cloudy_ini : "/path/to/GASSPY/gasspy/physics/sourcefunction_database/cloudy/init
 # Raytracer  parameters
 ##########################
 
+# The resolving power of the cells by the rays.
+# defined such that ray projecter area <= ray_max_area_frac * dx_cell^2
+ray_max_area_frac : 0.25
+
+# Minimum and maximum ray refinement levels
+ray_lrefine_min : 5
+ray_lrefine_max : 13
+
+observer_type : "plane"
+
+###
+# Plane observer settings
+###
 # Size of detector in units of boxsize
 detector_size_x : 1
 detector_size_y : 1
@@ -84,10 +97,13 @@ detector_size_y : 1
 Nxp : 512
 Nyp : 512
 
-# The resolving power of the cells by the rays.
-# defined such that ray projecter area <= ray_max_area_frac * dx_cell^2
-ray_max_area_frac : 0.25
+###
+# Healpix observer 
+###
 
+# Range of pixels to use at minimum refinement level. ONLY UNCOMMENT IF YOU WANT TO SELECT
+# min_pix_lmin = 
+# max_pix_lmin = 
 
 #########################
 # Radiative transfer parameters
