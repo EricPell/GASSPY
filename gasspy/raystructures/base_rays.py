@@ -169,7 +169,6 @@ class base_ray_class:
             if self.on_cpu:
                 grp.create_dataset(field, self.nrays, dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays])
             else:
-                print(field, self.__dict__[field].shape, self.__dict__[field][:self.nrays].get().shape, (self.nrays,))
                 grp.create_dataset(field, (self.nrays,), dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays].get())
 
     def load_hdf5(self, h5file):
