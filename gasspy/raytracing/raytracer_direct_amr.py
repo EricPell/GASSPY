@@ -8,7 +8,7 @@ from gasspy.raystructures import active_ray_class, traced_ray_class
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
 from gasspy.raytracing.utils.cuda_kernels import raytrace_low_mem_code_string, get_index1D_code_string
 from gasspy.shared_utils.functions import sorted_in1d
-
+from gasspy.io import gasspy_io
 
 class raytracer_class:
     def __init__(self, sim_reader, gasspy_config, obs_plane = None, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 20, NcellBuff  = 64, raster=1, no_ray_splitting = False):
@@ -39,7 +39,8 @@ class raytracer_class:
         #   refinement_level : 8 bit int
         #   cell_index       : 64b bit int to describe highly sims with some safety index
         #   path_length      : 64b or... 8 bit in log if someone wants to sacrifies a flop for a lot of memory
-        oneRayCell = 208
+        #   ray_area         : 64b float
+        oneRayCell = 272
 
         # Use this to determine the number of buffer cells we can afford for a given total memory and number of buffered rays.
         self.NcellBuff = NcellBuff
@@ -51,6 +52,11 @@ class raytracer_class:
 
         self.no_ray_splitting = no_ray_splitting
 
+
+        if "ray_lrefine_max" in gasspy_config:
+            self.ray_lrefine_max = gasspy_config["ray_lrefine_max"]
+        else:
+            self.ray_lrefine_max = ray_defaults["ray_lrefine_max"]
     """
         Externally used methods    
     """
@@ -99,6 +105,7 @@ class raytracer_class:
         self.index1D_pipe.finalize()
         self.cell_index_pipe.finalize()
         self.pathlength_pipe.finalize()
+        self.ray_area_pipe.finalize()
 
 
         # Tell the traced rays object that the trace is done, such that it can trim the data and move it out of pinned memory
@@ -114,6 +121,9 @@ class raytracer_class:
         self.traced_rays.save_hdf5(h5file)
         # Save the global_rays
         self.global_rays.save_hdf5(h5file)
+        
+        # Save the gasspy config
+        gasspy_io.save_gasspy_config_hdf5(self.gasspy_config, h5file)
 
         # close the file
         h5file.close()
@@ -173,6 +183,9 @@ class raytracer_class:
 
         # save reference to sim_data
         self.sim_reader = sim_reader 
+
+        #Save a local GASSPY config
+        self.gasspy_config = gasspy_config
 
     def set_obsplane(self, obs_plane):
         """
@@ -295,18 +308,20 @@ class raytracer_class:
         # Returned indexes of where by default will have ... a type that probably is int64, but could change.
         # To ensure that the type uses no more memory than necessary we convert it to the desired buffer_slot_index_type
         new_rays_fields["active_rayDF_to_buffer_map"] = available_buffer_slot_index.astype(ray_dtypes["active_rayDF_to_buffer_map"])
-        
+
+
+
+
         # Set the current area of the rays
         # given the observer plane, we might have different ways of setting the area of a ray
         # so we set this as a function of the observer plane
+        self.obs_plane.set_ray_area(self.active_rays)
 
         # Set occupation status of the buffer
         self.buff_slot_occupied[available_buffer_slot_index] = 1
         
         # Send the arrays to the active_ray data structure
         indexes = self.active_rays.activate_rays(N, fields = new_rays_fields)
-
-        self.obs_plane.set_ray_area(self.active_rays)
 
         # Include the global_rayid of the buffer slot
         #rayids = cupy.array(newRays["global_rayid"].values)
@@ -318,6 +333,8 @@ class raytracer_class:
         # update the last added ray
         self.global_index_of_last_ray_added+=N
 
+        return
+        
 
     def dump_buff(self, active_rays_indexes_todump, full = False):
         ## Gather the data from the active_rays that is to be piped to system memory
@@ -342,6 +359,7 @@ class raytracer_class:
         tmp_index1D     = self.buff_index1D[indexes_in_buffer,:]
         tmp_cell_index  = self.buff_cell_index[indexes_in_buffer,:]
         tmp_amr_lrefine = self.buff_amr_lrefine[indexes_in_buffer,:]
+        tmp_ray_area    = self.buff_ray_area[indexes_in_buffer,:]
 
         # Dump into the raytrace data into the pipelines which then will put it on host memory
         #self.global_rayid_pipe.push(tmp_global_rayid)
@@ -349,11 +367,15 @@ class raytracer_class:
         self.index1D_pipe.push(tmp_index1D)
         self.amr_lrefine_pipe.push(tmp_amr_lrefine)
         self.cell_index_pipe.push(tmp_cell_index)
+        self.ray_area_pipe.push(tmp_ray_area)
+
 
         # reset the buffers 
         self.buff_index1D[indexes_in_buffer, :]     = ray_defaults["index1D"]
         self.buff_pathlength[indexes_in_buffer, :]  = ray_defaults["pathlength"]
         self.buff_amr_lrefine[indexes_in_buffer, :] = ray_defaults["amr_lrefine"]
+        self.buff_ray_area[indexes_in_buffer, :]    = ray_defaults["ray_area"]
+
         self.buff_cell_index[indexes_in_buffer,:]   = ray_defaults["cell_index"]
 
         #TODO: Change the raystatus flag to a bitmask (https://www.sdss.org/dr12/algorithms/bitmasks/) so that we can know both if a ray buffer is filled AND terminated due to boundary or refined, terminated for any reason while it's buffer is full
@@ -433,8 +455,8 @@ class raytracer_class:
             pathlength[:] = 1e30
             # find the pathlength to the points where the rays intersect the plane
             pathlength[~nohit] = cupy.abs(((p0[0] - xi[~nohit]) * nplane[0] + 
-                                          (p0[1] - yi[~nohit]) * nplane[1] + 
-                                          (p0[2] - zi[~nohit]) * nplane[2])/align[~nohit])
+                                           (p0[1] - yi[~nohit]) * nplane[1] + 
+                                           (p0[2] - zi[~nohit]) * nplane[2])/align[~nohit])
             
             if cupy.sum(~cupy.isinf(pathlength)) == 0:
                 print( "no intersect found with plane with non parallell normal vector", plane, align )
@@ -465,10 +487,9 @@ class raytracer_class:
         # Identify rays which start outside of the box, and move their position to the box edge, with a buffer for floating point rounding errors.
         # This is for Loke to remember how "where" works: move rays outside of box. cudf where replaces where false     
 
-        for i, ix in enumerate(["x", "y", "z"]):
-            self.global_rays.set_field(ix+"i", self.global_rays.get_field(ix+"i", index  = idx_outside) + self.global_rays.get_field("raydir_"+ix, index = idx_outside) * (min_pathlength + 0.001*cupy.sign(min_pathlength)), index = idx_outside) # some padding to ensure cell boundarys are crossed
-
-        #delete unused vairable
+        if len(idx_outside[0]) > 0:
+            for i, ix in enumerate(["x", "y", "z"]):
+                self.global_rays.set_field(ix+"i", self.global_rays.get_field(ix+"i", index  = idx_outside) + self.global_rays.get_field("raydir_"+ix, index = idx_outside) * (min_pathlength[idx_outside] + 0.001*cupy.sign(min_pathlength[idx_outside])), index = idx_outside) # some padding to ensure cell boundarys are crossed
         del(tmp_xi)
         del(tmp_yi)
         del(tmp_zi)
@@ -490,7 +511,9 @@ class raytracer_class:
             "buff_index1D":       ray_dtypes["index1D"],
             "buff_amr_lrefine":   ray_dtypes["amr_lrefine"],
             "buff_pathlength":    ray_dtypes["pathlength"],
-            "buff_cell_index":    ray_dtypes["index1D"]
+            "buff_cell_index":    ray_dtypes["index1D"],
+            "buff_ray_area":      ray_dtypes["ray_area"]
+
         }
 
         # Array to store the occupancy, and inversly the availablity of a buffer
@@ -506,6 +529,7 @@ class raytracer_class:
         self.buff_cell_index = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_cell_index"])
         self.buff_pathlength = cupy.zeros((self.NrayBuff, self.NcellBuff), dtype=dtype_dict["buff_pathlength"])
         self.buff_amr_lrefine = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_amr_lrefine"])
+        self.buff_ray_area = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_ray_area"])
 
         #TODO The following is a total crap shoot. It's a guess for the typical number of times a ray dumpts it's temp buffer while tracing]
         self.guess_ray_dumps = 30
@@ -513,7 +537,7 @@ class raytracer_class:
 
         # LOKE CODING: I HAVE NO IDEA OF WHERE WE WANT TO PUT THIS THING....
         # initialize the traced_rays object which stores the trace data on the cpu
-        self.traced_rays = traced_ray_class(self.NraySegs, self.NcellBuff, ["pathlength", "index1D","amr_lrefine", "cell_index"])
+        self.traced_rays = traced_ray_class(self.NraySegs, self.NcellBuff, ["pathlength", "index1D","amr_lrefine", "cell_index", "ray_area"])
 
         # create gpu2cache pipeline objects
         # Instead of calling the internal dtype dictionary, explicitly call the global_ray_dtype to ensure a match.  
@@ -522,6 +546,8 @@ class raytracer_class:
         self.index1D_pipe      = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["index1D"],self.NcellBuff, "index1D", self.traced_rays)
         self.cell_index_pipe   = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["cell_index"],self.NcellBuff, "cell_index", self.traced_rays)
         self.amr_lrefine_pipe  = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["amr_lrefine"],self.NcellBuff, "amr_lrefine", self.traced_rays)
+        self.ray_area_pipe     = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["ray_area"],self.NcellBuff, "ray_area", self.traced_rays)
+
         pass
 
     def check_amr_level(self, index = None):
@@ -657,7 +683,8 @@ class raytracer_class:
         #print(self.active_rays.get_field("ray_area"))
         # check where the area covered by the ray is larger than some fraction of its cell
         unresolved = self.active_rays.get_field("ray_area") > self.ray_max_area_frac * self.cell_smallest_area[self.active_rays.get_field("amr_lrefine") - self.amr_lrefine_min]
-        self.active_rays.set_field("ray_status", 3, index = cupy.where(unresolved)[0])
+        self.active_rays.set_field("ray_status", 3, index = cupy.where(unresolved*(self.active_rays.get_field("ray_lrefine")<self.ray_lrefine_max)*(self.active_rays.get_field("ray_status") != 2))[0])
+
         pass
 
     def create_child_rays(self, parent_rays, peid, children_global_rayid, parent_aid):
@@ -777,7 +804,10 @@ class raytracer_class:
                                             self.Nmax_lref,
                                             ray_dtypes["amr_lrefine"](self.amr_lrefine_min),
                                             ray_dtypes["global_rayid"](self.active_rays.nactive)))
-    
+                                            
+        # Update area to be half way point through cell before saving to buffers
+        self.obs_plane.update_ray_area(self.active_rays, back_half = True)
+
         ##self.active_rays.print(cupy.arange(10))
         #if cupy.isin(cupy.array([debug_ray]), self.active_rays.get_field("global_rayid")):
         #    idx = cupy.where(self.active_rays.get_field("global_rayid") == debug_ray)[0]
@@ -790,6 +820,7 @@ class raytracer_class:
         self.buff_index1D    [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("index1D")
         self.buff_pathlength [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("pathlength")
         self.buff_amr_lrefine[self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("amr_lrefine")
+        self.buff_ray_area   [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("ray_area")
         self.buff_cell_index [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.find_cell_index(self.active_rays.get_field("amr_lrefine"), self.active_rays.get_field("index1D"))
         
         self.active_rays.field_add("buffer_current_step", 1)
@@ -811,7 +842,7 @@ class raytracer_class:
         pass
     def reset_buffer(self):
         # set the buffered fields to their default values and tell their pipes to reset
-        for field in ["index1D", "pathlength", "amr_lrefine", "cell_index"]:
+        for field in ["index1D", "pathlength", "amr_lrefine", "cell_index", "ray_area"]:
             self.__dict__["buff_"+field][:,:] = ray_dtypes[field](ray_defaults[field]) 
             self.__dict__[field+"_pipe"].reset()
         
