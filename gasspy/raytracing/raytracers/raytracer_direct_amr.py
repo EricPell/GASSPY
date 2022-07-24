@@ -335,7 +335,6 @@ class raytracer_class:
 
         return
         
-
     def dump_buff(self, active_rays_indexes_todump, full = False):
         ## Gather the data from the active_rays that is to be piped to system memory
         # Check if there are any rays to dump (filled or terminated)
