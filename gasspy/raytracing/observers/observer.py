@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import cupy
+import sys
 
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
 from gasspy.raystructures.global_rays import global_ray_class
@@ -17,14 +18,14 @@ class observer_plane_class:
         elif "Nxp" in config_yaml.keys():
             self.Nxp = config_yaml["Nxp"]
         else:
-            self.Nxp = 2**config_yaml["amr_lrefine_min"]
+            self.Nxp = 2**config_yaml["ray_lrefine_min"]
 
         if Nyp is not None:
             self.Nyp = Nyp
         elif "Nyp" in config_yaml.keys():
             self.Nyp = config_yaml["Nyp"]
         else:
-            self.Nyp = 2**config_yaml["amr_lrefine_min"]
+            self.Nyp = 2**config_yaml["ray_lrefine_min"]
 
         if detector_size_x is not None:
             self.detector_size_x = detector_size_x
@@ -40,7 +41,7 @@ class observer_plane_class:
         else:
             self.detector_size_y = 1
 
-
+        print(self.Nxp, self.Nyp)
         # This is immutable. Never shall xps and yps change. They are pixel indicies for a detector
         if planeDefinitionMethod is None :
             self.xps = (cupy.arange(0, self.Nxp) + 0.5)*self.detector_size_x/self.Nxp
@@ -90,6 +91,7 @@ class observer_plane_class:
 
         self.rotation_matrix = cupy.array(R.from_rotvec(np.array([self.pitch, self.yaw, self.roll])*np.pi/180).as_matrix())
         self.ray_area = self.detector_size_y*self.detector_size_x*4**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
+
         self.dxs = self.detector_size_x*2**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
         self.dys = self.detector_size_y*2**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
 
@@ -238,15 +240,14 @@ class observer_plane_class:
 
         return
 
-    def set_ray_area(self, ray_struct):
+    def set_ray_area(self, ray_struct, back_half = False):
         """
             Sets the local area of the rays solid angle 
         """
         # In the case of parallel rays this is constant for a given ray refinement level
         ray_struct.set_field("ray_area", self.ray_area[ray_struct.get_field("ray_lrefine") - ray_defaults["ray_lrefine_min"]])
-        
         return
-    def update_ray_area(self, rayDF):
+    def update_ray_area(self, ray_struct, back_half = False):
         """
             In the case of changing area (non paralell rays)
             have a method to update
