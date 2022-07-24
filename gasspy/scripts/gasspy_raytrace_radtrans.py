@@ -1,5 +1,5 @@
 """
-    Author: Loke Ohlin 
+    Author: Loke Ohlin & Eric Pellegrini
     Date: 05-2022
     Purpose: wrapper script to build, run and collect the database in one call rather than 3
     Usage: Fire and forget: call using arguments to describe the wanted directory structure. 
@@ -10,21 +10,18 @@
         3) Make the spectra_mesh window definition into a separate class/function. allow user to supply their own
 """
 
-import time
 import os
-import sys, pathlib
+import sys
 import numpy as np
 import cupy
 import torch
 
-from astropy.io import fits
-import yaml
 import argparse
 import importlib.util
 
 
-from gasspy.raytracing.raytracer_direct_amr import raytracer_class
-from gasspy.raytracing.observers import observer_plane_class
+from gasspy.raytracing.raytracers import Raytracer_AMR
+from gasspy.raytracing.observers import observer_plane_class, observer_healpix_class
 from gasspy.radtransfer.__rt_branch__ import FamilyTree
 from gasspy.io import gasspy_io
 
@@ -39,6 +36,7 @@ ap.add_argument("--sim_prefix", default = None, help="prefix to put before all s
 ap.add_argument("--trace_file", default = None, help="name of trace file. If it does not exist we need to recreate it")
 #-------------Run parameters-----------#
 ap.add_argument("--rerun_raytrace", action="store_true", help = "Force rerun of raytrace even if the trace file already exists")
+ap.add_argument("--liteVRAM", action="store_true", help = "Force rerun of raytrace even if the trace file already exists")
 
 #############################################
 # I) Initialization of the script
@@ -107,10 +105,13 @@ else:
 if not os.path.exists(trace_file) or args.rerun_raytrace:
     print("Raytracing")
     ## Define the observer class   
-    observer = observer_plane_class(gasspy_config)
+    if "observer_type" in gasspy_config.keys() and gasspy_config["observer_type"] == "healpix":
+        observer = observer_healpix_class(gasspy_config)
+    else:
+        observer = observer_plane_class(gasspy_config)
 
     ## Initialize the raytracer
-    raytracer = raytracer_class(sim_reader, gasspy_config, bufferSizeCPU_GB = max_mem_CPU, bufferSizeGPU_GB = max_mem_GPU)
+    raytracer = Raytracer_AMR(sim_reader, gasspy_config, bufferSizeCPU_GB = max_mem_CPU, bufferSizeGPU_GB = max_mem_GPU)
 
     ## set observer
     raytracer.update_obsplane(obs_plane = observer)
@@ -139,8 +140,9 @@ pinned_mempool = cupy.get_default_pinned_memory_pool()
 cuda_device = torch.device('cuda:0')
 Elims = None
 if "Elims" in gasspy_config.keys():
-    Elims = np.array(gasspy_config["Elims"])
+    Elims = np.array(gasspy_config["Elims"]).astype(float)
 
+print("Radiative transfer")
 mytree = FamilyTree(
     root_dir="./",
     gasspy_subdir=args.gasspydir,
@@ -149,21 +151,23 @@ mytree = FamilyTree(
     energy=args.modeldir + "/gasspy_ebins.pkl.npy",
     energy_lims=Elims,
     em=args.modeldir + "/gasspy_avg_em.pkl.npy",
-    op=args.modeldir + "/gasspy_grn_opc.pkl.npy",
+    op=args.modeldir + "/gasspy_tot_opc.pkl.npy",
     cell_index_to_gasspydb = args.gasspydir + "/cell_data/" + sim_prefix+"cell_gasspy_index.npy",
-    vel=sim_reader.get_field("vz"),
+    vel=sim_reader.get_field("velocity"),
     den=sim_reader.get_number_density(),
     massden = False,
-    opc_per_NH=True,
+    opc_per_NH=False,
     mu=1.1,
     accel="torch",
-    liteVRAM=False,
+    liteVRAM=args.liteVRAM,
     Nraster=4,
     spec_save_name=sim_prefix + "spec.hdf5",
     dtype=np.float32,
     spec_save_type='hdf5',
-    cuda_device=cuda_device
+    cuda_device=cuda_device,
+    doppler_shift= False
 )
-
+print(" - Loading files")
 mytree.load_all()
+print(" - Processing rays")
 mytree.process_all()
