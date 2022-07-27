@@ -145,13 +145,12 @@ if "Elims" in gasspy_config.keys():
 print("Radiative transfer")
 mytree = FamilyTree(
     root_dir="./",
+    modeldir = args.modeldir,
     gasspy_subdir=args.gasspydir,
     config_yaml=gasspy_config,
     traced_rays=trace_file,
-    energy=args.modeldir + "/gasspy_ebins.pkl.npy",
     energy_lims=Elims,
-    em=args.modeldir + "/gasspy_avg_em.pkl.npy",
-    op=args.modeldir + "/gasspy_tot_opc.pkl.npy",
+    h5database=args.modeldir + "/gasspy_database.hdf5",
     cell_index_to_gasspydb = args.gasspydir + "/cell_data/" + sim_prefix+"cell_gasspy_index.npy",
     vel=sim_reader.get_field("velocity"),
     den=sim_reader.get_number_density(),
@@ -164,8 +163,7 @@ mytree = FamilyTree(
     spec_save_name=sim_prefix + "spec.hdf5",
     dtype=np.float32,
     spec_save_type='hdf5',
-    cuda_device=cuda_device,
-    doppler_shift= False
+    cuda_device=cuda_device
 )
 print(" - Loading files")
 mytree.load_all()
