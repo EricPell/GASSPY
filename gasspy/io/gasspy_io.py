@@ -46,12 +46,18 @@ def read_gasspy_config(gasspy_config_file):
 def save_value_to_group(key, val, grp):
     # If the entry is a dict, then create a sub group and save entries of the sub dictionary into the sub group
     if isinstance(val, dict):
-        sub_grp = grp.create_group(key)
+        if key in grp.keys():
+            sub_grp = grp[key]
+            assert isinstance(sub_grp, hp.Group), "Trying to save %s as a group, but the h5instance already contains %s as a dataset"%(key,key)
+        else:
+            sub_grp = grp.create_group(key)
         for sub_key in val.keys():
             save_value_to_group(sub_key, val[sub_key], sub_grp)
 
     # Otherwise save them as datasets
     else:
+        if key in grp.keys():
+            del grp[key]
         grp[key] = val
     return
 
@@ -81,6 +87,24 @@ def read_value_to_dict(key, dict, grp):
     else:
         print("key %s in group %s is neither a group or dataset. Ignoring"%(key, grp.name)) 
     return
+
+
+def save_dict_hdf5(name, dict, h5id):
+    #open the group
+    if name not in h5id.keys():
+        grp = h5id.create_group(name)
+    else:
+        grp = h5id[name]
+    # Loop through all entries in the dict and save them to the group
+    for key in dict.keys():
+        save_value_to_group(key, dict[key], grp)
+
+def read_dict_hdf5(name, dict, h5id):
+    #Open the group
+    grp = h5id[name]
+    # Loop through all entries in the group and add them to the dict
+    for key in grp.keys():
+        read_value_to_dict(key, dict, grp)
 
 def save_gasspy_config_hdf5(gasspy_config, h5file):
     """
