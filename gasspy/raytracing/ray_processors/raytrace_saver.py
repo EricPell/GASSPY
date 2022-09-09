@@ -21,7 +21,6 @@ class Raytrace_saver:
         # create gpu2cache pipeline objects
         # Instead of calling the internal dtype dictionary, explicitly call the global_ray_dtype to ensure a match.  
         self.pathlength_pipe   = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["pathlength"], self.NcellBuff, "pathlength", self.traced_rays)
-        self.index1D_pipe      = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["index1D"],self.NcellBuff, "index1D", self.traced_rays)
         self.cell_index_pipe   = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["cell_index"],self.NcellBuff, "cell_index", self.traced_rays)
         self.amr_lrefine_pipe  = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["amr_lrefine"],self.NcellBuff, "amr_lrefine", self.traced_rays)
         self.ray_area_pipe     = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["ray_area"],self.NcellBuff, "ray_area", self.traced_rays)
@@ -48,7 +47,6 @@ class Raytrace_saver:
 
         # Extract pathlength and cell 1Dindex from buffer
         tmp_pathlength  = self.raytracer.buff_pathlength[indexes_in_buffer,:]
-        tmp_index1D     = self.raytracer.buff_index1D[indexes_in_buffer,:]
         tmp_cell_index  = self.raytracer.buff_cell_index[indexes_in_buffer,:]
         tmp_amr_lrefine = self.raytracer.buff_amr_lrefine[indexes_in_buffer,:]
         tmp_ray_area    = self.raytracer.buff_ray_area[indexes_in_buffer,:]
@@ -56,15 +54,26 @@ class Raytrace_saver:
         # Dump into the raytrace data into the pipelines which then will put it on host memory
         #self.global_rayid_pipe.push(tmp_global_rayid)
         self.pathlength_pipe.push(tmp_pathlength)
-        self.index1D_pipe.push(tmp_index1D)
         self.amr_lrefine_pipe.push(tmp_amr_lrefine)
         self.cell_index_pipe.push(tmp_cell_index)
         self.ray_area_pipe.push(tmp_ray_area)
         pass
 
+    def init_global_ray_fields(self):
+        return
+    def update_global_ray_fields(self):
+        return
+
+    def init_active_ray_fields(self):
+        return
+    def update_active_ray_fields(self):
+        return
+
+    def create_child_fields(self, child_rays, parent_rays):
+        # This processor does not need this 
+        return 
     def finalize(self):
         self.amr_lrefine_pipe.finalize()
-        self.index1D_pipe.finalize()
         self.cell_index_pipe.finalize()
         self.pathlength_pipe.finalize()
         self.ray_area_pipe.finalize()
