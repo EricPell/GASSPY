@@ -60,7 +60,7 @@ void __raytrace_kernel__('''+argument_string+'''){{
             index1D[tid] = next_index1D[tid];
         }} else {{
             index1D[tid] = -1;
-            pathlength[tid] = -1;
+            pathlength[tid] = 0;
                 
             // Ray status 2 is domain exit
             ray_status[tid] = 2;

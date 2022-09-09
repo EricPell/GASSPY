@@ -46,6 +46,17 @@ void __get_index1D__('''+argument_string+'''){{
         iy = yi[tid]/dy;
         iz = zi[tid]/dz;
 
+        // If we are at the uppermost interface, we could still technically be in the uppermost cell
+        if( fabs(ix - ('''+dx_type+''')Nmax) < 1e-14){{
+            ix = ('''+dx_type+''')Nmax -0.5;
+        }}
+        if( fabs(iy - ('''+dx_type+''')Nmax) < 1e-14){{
+            iy = ('''+dx_type+''')Nmax -0.5;
+        }}
+        if( fabs(iz - ('''+dx_type+''')Nmax) < 1e-14){{
+            iz = ('''+dx_type+''')Nmax -0.5;
+        }}
+
         index1D[tid] = ('''+index1D_type+''')iz + Nmax*('''+index1D_type+''')iy + Nmax*Nmax*('''+index1D_type+''')ix;
     }}
 }}
