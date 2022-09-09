@@ -10,7 +10,14 @@ It requires all the lineage information, and the current postion and direction o
 
 
 class global_ray_class(base_ray_class):
-    contained_fields = [
+
+    
+    class_name = "global_rays"
+
+    def __init__(self, nalloc = None, on_cpu = False, contained_fields = None):
+        self.not_allocated = True
+        self.nrays = 0
+        self.contained_fields = [
             "xp", "yp", 
             "xi", "yi", "zi",
             "raydir_x", "raydir_y", "raydir_z",
@@ -21,14 +28,9 @@ class global_ray_class(base_ray_class):
             "cevid",      
             "aid",
             "ray_lrefine",
-            "amr_lrefine"
+            "amr_lrefine",
+            "cell_index"
         ]
-    class_name = "global_rays"
-
-    def __init__(self, nalloc = None, on_cpu = False, contained_fields = None):
-        self.not_allocated = True
-        self.nrays = 0
-
         self.on_cpu = on_cpu
         if self.on_cpu:
             self.numlib = numpy
@@ -39,14 +41,16 @@ class global_ray_class(base_ray_class):
             if "global_rayid" not in contained_fields:
                 contained_fields.append("global_rayid")
             self.contained_fields = contained_fields
-        
+        for field in self.contained_fields:
+            self.field_dtypes[field] = ray_dtypes[field]
+            self.field_defaults[field] = ray_defaults[field]
         if nalloc is not None:
             self.allocate_rays(nalloc)
         else:
             self.nalloc = 0
         return
 
-    def append(self, nrays, fields = None, over_alloc_factor = 4):
+    def append(self, nrays, fields = None, over_alloc_factor = 1.2):
         """
             Appends a set of rays to the global_ray structure
             arguments:
@@ -59,7 +63,7 @@ class global_ray_class(base_ray_class):
 
         # If the new number of rays exceed the allocated ones, allocate more
         if nrays + self.nrays > self.nalloc:
-            self.allocate_rays(nrays*over_alloc_factor)
+            self.allocate_rays(int(nrays*over_alloc_factor))
 
         # Determine the global_rayids
         new_global_rayid = self.numlib.arange(self.nrays, self.nrays + nrays, dtype=ray_dtypes["global_rayid"])

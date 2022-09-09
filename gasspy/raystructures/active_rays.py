@@ -2,6 +2,8 @@
 import cupy
 from .base_rays import base_ray_class
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
+from gasspy.shared_utils.functions import sorted_in1d
+
 """
 This class contains arrays relevant to active rays
 eg rays that are currently being raytraced.
@@ -13,7 +15,14 @@ NOTE: This class always works on the set of active rays, which may or may not be
 
 
 class active_ray_class(base_ray_class):
-    contained_fields = [
+
+    field_dtypes = {}
+    field_defaults = {}
+
+    class_name = "active_rays"
+
+    def __init__(self, nrays = 0, contained_fields = None):
+        self.contained_fields = [
             "global_rayid",
             "xp", "yp",
             "xi", "yi", "zi",
@@ -21,30 +30,29 @@ class active_ray_class(base_ray_class):
             "amr_lrefine",
             "ray_lrefine",
             "index1D",
-            "next_index1D",
+            "cell_index",
             "pathlength",
             "ray_status",
             "active_rayDF_to_buffer_map",
             "buffer_current_step",
             "dump_number", 
             "ray_area"]
-
-    class_name = "active_rays"
-
-    def __init__(self, nrays = 0, contained_fields = None):
         # set the number of rays in this instance
         self.nrays = nrays
         self.nactive = 0
-        self.__init_arrays__()
         if contained_fields is not None:
             self.contained_fields = contained_fields
+        for field in self.contained_fields:
+            self.field_dtypes[field] = ray_dtypes[field]
+            self.field_defaults[field] = ray_defaults[field]
+        self.__init_arrays__()
 
         return
 
     def __init_arrays__(self):
         # Initialize all arrays to their default value
         for field in self.contained_fields:
-            self.__dict__[field] = cupy.full(self.nrays, ray_defaults[field], dtype=ray_dtypes[field])
+            self.__dict__[field] = cupy.full(self.nrays, self.field_defaults[field], dtype=self.field_dtypes[field])
 
         self.__init_active__()
         return
@@ -76,7 +84,7 @@ class active_ray_class(base_ray_class):
         self.nactive = len(self.active_indexes)
         return
 
-    def append_field(self, field, value=None):
+    def append_field(self, field, default_value=None, dtype =None):
         """
             Appends a field to the current list of fields
             arguments:
@@ -87,7 +95,14 @@ class active_ray_class(base_ray_class):
             return
         else:
             self.contained_fields.append(field)
-            self.__dict__[field] = cupy.full(self.nrays, ray_defaults[field], ray_dtypes[field])
+            if dtype is None:
+                dtype = ray_dtypes[field]
+            if default_value is None:
+                default_value = self.field_defaults[field] 
+            self.__dict__[field] = cupy.full(self.nrays, default_value, dtype)
+            
+            self.field_defaults[field] = default_value
+            self.field_dtypes[field] = dtype
 
     def set_field(self, field, value, index = None, full = False):
         """
@@ -150,7 +165,7 @@ class active_ray_class(base_ray_class):
             self.nrays = nrays
             for field in self.contained_fields:
                 copy = self.__dict__[field][self.active_indexes]
-                self.__dict__[field] = cupy.full(self.nrays, ray_defaults[field], dtype=ray_dtypes[field])
+                self.__dict__[field] = cupy.full(self.nrays, self.field_defaults[field], dtype=self.field_dtypes[field])
                 self.__dict__[field][:len(self.active_indexes)] = copy[:]
                 del(copy) 
             self.__init_active__()
@@ -166,10 +181,9 @@ class active_ray_class(base_ray_class):
                     index: integer or array of integers (Indexes of active_indexes corresponding rays to be pruned)
                     full : optional bool8 (flag to specify that the indexes passed are of the full (active and inactive) slots and not of the active_indexes arrays)       
         """
-        # first figure out which indexes are to be kept
-        to_keep = cupy.where(cupy.in1d(cupy.arange(self.nactive), index, invert=True))[0]
-#            to_keep = self.active_indexes[cupy.where(cupy.in1d(cupy.arange(len(self.active_indexes)), index, invert=True))[0]]
-
+        # first figure out which indexes are to be kept 
+        # NOTE ASSUMES THAT INDEX IS SORTED MUSTY CHANGE TO CUPY:
+        to_keep = cupy.where(sorted_in1d(cupy.arange(self.nactive), index, invert=True))[0]
         Nremaining = len(to_keep)
 
         # Loop over all fields, copy the rays we want to keep and put them on the top
@@ -177,8 +191,9 @@ class active_ray_class(base_ray_class):
             self.__dict__[field][:Nremaining] = self.__dict__[field][to_keep]
 
         # set all inactive and active the new slots
-        self.index_active[:] = False
-        self.__set_active__(cupy.arange(Nremaining))
+        self.nactive = Nremaining
+        #self.index_active[:] = False
+        #self.__set_active__(cupy.arange(Nremaining))
             
         return
 
@@ -196,8 +211,8 @@ class active_ray_class(base_ray_class):
               
         # find inactive slots
         indexes_to_activate = cupy.arange(self.nactive, self.nactive + nrays_to_activate)
-        self.__set_active__(indexes_to_activate)
-        
+        #self.__set_active__(indexes_to_activate)
+        self.nactive = self.nactive + nrays_to_activate
         if fields is not None:
             for field, value in fields.items():
                 self.set_field(field, value, indexes_to_activate)
@@ -245,11 +260,20 @@ class active_ray_class(base_ray_class):
             self.__dict__[field] = cupy.asarray(self.__dict__[field])
 
 
-    def debug_ray(self, idx, fields):
+    def debug_ray(self, idx, fields, start="", end="", equal_sign = "=", field_as_string = False):
         string = ""
 
-        for field in fields:
-            string += field +": "+str(self.__dict__[field][idx]) + ", " 
+        for i, field in enumerate(fields):
+            if i == 0:
+                if field_as_string:
+                    string += start+"\"%s\""%(field) +" %s "%equal_sign+str(self.__dict__[field][idx])+end
+                else:
+                    string += start+"%s"%(field) +" %s "%equal_sign+str(self.__dict__[field][idx])+end
+            else:
+                if field_as_string:
+                    string += "\n" +start+"\"%s\""%(field) +" %s "%equal_sign+str(self.__dict__[field][idx])+end
+                else:
+                    string += "\n" +start+"%s"%(field) +" %s "%equal_sign +str(self.__dict__[field][idx])+end
         print(string)
 
     
@@ -267,7 +291,7 @@ class active_ray_class(base_ray_class):
 
         for field in fields:
             assert field in self.contained_fields, "Field %s does not exist in %s data structure" % (field, self.class_name)
-            grp.create_dataset(field, self.nrays, dtype = ray_dtypes[field], data = self.__dict__[field].get())
+            grp.create_dataset(field, self.nrays, dtype = self.field_dtypes[field], data = self.__dict__[field].get())
 
     def load_hdf5(self, h5file):
         """
@@ -279,7 +303,7 @@ class active_ray_class(base_ray_class):
         self.nrays = len(grp[list(grp.keys())[0]][:])
         for field in self.contained_fields:
             if field not in grp.keys():
-                self.__dict__[field] = cupy.zeros(self.nrays, dtype = ray_dtypes[field])
+                self.__dict__[field] = cupy.zeros(self.nrays, dtype = self.field_dtypes[field])
             else:
                 self.__dict__[field] = cupy.array(grp[field][:])
 

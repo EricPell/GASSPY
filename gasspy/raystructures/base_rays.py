@@ -10,12 +10,17 @@ import pickle
 class base_ray_class:
     contained_fields = []
     class_name = "base_rays"
-
+    field_dtypes = {}
+    field_defaults = {}
     def __init__(self, nalloc, contained_fields, on_cpu = False):
         self.nalloc = nalloc
         self.nrays  = 0
         self.not_allocated = True
         self.contained_fields = contained_fields
+        for field in self.contained_fields:
+            self.field_dtypes[field] = ray_dtypes[field]
+            self.field_defaults[field] = ray_defaults[field]
+
         self.on_cpu = on_cpu
         if self.on_cpu:
             self.numlib = numpy
@@ -26,18 +31,25 @@ class base_ray_class:
         return
 
 
-    def append_field(self, field, value=None):
+    def append_field(self, field, default_value=None, dtype =None):
         """
             Appends a field to the current list of fields
             arguments:
                 field: string (name of field)
-                array: optional
+                default_value: optional object
         """
         if field in self.contained_fields:
             return
         else:
             self.contained_fields.append(field)
-            self.__dict__[field] = self.numlib.full(self.nalloc, ray_defaults[field], ray_dtypes[field])
+            if dtype is None:
+                dtype = self.field_dtypes[field]
+            if default_value is None:
+                default_value = self.field_defaults[field] 
+            self.__dict__[field] = self.numlib.full(self.nalloc, default_value, dtype)
+
+            self.field_defaults[field] = default_value
+            self.field_dtypes[field] = dtype
     
     def set_field(self, field, value, index = None):
         """
@@ -103,17 +115,17 @@ class base_ray_class:
         """
         if self.not_allocated:
             for field in self.contained_fields:
-                self.__dict__[field] = self.numlib.full(nalloc, ray_defaults[field], dtype=ray_dtypes[field])
+                self.__dict__[field] = self.numlib.full(nalloc, self.field_defaults[field], dtype=self.field_dtypes[field])
             self.nalloc = nalloc
             self.not_allocated = False
         else:
             for field in self.contained_fields:
-                self.__dict__[field] = self.numlib.append(self.__dict__[field], self.numlib.full(nalloc, ray_defaults[field], dtype=ray_dtypes[field]))
+                self.__dict__[field] = self.numlib.append(self.__dict__[field], self.numlib.full(nalloc, self.field_defaults[field], dtype=self.field_dtypes[field]))
             self.nalloc += nalloc
 
         return
 
-    def append(self, nrays, fields = None, over_alloc_factor = 4):
+    def append(self, nrays, fields = None, over_alloc_factor = 1.5):
         """
             Appends a set of rays to the global_ray structure
             arguments:
@@ -125,7 +137,7 @@ class base_ray_class:
         """
 
         if nrays + self.nrays > self.nalloc:
-            self.allocate_rays(nrays*over_alloc_factor)
+            self.allocate_rays(int(nrays*over_alloc_factor))
         
         if fields is not None:
             indexes = self.numlib.arange(self.nrays, self.nrays + nrays)
@@ -167,9 +179,9 @@ class base_ray_class:
         for field in fields:
             assert field in self.contained_fields, "Field %s does not exist in %s data structure" % (field, self.class_name)
             if self.on_cpu:
-                grp.create_dataset(field, self.nrays, dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays])
+                grp.create_dataset(field, self.nrays, dtype = self.field_dtypes[field], data = self.__dict__[field][:self.nrays])
             else:
-                grp.create_dataset(field, (self.nrays,), dtype = ray_dtypes[field], data = self.__dict__[field][:self.nrays].get())
+                grp.create_dataset(field, (self.nrays,), dtype = self.field_dtypes[field], data = self.__dict__[field][:self.nrays].get())
 
     def load_hdf5(self, h5file):
         """
@@ -182,7 +194,7 @@ class base_ray_class:
         self.nrays = len(grp[list(grp.keys())[0]][:])
         for field in self.contained_fields:
             if field not in grp.keys():
-                self.__dict__[field] = self.numlib.zeros(self.nrays, dtype = ray_dtypes[field])
+                self.__dict__[field] = self.numlib.zeros(self.nrays, dtype = self.field_dtypes[field])
             else:
                 self.__dict__[field] = self.numlib.array(grp[field][:])
 
