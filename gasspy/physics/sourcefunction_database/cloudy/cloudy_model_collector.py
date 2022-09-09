@@ -12,6 +12,7 @@ import sys
 import h5py as hp
 
 from gasspy.shared_utils import loop_progress
+from gasspy.io.gasspy_io import read_dict_hdf5, save_dict_hdf5
 
 class ModelCollector():
     """Worker class for reading and collecting cloudy models into a gasspy db entry"""
@@ -30,7 +31,7 @@ class ModelCollector():
         },
         maxMem_GB = 30,
         recollect_all = False
-    ):  
+        ):  
 
         self.clear_energy = clear_energy
 
@@ -72,6 +73,7 @@ class ModelCollector():
 
         self.parital_saves = False
         self.recollect_all = recollect_all
+        
     def set_maxfiles_at_a_time(self):
         mem_per_file = 0 
         nfluxes = len(self.energy_bins)
@@ -80,6 +82,7 @@ class ModelCollector():
             if self.out_files[ftype]:
                 mem_per_file += 64*nfluxes 
         self.maxfiles_at_a_time = int(self.maxMem_GB*1024**3 * 8 / mem_per_file)
+
     def read_em(self, filename, suff=".em"):
         """ Read the multizone emissivity spectrum """
         if not self.out_files["avg_em"]:
@@ -95,7 +98,8 @@ class ModelCollector():
 
             data = np.array(mydf)
 
-            if self.energy_bins is None:
+            if len(data[0,:]) > 0 and self.energy_bins is None:
+
                 self.energy_bins = data[0,:]
 
             data = data[1:,:]
@@ -106,12 +110,14 @@ class ModelCollector():
                 self.cloudy_dir+filename+suff,
                 delimiter="\t",
                 usecols=["#energy/Ryd", "Total"], na_filter=False, dtype=np.float64, low_memory=False)
+            data = np.array(mydf)
+            if len(data[:,0]) > 0 and self.energy_bins is None:
+                self.energy_bins = data[:,0]
 
-            if self.energy_bins is None:
-                self.energy_bins = np.array(mydf["#energy/Ryd"])
-            self.avg_em = np.array(mydf["Total"])
+
+            self.avg_em = data[:,1].reshape(len(self.energy_bins))
         
-        if self.n_energy_bins is None:
+        if self.n_energy_bins is None and len(self.energy_bins) > 0:
             self.n_energy_bins = len(self.energy_bins)
 
         return 0
@@ -200,7 +206,20 @@ class ModelCollector():
                     self.opacity_everyzone = "every" in line
                 if "save diffuse continuum" in line:
                     self.em_everyzone = "zone" in line
-
+    
+    def get_error(self, filename, suff = ".out"):
+        with open(self.cloudy_dir+filename+suff,"r") as f:
+            lines = f.readlines()
+            if not lines[-1].endswith("something went wrong]\n"):
+                print("%s appears to have run correctly but produced unusable results... please check what happened")
+            for line in lines:
+                if line.startswith(" PROBLEM"):
+                    problem_line = line.strip("\n").strip(" PROBLEM ")
+                    if problem_line in self.problem_dict.keys():
+                        self.problem_dict[problem_line].append(int(filename.split("-")[1]))
+                    else:
+                        self.problem_dict[problem_line] = [int(filename.split("-")[1])]
+    
     def collect(self, single_file=None, delete_files = False):
         # Open up the hdf5 files
         self.open_hdf5_db()
@@ -236,6 +255,8 @@ class ModelCollector():
                 sys.exit("None of the cloudy outputs were readable")
             print("gasspy-%i\r"%(i))
             self.all(name=files[i])
+            #if i == 1:
+            #    sys.exit(0)
 
         if self.single_files == False:
             # We need to know how many spectral bins we have to calculate the size of one model (or file)
@@ -260,7 +281,7 @@ class ModelCollector():
             self.save_grn_opc[i_now,:] = self.grn_opc[:]
 
             self.clear()
-            for i in range(i+1, len(files)):
+            for i in range(i+1, self.nfiles):
                 if i % 100 == 0:
                     gc.collect()
                     #print("gasspy-%i\r"%(i))
@@ -307,13 +328,15 @@ class ModelCollector():
             self.h5Database = hp.File(h5path, "w")
             self.new_database = True
             self.n_already_done = 0
+            self.problem_dict = {}
 
         else:
             self.h5Database = hp.File(h5path, "r+")
             self.energy_bins = self.h5Database["energy"][:]
             self.new_database = False
             self.n_already_done = self.h5Database["avg_em"].shape[0]
-
+            self.problem_dict = {}
+            read_dict_hdf5("problem_dict", self.problem_dict, self.h5Database)
 
     def allocate_hdf5_datasets(self, Ntot):
         if self.new_database:
@@ -335,6 +358,9 @@ class ModelCollector():
         self.save_avg_em [:i_now+1,:] = 0
         self.save_tot_opc[:i_now+1,:] = 0
         self.save_grn_opc[:i_now+1,:] = 0
+
+        # Save the dict... this could probably be done fewer times...
+        save_dict_hdf5("problem_dict", self.problem_dict, self.h5Database)
 
     def save_to_db(self):
         """Save the model to an gasspy database"""
@@ -374,6 +400,7 @@ class ModelCollector():
 
         except:
         #else:
+            self.get_error(name)
             self.skip = True
     
 if __name__ == "__main__":
