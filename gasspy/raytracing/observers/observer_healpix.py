@@ -109,27 +109,30 @@ class observer_healpix_class:
         
         # In the observer coordinate frame
         pov_center_o = self.pov_center - self.observer_center
-
         # determine quaternions:
-        quat_n = np.array([0, -pov_center_o[2], pov_center_o[1]])
+        # zhat     =                 [0, 0, 1]
+        # new_zhat =                 [pxo, pyo, pzo]
+        # quat_n = zhat x new_zhat = [0*pzo - 1*pyo, 1*pxo - 0*pzo, 0*pyo - 0*pxo]
+        quat_n = np.array([-pov_center_o[1], pov_center_o[0],0])#*np.sign(pov_center_o[2])
         quat_n_mag = np.sqrt(np.sum(np.square(quat_n)))
         if quat_n_mag > 0:
             quat_n = quat_n/quat_n_mag
-        quat_theta = np.arctan2(quat_n_mag, pov_center_o[0])
+        quat_theta = np.arctan2(quat_n_mag, pov_center_o[2])
         quats = np.append(np.sin(quat_theta/2)*quat_n, np.array([np.cos(quat_theta/2)]))
         quats = quats/np.sqrt(np.sum(np.square(quats)))
 
-        # normalize
-        #pov_center_o = pov_center_o/np.sqrt(np.sum(np.square(pov_center_o)))
-        #yaw   = np.pi - np.arctan2(pov_center_o[0], pov_center_o[1])
-        #pitch = np.arcsin(pov_center_o[2] / np.sqrt(pov_center_o[2]**2 + pov_center_o[0]**2))
-        # TODO: this is degenerate, set to zero for now, but should return to be user settable
-        #roll = 0
-        
+
         self.rotation_matrix = R.from_quat(np.array(quats)).as_matrix()
+        # If there is no change in x and y, quat_n_mag is zero and the problem becomes degerate. 
+        # make sure that the direction of z is respected
+        if quat_n_mag == 0:
+            if np.sign(pov_center_o[2]) < 0:
+                self.rotation_matrix[0][0]=-self.rotation_matrix[0][0]
+                self.rotation_matrix[1][1]= self.rotation_matrix[1][1]
+                self.rotation_matrix[2][2]=-self.rotation_matrix[2][2]
+
         self.xps = -1
         self.yps = -1
-
     def get_first_rays(self, old_rays = None):
         """
             Takes a ray dataframe and populates it with the original set of rays corresponding to this observer
@@ -141,7 +144,6 @@ class observer_healpix_class:
             global_rays = old_rays
 
         # Append rays defined by this observer
-        print(self.Nrays)
         global_rayids = global_rays.append(self.Nrays)
 
         # Set the observation plane definitions
@@ -310,3 +312,6 @@ class observer_healpix_class:
         # Just call original....
         self.set_ray_area(ray_struct, back_half = back_half)
         return
+
+    def get_ray_area_fraction(self, ray_struct):
+        return self.pixel_area[ray_struct.get_field("ray_lrefine") - self.ray_lrefine_min]/4*np.pi

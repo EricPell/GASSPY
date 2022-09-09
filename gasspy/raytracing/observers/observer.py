@@ -41,7 +41,6 @@ class observer_plane_class:
         else:
             self.detector_size_y = 1
 
-        print(self.Nxp, self.Nyp)
         # This is immutable. Never shall xps and yps change. They are pixel indicies for a detector
         if planeDefinitionMethod is None :
             self.xps = (cupy.arange(0, self.Nxp) + 0.5)*self.detector_size_x/self.Nxp
@@ -59,7 +58,11 @@ class observer_plane_class:
         else:
             # user defined method for defining the sets of xp and yp for all rays (if for example high rez region already known)
             self.xp, self.yp, self.ray_lrefine, self.Nrays = planeDefinitionMethod()
+        
+        self.ray_area = self.detector_size_y*self.detector_size_x*4**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
 
+        self.dxs = self.detector_size_x*2**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
+        self.dys = self.detector_size_y*2**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
 
         self.NumZ = np.sqrt(
                             config_yaml["sim_size_x"]**2 + 
@@ -67,35 +70,61 @@ class observer_plane_class:
                             config_yaml["sim_size_z"]**2 
                             )
         
-        self.pitch = 0 
-        self.yaw   = 0
-        self.roll  = 0
+        #  pov_center: the point at which xp =0.5 yp = 0.5 zp = 0 from the viewpoint of the observer. Default to negative Z
+        if "pov_center" in kwargs:
+            self.pov_center = np.array(kwargs["pov_center"]).copy()
+        elif "pov_center" in config_yaml:
+            self.pov_center = np.array(config_yaml["pov_center"])
+        else:
+            self.pov_center = np.array(config_yaml["origin"])
 
-        # Note : not coded, but sim_data origin should default cuberoot(ncells)/2 if not defined by user
-        self.rot_origin = config_yaml["origin"]
-        self.xp0_s =   0.0
-        self.yp0_s =   0.0
-        self.zp0_s =   -0.5 * self.NumZ 
+        # observer center is the position of the observer center in the coordinate frame of the simulation
+        if "observer_center" in kwargs:
+            self.observer_center = np.array(kwargs["observer_center"]).copy()
+        elif "pov_center" in config_yaml:
+            self.observer_center = np.array(config_yaml["observer_center"])
+        else:
+            # default to negative z axis
+            self.observer_center = np.array(config_yaml["origin"])
+            self.observer_center[2] = 0
+
+        self.__dict__.update(kwargs)
+
+        if isinstance(self.observer_center, list):
+            self.observer_center = np.array(self.observer_center)        
+        if isinstance(self.pov_center, list):
+            self.pov_center = np.array(self.pov_center)
+        # We now have a positon for the observer and a center point, we need to figure out the rotation matrix
+        # such that xp = 0.5 and yp = 0.5 at self.pov_center in the reference frame of the observer
         
-        self.__dict__.update(kwargs)
+        # In the observer coordinate frame
+        pov_center_o = self.pov_center - self.observer_center
 
-        # the position on xp = 0 yp = 0 zp = 0 with respect to the rotation origin
-        # By default we are not rotated so x and y are at the midplane
-        self.xp0_r = self.xp0_s - self.rot_origin[0]
-        self.yp0_r = self.yp0_s - self.rot_origin[1]
-        # to stay inside the box, the minium distance is 0.5*sqrt(Nx**2+Ny**2+Nz**2) away from origin
-        self.zp0_r = self.zp0_s - self.rot_origin[2]
-
-        self.__dict__.update(kwargs)
-
-
-        self.rotation_matrix = cupy.array(R.from_rotvec(np.array([self.pitch, self.yaw, self.roll])*np.pi/180).as_matrix())
-        self.ray_area = self.detector_size_y*self.detector_size_x*4**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
-
-        self.dxs = self.detector_size_x*2**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
-        self.dys = self.detector_size_y*2**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
+        # determine quaternions:
+        # zhat     =                 [0, 0, 1]
+        # new_zhat =                 [pxo, pyo, pzo]
+        # quat_n = zhat x new_zhat = [0*pzo - 1*pyo, 1*pxo - 0*pzo, 0*pyo - 0*pxo]
+        quat_n = np.array([-pov_center_o[1], pov_center_o[0],0])#*np.sign(pov_center_o[2])
+        quat_n_mag = np.sqrt(np.sum(np.square(quat_n)))
+        if quat_n_mag > 0:
+            quat_n = quat_n/quat_n_mag
+        quat_theta = np.arctan2(quat_n_mag, pov_center_o[2])
+        quats = np.append(np.sin(quat_theta/2)*quat_n, np.array([np.cos(quat_theta/2)]))
+        quats = quats/np.sqrt(np.sum(np.square(quats)))
 
 
+        self.rotation_matrix = R.from_quat(np.array(quats)).as_matrix()
+        # If there is no change in x and y, quat_n_mag is zero and the problem becomes degerate. 
+        # make sure that the direction of z is respected
+        if quat_n_mag == 0:
+            if np.sign(pov_center_o[2]) < 0:
+                self.rotation_matrix[0][0]=-self.rotation_matrix[0][0]
+                self.rotation_matrix[1][1]= self.rotation_matrix[1][1]
+                self.rotation_matrix[2][2]=-self.rotation_matrix[2][2]
+
+        self.observer_origin = self.observer_center.copy()
+        for i in range(3):
+            self.observer_origin[i] -= 0.5*self.detector_size_x*float(self.rotation_matrix[i][0]) + 0.5*self.detector_size_y*float(self.rotation_matrix[i][1])
 
     def get_first_rays(self, old_rays = None):
         """
@@ -115,14 +144,15 @@ class observer_plane_class:
         global_rays.set_field("yp", self.yp, index = global_rayids)
         # Transform the xp and yp in the observers coordinate frame to that of the simulation
         for i, xi in enumerate(["xi", "yi", "zi"]):
-            global_rays.set_field(xi, cupy.full(self.Nrays, self.xp0_r * float(self.rotation_matrix[i][0]) + self.yp0_r * float(self.rotation_matrix[i][1]) + self.zp0_r * float(self.rotation_matrix[i][2]) + self.rot_origin[i],
-                                              dtype = ray_dtypes[xi]) +
+            global_rays.set_field(xi, cupy.full(self.Nrays, self.observer_origin[i],dtype = ray_dtypes[xi]) +
                                       self.xp * float(self.rotation_matrix[i][0]) +
                                       self.yp * float(self.rotation_matrix[i][1]), index = global_rayids)
+
 
         # Set the direction of the individual rays
         for i, raydir in enumerate(["raydir_x", "raydir_y", "raydir_z"]):
             global_rays.set_field(raydir, cupy.full(self.Nrays, 1.0 * float(self.rotation_matrix[i][2]), dtype = ray_dtypes[raydir]), index = global_rayids)
+
 
         # set the refinement level of the rays
         global_rays.set_field("ray_lrefine", cupy.array(self.ray_lrefine), index = global_rayids)
@@ -254,3 +284,6 @@ class observer_plane_class:
         """
         # NOT IMPLEMENTED, DO NOTHING AND RETURN
         return
+
+    def get_ray_area_fraction(self, ray_struct):
+        return 1/4**ray_struct.get_field("ray_lrefine").astype(float)
