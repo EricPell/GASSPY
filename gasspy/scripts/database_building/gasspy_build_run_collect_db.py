@@ -72,6 +72,7 @@ else:
 ###########################################
 # II) Cloudy recompilation with specified spectra mesh
 ###########################################
+
 if args.recompile_cloudy_spectra_mesh:
     Ryd_Ang = 911.2266
     if args.cloudy_spectra_mesh_mode == "select_C17":
@@ -105,7 +106,7 @@ if args.recompile_cloudy_spectra_mesh:
 ##############################
 # III) Load config files and simulation reader 
 ##############################
-
+'''
 ## Load the fluxdef yaml file
 fluxdef = gasspy_io.read_fluxdef("./gasspy_fluxdef.yaml")
 
@@ -228,14 +229,29 @@ if not processor.args.log:
 
 ## clean up
 del(processor)
-
+'''
 ####################################
 #VI) Collect the models
 ####################################
+profiling = True
+if profiling:
+    import cProfile, pstats
+
+    profiler = cProfile.Profile()
+    profiler.enable()
 print("\nCollecting all the cloudy models into individual files")
-collector = cloudy_model_collector.ModelCollector(cloudy_dir=args.modeldir + "/cloudy-output/", out_dir=args.modeldir)
-collector.use_gpu = False
+collector = cloudy_model_collector.ModelCollector(cloudy_dir=args.modeldir + "/cloudy-output/", out_dir=args.modeldir,
+                                                out_files = {
+                                                                "avg_em": True,
+                                                                "grn_opc": True,
+                                                                "tot_opc": True,
+                                                                "mol":True
+                                                            }
+                                                    )
 collector.all_opacities = False
 collector.clear_energy = False
 collector.collect()
-collector.save_to_db()
+if profiling:
+    profiler.disable()
+    stats = pstats.Stats(profiler).sort_stats('ncalls')
+    stats.dump_stats("cloudy_model_collector_prof")

@@ -20,7 +20,8 @@ import argparse
 import importlib.util
 
 
-from gasspy.raytracing.raytracers import Raytracer_AMR
+from gasspy.raytracing.raytracers import Raytracer_AMR_neighbor
+from gasspy.raytracing.ray_processors import Raytrace_saver
 from gasspy.raytracing.observers import observer_plane_class, observer_healpix_class
 from gasspy.radtransfer.__rt_branch__ import FamilyTree
 from gasspy.io import gasspy_io
@@ -34,6 +35,7 @@ ap.add_argument("--modeldir" , default="GASSPY", help = "directory inside of wor
 ap.add_argument("--simulation_reader_dir", default="./", help="directory to the simulation_reader class that describes how to load the simulation")
 ap.add_argument("--sim_prefix", default = None, help="prefix to put before all snapshot specific files")
 ap.add_argument("--trace_file", default = None, help="name of trace file. If it does not exist we need to recreate it")
+ap.add_argument("--spec_save_name", default = None,  help = "Path to file where to save the spectra. Default to sim_prefix+\"_spec.hdf5\"")
 #-------------Run parameters-----------#
 ap.add_argument("--rerun_raytrace", action="store_true", help = "Force rerun of raytrace even if the trace file already exists")
 ap.add_argument("--liteVRAM", action="store_true", help = "Force rerun of raytrace even if the trace file already exists")
@@ -110,9 +112,12 @@ if not os.path.exists(trace_file) or args.rerun_raytrace:
     else:
         observer = observer_plane_class(gasspy_config)
 
-    ## Initialize the raytracer
-    raytracer = Raytracer_AMR(sim_reader, gasspy_config, bufferSizeCPU_GB = max_mem_CPU, bufferSizeGPU_GB = max_mem_GPU)
-
+    ## Initialize the raytracer and ray_processer
+    print(" - initializing raytracer")
+    raytracer = Raytracer_AMR_neighbor(sim_reader, gasspy_config, bufferSizeCPU_GB = max_mem_CPU, bufferSizeGPU_GB = max_mem_GPU, no_ray_splitting=False, liteVRAM = args.liteVRAM)
+    print(" - initializing ray_processor")
+    ray_processor = Raytrace_saver(raytracer)
+    raytracer.set_ray_processor(ray_processor)
     ## set observer
     raytracer.update_obsplane(obs_plane = observer)
 
@@ -142,6 +147,10 @@ Elims = None
 if "Elims" in gasspy_config.keys():
     Elims = np.array(gasspy_config["Elims"]).astype(float)
 
+if args.spec_save_name is None:
+    spec_save_name = sim_prefix + "spec.hdf5"
+else:
+    spec_save_name = args.spec_save_name
 print("Radiative transfer")
 mytree = FamilyTree(
     root_dir="./",
@@ -152,15 +161,15 @@ mytree = FamilyTree(
     energy_lims=Elims,
     h5database=args.modeldir + "/gasspy_database.hdf5",
     cell_index_to_gasspydb = args.gasspydir + "/cell_data/" + sim_prefix+"cell_gasspy_index.npy",
-    vel=sim_reader.get_field("velocity"),
-    den=sim_reader.get_number_density(),
+    vel=None,#sim_reader.get_field("velocity"),
+    den=None,#sim_reader.get_number_density(),
     massden = False,
     opc_per_NH=False,
     mu=1.1,
     accel="torch",
     liteVRAM=args.liteVRAM,
     Nraster=4,
-    spec_save_name=sim_prefix + "spec.hdf5",
+    spec_save_name=spec_save_name,
     dtype=np.float32,
     spec_save_type='hdf5',
     cuda_device=cuda_device
