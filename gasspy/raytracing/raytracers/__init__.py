@@ -1,1 +1,3 @@
 from .raytracer_direct_amr import Raytracer_AMR
+from .raytracer_amr_base import Raytracer_AMR_Base
+from .raytracer_direct_amr_neighbor import Raytracer_AMR_neighbor

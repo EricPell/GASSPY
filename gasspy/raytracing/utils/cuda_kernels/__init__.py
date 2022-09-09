@@ -1,2 +1,4 @@
 from .get_index1D import get_index1D_code_string
 from .raytrace_amr_low_mem import raytrace_low_mem_code_string
+from .raytrace_amr_neighbor import raytrace_amr_neighbor_code_string
+from .verify_cell_index import verify_cell_index_code_string
