@@ -197,81 +197,50 @@ class spec_reader:
                 map_ixend[map_ixend >= outmap_nx] = outmap_nx-1
                 map_iyend[map_iyend >= outmap_ny] = outmap_ny-1
 
-                #determine left and right covering fraction
-                fxleft  = ((map_ixstart + 1)*outmap_dx - map_xstart)
-                fxright = (map_xend - map_ixend*outmap_dx )
-                fyleft  = ((map_iystart + 1)*outmap_dy - map_ystart)
-                fyright = (map_yend - map_iyend*outmap_dy)
-
-                fxleft[fxleft < 0 ] = 0
-                fyleft[fyleft < 0 ] = 0
-                fxright[fxright < 0 ] = 0
-                fyright[fyright < 0 ] = 0
-            
-                fxleft[fxleft > outmap_dx ] = outmap_dx
-                fyleft[fyleft > outmap_dy ] = outmap_dy
-                fxright[fxright > outmap_dx ] = outmap_dx
-                fyright[fyright > outmap_dy ] = outmap_dy
-
-                #print("x", map_ixstart[0], map_xstart[0]/outmap_dx, map_ixend[0], map_xend[0]/outmap_dx, fxleft[0]/outmap_dx, fxright[0]/outmap_dx, fxright[0])
-                #print("y", map_iystart[0], map_ystart[0]/outmap_dy, map_iyend[0], map_yend[0]/outmap_dy, fyleft[0]/outmap_dy, fyright[0]/outmap_dy)
- 
-                # If rays are large enough to fully cover more than one map cell, we need to deal with these seperatly. 
-                # TODO: Currently we need to loop over rays for this, but we should find a way to avoid this loop
-                #if ray_nx >= 2 or ray_ny >= 2: 
+                # If rays are offset from the plot grid, and/or if we are plotting with odd number of pixels
+                # the rays might be covering different number of pixels.
+                # Figure out how many pixels are covered by each ray in both x and y
                 nx_rays = map_ixend - map_ixstart + 1
                 ny_rays = map_ixend - map_ixstart + 1
 
+                # Loop over all combinations of nx and ny number of covered pixels
                 for nx_now in range(np.min(nx_rays), np.max(nx_rays)+1):
                     with_nx = nx_rays == nx_now
                     for ny_now in range(np.min(ny_rays), np.max(ny_rays)+1):
                         rays_now = np.where(with_nx*(ny_rays==ny_now))[0]
                         if len(rays_now) == 0:
                             continue
+                        # Create a kernel with these number of pixels
                         ixp , iyp = np.meshgrid(np.arange(0,nx_now), np.arange(0,ny_now), indexing = "ij")
                         ixp = ixp.ravel()
                         iyp = iyp.ravel()
+
+                        # Add the lowest pixel number to get position in the map
                         ixps = (map_ixstart[rays_now][:,np.newaxis] + ixp[np.newaxis,:]).ravel()
                         iyps = (map_iystart[rays_now][:,np.newaxis] + iyp[np.newaxis,:]).ravel()
 
                         in_map = (ixps <outmap_nx) * (iyps < outmap_ny)
+                        # The rays may or may not completely cover the pixels, so we need to figure out the covering area
 
-                        
+                        # Distance to lower pixel edge in x and y. Must be smaller than outmap pixel size and greater than 0
                         fxl = np.maximum(np.minimum(((ixps+1)*outmap_dx-np.repeat(map_xstart[rays_now],nx_now*ny_now)), outmap_dx), 0)
                         fyl = np.maximum(np.minimum(((iyps+1)*outmap_dy-np.repeat(map_ystart[rays_now],nx_now*ny_now)), outmap_dy), 0)
+                        # Distance to upper pixel edge in x and y
                         fxr = np.maximum(np.minimum((-(ixps )*outmap_dx+np.repeat(map_xend[rays_now]  ,nx_now*ny_now)), outmap_dx), 0)
                         fyr = np.maximum(np.minimum((-(iyps )*outmap_dy+np.repeat(map_yend[rays_now]  ,nx_now*ny_now)), outmap_dy), 0)
+                    
+                        # The covering factor is determined by the smallest of these two 
                         fx = np.minimum(fxl,fxr)
                         fy = np.minimum(fyl,fyr)
+
+                        # Loop over fields and add to corresponding pixels, multiplied by the covering area to get total photon count/energy in the pixel
                         for ifl in range(outmap_nfields):
                             np.add.at(outmap, (ixps[in_map], iyps[in_map], np.full(ixps.shape, ifl)[in_map]),  (np.repeat(fields[rays_now,ifl], nx_now*ny_now)*fx*fy)[in_map])
-                            #outmap[ixps, iyps, ifl] += np.repeat(fields[rays_now,ifl], nx_now*ny_now)*fx*fy
-#                for iray in range(nrays_now):
-#                    # Cells completely covered by the ray
-#                    nx_now = map_ixend[iray] - map_ixstart[iray] + 1
-#                    ny_now = map_iyend[iray] - map_iystart[iray] + 1
-#                    #if nx_now <=2 and ny_now <=2:
-#                    #    continue
-#
-#
-#                    xx = np.arange(map_ixstart[iray],map_ixend[iray]+1)
-#                    yy = np.arange(map_iystart[iray],map_iyend[iray]+1)
-#                    ixps, iyps = np.meshgrid(xx,yy,indexing = "ij")
-#                    #print(ixps.shape,nx_now, ny_now)
-#                    fxl = np.maximum(np.minimum(((ixps+1)*outmap_dx-map_xstart[iray]),np.ones((nx_now,ny_now))*outmap_dx), np.zeros((nx_now,ny_now)))
-#                    fyl = np.maximum(np.minimum(((iyps+1)*outmap_dy-map_ystart[iray]),np.ones((nx_now,ny_now))*outmap_dy), np.zeros((nx_now,ny_now)))
-#                    fxr = np.maximum(np.minimum((-(ixps )*outmap_dx+map_xend[iray]  ),np.ones((nx_now,ny_now))*outmap_dx), np.zeros((nx_now,ny_now)))
-#                    fyr = np.maximum(np.minimum((-(iyps )*outmap_dy+map_yend[iray]  ),np.ones((nx_now,ny_now))*outmap_dy), np.zeros((nx_now,ny_now)))
-#                    fx = np.minimum(fxl,fxr)
-#                    fy = np.minimum(fyl,fyr)
-#                                     
-#                    for ifl in range(outmap_nfields):
-#                        outmap[map_ixstart[iray]:map_ixend[iray]+1, map_iystart[iray]:map_iyend[iray]+1, ifl] += fields[iray,ifl]*fx*fy
+
                 nray_remaining = nray_remaining - nrays_now                 
 
         # Go back to surface brightness
         outmap = outmap/outmap_dx/outmap_dy 
-        #print(np.min(outmap), np.max(outmap))
         return outmap
     def read_spec(self, x, y, Elims = None, return_integrated_line = False, return_broadband = True):
         """

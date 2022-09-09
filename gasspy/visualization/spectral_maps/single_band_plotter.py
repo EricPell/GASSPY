@@ -139,7 +139,6 @@ def create_map(h5group, gasspy_config, outmap_nx = None, outmap_ny = None, xlims
 
     # Go back to surface brightness
     outmap = outmap/outmap_dx/outmap_dy 
-    #print(np.min(outmap), np.max(outmap))
     return outmap    
 
 def plot_map(fig, ax, data, cmap, vlims, label):
