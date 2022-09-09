@@ -207,21 +207,30 @@ class FamilyTree():
 
     def load_all(self):
         self.load_config_yaml()
+        print(" - Loading cell gasspy_indexes")
         self.load_cell_index_to_gasspydb()
         # Ensure the energy bins are loaded BEFORE the em and op tables to minimize memory used
         self.load_energy_limits()
 
         if self.h5database is None:
             # LEGACY LOADING SYSTEM
+            print(" - Loading energy bins")
             self.load_energy_bins()
+            print(" - Loading emisivity")
             self.load_em()
+            print(" - Loading opacity")
             self.load_op()
         else:
+            print(" - loading hdf5 database of models")
             self.load_database()
         #self.load_saved3d()
+        print(" - loading global rays")
         self.load_new_global_rays()
+        print(" - loading velocity")
         self.load_velocity_data()
+        print(" - loading density")
         self.load_density_data()
+        print(" - loading traced rays")
         self.load_traced_rays()
 
         self.set_precision(self.dtype)
@@ -396,8 +405,8 @@ class FamilyTree():
         for Eidx_range in Eidx_ranges:
             Eidx_start = Eidx_end
             Eidx_end = Eidx_start + Eidx_range[1]-Eidx_range[0]
-            self.em[Eidx_start:Eidx_end,:] = self.h5database[self.em_field][unique_gasspy_ids, Eidx_range[0]:Eidx_range[1]].T
-            self.op[Eidx_start:Eidx_end,:] = self.h5database[self.op_field][unique_gasspy_ids, Eidx_range[0]:Eidx_range[1]].T
+            self.em[Eidx_start:Eidx_end,:] = self.h5database[self.em_field][unique_gasspy_ids, Eidx_range[0]:Eidx_range[1]].astype(self.dtype).T
+            self.op[Eidx_start:Eidx_end,:] = self.h5database[self.op_field][unique_gasspy_ids, Eidx_range[0]:Eidx_range[1]].astype(self.dtype).T
         return    
 
     def load_energy_bins(self, save=False):
@@ -492,6 +501,8 @@ class FamilyTree():
         self.NSimCells = len(self.cell_index_to_gasspydb)
 
     def load_velocity_data(self):
+        if self.vel is None:
+            return
         if str == type(self.vel):
             if self.vel.endswith("fits"):
                 if Path(self.vel).is_file():
