@@ -1,7 +1,7 @@
 import cupy
+import numpy
 
-
-def sorted_in1d(ar1, ar2, assume_unique=False, invert=False):
+def sorted_in1d(ar1, ar2, assume_unique=False, invert=False, numlib = cupy):
     """Tests whether each element of a 1-D array is also present in a second
     array.
     Returns a boolean array the same length as ``ar1`` that is ``True``
@@ -22,12 +22,12 @@ def sorted_in1d(ar1, ar2, assume_unique=False, invert=False):
     ar2 = ar2.ravel()
     if ar1.size == 0 or ar2.size == 0:
         if invert:
-            return cupy.ones(ar1.shape, dtype=cupy.bool_)
+            return numlib.ones(ar1.shape, dtype=numlib.bool_)
         else:
-            return cupy.zeros(ar1.shape, dtype=cupy.bool_)
+            return numlib.zeros(ar1.shape, dtype=numlib.bool_)
     # Use brilliant searchsorted trick
     # https://github.com/cupy/cupy/pull/4018#discussion_r495790724
     #ar2 = cupy.sort(ar2)
-    v1 = cupy.searchsorted(ar2, ar1, 'left')
-    v2 = cupy.searchsorted(ar2, ar1, 'right')
+    v1 = numlib.searchsorted(ar2, ar1, 'left')
+    v2 = numlib.searchsorted(ar2, ar1, 'right')
     return v1 == v2 if invert else v1 != v2
