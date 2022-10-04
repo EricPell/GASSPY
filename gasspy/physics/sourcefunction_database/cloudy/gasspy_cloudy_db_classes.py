@@ -591,7 +591,7 @@ class gasspy_to_cloudy(object):
             else:
                 sedfile = self.gasspy_modeldir+"/cloudy-output/%s_%s.sed"%(self.save_prefix, field)
                 outfile = open(sedfile, 'w')
-                if self.unique_panda_pickle["fluxes"][field]["shape"] == 'const':
+                if self.fluxdef[field]["shape"] == 'const':
                     outfile.write("%f -35.0 nuFnu\n"%(self.fluxdef[field]["Emin"]*0.99/13.6) )
                     outfile.write("%f 1.000 nuFnu\n"%(self.fluxdef[field]["Emin"]/13.6) )
                     outfile.write("%f 1.000 nuFnu\n"%(self.fluxdef[field]["Emax"]/13.6) )
