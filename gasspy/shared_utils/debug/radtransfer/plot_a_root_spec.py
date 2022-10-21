@@ -19,6 +19,7 @@ ap.add_argument("--colors", nargs = "+", default = None)
 ap.add_argument("--ylims", nargs = 2, default = None, type = float)
 ap.add_argument("--outpath", default = None)
 ap.add_argument("--no_legend", action = "store_true")
+ap.add_argument("--pos_in_code_units", action = "store_true")
 args=ap.parse_args()
 
 assert len(args.xp) == len(args.yp), "xp and yp are required to have the same shape"
@@ -52,8 +53,12 @@ if args.colors is not None:
 
 fig = plt.figure(figsize = (5,4))
 for i in range(len(args.xp)):
-    xp = args.xp[i]/xsize
-    yp = args.yp[i]/ysize
+    if args.pos_in_code_units:
+        xp = args.xp[i]
+        yp = args.yp[i]
+    else:
+        xp = args.xp[i]/xsize
+        yp = args.yp[i]/ysize
     Eplot, flux, line, bband= reader.read_spec(xp, yp, Elims = Elims, return_integrated_line = True, return_broadband = True)
     np.save("spec_%f_%f.npy"%(args.xp[i], args.yp[i]),np.array([Eplot,flux]) )
     plt.plot(Eplot, flux, label = "xp = %.3e, yp=%.3e"%(xp,yp), color = colors[i], marker = "x")

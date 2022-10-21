@@ -4,10 +4,13 @@ import torch
 import cupy
 import sys
 import h5py as hp
+import importlib.util
+import os 
 
 from gasspy.radtransfer import FamilyTree
 from gasspy.shared_utils.argument_parsers.FamilyTree_args import add_Family_tree_arguments
 from gasspy.shared_utils.spectra_functions import integrated_line
+from gasspy.io import gasspy_io
 
 simdir = "/mnt/data/research/cinn3d/inputs/ramses/old/SEED1_35MSUN_CDMASK_WINDUV2"
 min_lref = 6
@@ -20,19 +23,16 @@ class ray_debugger(FamilyTree):
         gasspy_spec_subdir="spec",
         gasspy_projection_subdir="projections",
         traced_rays=None,
-        global_rayDF_deprecated=None,
         energy=None,
         energy_lims=None,
         Emask=None,
-        em=None,
-        op=None,
+        h5database = None,
         opc_per_NH=False,
         cell_index_to_gasspydb=None,
         vel=None,
         den=None,
         massden=True,
         mu=1.1,
-        los_angle=None,
         accel="torch",
         dtype=np.float32,
         liteVRAM=True,
@@ -53,8 +53,7 @@ class ray_debugger(FamilyTree):
             energy=energy,
             energy_lims=energy_lims,
             Emask=Emask,
-            em=em,
-            op=op,
+            h5database = h5database,
             opc_per_NH=opc_per_NH,
             cell_index_to_gasspydb=cell_index_to_gasspydb,
             vel=vel,
@@ -71,7 +70,6 @@ class ray_debugger(FamilyTree):
             spec_save_type=spec_save_type,
             spec_save_name=spec_save_name,
             cuda_device=cuda_device,
-            doppler_shift = doppler_shift  
         )
         self.rayid = -1
 
@@ -312,26 +310,64 @@ if __name__ == "__main__":
     ap.add_argument("--out_hdf5", type = str, default=None)
     ap.add_argument("--append_hdf5", action="store_true")
     ap.add_argument("--lines", action = "store_true")
+    ap.add_argument("--simdir", default="./", help="Directory of the simulation and also default work directory")
+    ap.add_argument("--workdir", default= None, help="work directory. If not specified its the same as simdir")
+    ap.add_argument("--gasspydir", default="GASSPY", help="directory inside of simdir to put the GASSPY files")
+    ap.add_argument("--modeldir" , default="GASSPY_DATABASE", help = "directory inside of workdir where to read, put and run the cloudy models")
+    ap.add_argument("--sim_prefix", default = None, help="prefix to put before all snapshot specific files")
+    ap.add_argument("--trace_file", default = None, help="name of trace file. If it does not exist we need to recreate it")    
+    ap.add_argument("--simulation_reader_dir", default="./", help="directory to the simulation_reader class that describes how to load the simulation")
+
     # Add arguments related to the FamilyTree class
     add_Family_tree_arguments(ap)
     args = ap.parse_args()
+
+    ## move to workdir
+    if args.workdir is not None:
+        workdir = args.workdir
+    else:
+        workdir = args.simdir
+    os.chdir(workdir)
+
+    ## set prefix to snapshot specific files
+    if args.sim_prefix is not None:
+        ## add an underscore
+        sim_prefix = args.sim_prefix + "_"
+    else:
+        sim_prefix = ""
+
+    ## Load the gasspy_config yaml
+    gasspy_config = gasspy_io.read_fluxdef("./gasspy_config.yaml")
+
+    ## Load the simulation data class from directory
+    spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
+    reader_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader_mod)
+    sim_reader = reader_mod.Simulation_Reader(args.simdir, args.gasspydir, gasspy_config["sim_reader_args"])
+
+    if args.trace_file is not None:
+        trace_file = args.gasspydir+"/projections/"+args.trace_file
+    else:
+        trace_file = args.gasspydir+"/projections/"+sim_prefix+"trace.hdf5"
 
     if args.single_precision:
         dtype = np.float32
     else:
         dtype = np.float64
     cuda_device = torch.device('cuda:0')
-
+    if args.Emax is not None:
+        Elims = np.array([args.Emin, args.Emax])
+    else:
+        Elims = None
     ray_debug = ray_debugger(
         root_dir=args.root_dir,
-        gasspy_subdir=args.gasspy_subdir,
-        traced_rays=args.traced_rays,
-        energy=args.energy,
-        energy_lims=None,
-        em=args.em,
-        op=args.op,
-        vel=args.root_dir+args.vel,
-        den=args.root_dir+args.den,
+        gasspy_subdir=args.gasspydir,
+        traced_rays=trace_file,
+        energy_lims=np.atleast_2d(Elims),
+        h5database=args.modeldir + "/gasspy_database.hdf5",
+        vel=None, #sim_reader.get_field("velocity"),
+        den=sim_reader.get_number_density(),
+        massden = False,
         opc_per_NH=args.opc_per_NH,
         mu=args.mu,
         accel=args.accel,
@@ -341,8 +377,9 @@ if __name__ == "__main__":
         dtype=dtype,
         spec_save_type=args.spec_save_type,
         config_yaml=args.config_yaml,
-        cell_index_to_gasspydb = args.gasspy_id,
-        cuda_device=cuda_device
+        cell_index_to_gasspydb = args.gasspydir + "/cell_data/" + sim_prefix+"cell_gasspy_index.npy",
+        cuda_device=cuda_device,
+        doppler_shift=False
     )   
 
     if args.out_hdf5 is not None:
@@ -356,10 +393,7 @@ if __name__ == "__main__":
 
     ray_debug.load_all()
     import matplotlib.pyplot as plt
-    if args.Emax is not None:
-        Elims = np.array([args.Emin, args.Emax])
-    else:
-        Elims = None
+
     fig , axes = plt.subplots(figsize = (8,2), ncols=4, nrows = 1, sharex=True)
     axemis = axes[0]
     axflux = axes[1]
