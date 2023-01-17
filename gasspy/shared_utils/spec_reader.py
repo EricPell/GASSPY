@@ -48,17 +48,14 @@ class spec_reader:
         gasspy_config = gasspy_io.read_fluxdef(self.sim_dir+"/gasspy_config.yaml")
 
         # Load the posional information of the rays
-        self.xp = self.spec_file["x"][:]
-        self.yp = self.spec_file["y"][:]
+        self.xp = self.spec_file["xp"][:]
+        self.yp = self.spec_file["yp"][:]
         self.ray_lrefine = self.spec_file["ray_lrefine"][:]
 
         # Load the energy bins
-        self.Energies = self.spec_file["E"][:]
+        self.Energies = self.spec_file["energy"][:]
         # TODO: calculate size of energy bins prior to this, where we actually have all the information needed....
-        self.deltaEnergies = np.zeros(self.Energies.shape)
-        self.deltaEnergies[1:-1] = self.Energies[2:] - self.Energies[:-2]
-        self.deltaEnergies[0] = self.deltaEnergies[1]
-        self.deltaEnergies[-1] = self.deltaEnergies[-2]
+        self.deltaEnergies = self.spec_file["delta_energy"][:]
         
         # set maximum used memory
         if maxmem_GB is not None:
@@ -143,6 +140,7 @@ class spec_reader:
         
         # figure out the size of a ray
         raysize = len(Eidxs) * self.spec_file["flux"].dtype.itemsize
+        print(Eidxs.shape)
         print(len(Eidxs), self.spec_file["flux"].dtype.itemsize)
         rays_at_a_time = int(free_mem/raysize)
         
