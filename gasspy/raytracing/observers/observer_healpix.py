@@ -179,7 +179,9 @@ class observer_healpix_class:
         
         # Initialize the amr refinement of the rays
         global_rays.set_field("amr_lrefine", ray_defaults["amr_lrefine"], index  = global_rayids)
-               
+
+        # Initialize the fractional area of the rays
+        global_rays.set_field("ray_fractional_area", self.get_ray_area_fraction(global_rays), index = global_rayids)            
         return global_rays
 
 
@@ -192,7 +194,8 @@ class observer_healpix_class:
         
         # Fields that are set here
         fields_new = ["xp", "yp", 
-                      "xi", "yi", "zi"]
+                      "xi", "yi", "zi",
+                      "ray_fractional_area"]
 
         fields_from_parent = ["raydir_x", "raydir_y", "raydir_z"]
         child_rays = {}        
@@ -313,5 +316,8 @@ class observer_healpix_class:
         self.set_ray_area(ray_struct, back_half = back_half)
         return
 
-    def get_ray_area_fraction(self, ray_struct):
-        return self.pixel_area[ray_struct.get_field("ray_lrefine") - self.ray_lrefine_min]/4*np.pi
+    def get_ray_area_fraction(self, ray_struct, index = None):
+        if index is not None:
+            return self.pixel_area[ray_struct.get_field("ray_lrefine", index = index) - self.ray_lrefine_min]/4*np.pi
+        else:
+            return self.pixel_area[ray_struct.get_field("ray_lrefine") - self.ray_lrefine_min]/4*np.pi

@@ -666,6 +666,7 @@ class Raytracer_AMR_Base:
         self.__kernel_specific_create_child_rays__(parent_rays, peid, children_global_rayid, parent_aid, child_rays)
         # append the child dataframe to the global datafram
         self.global_rays.append(nchild, fields = child_rays)
+        self.global_rays.set_field("ray_fractional_area", self.obs_plane.get_ray_area_fraction(self.global_rays, index = children_global_rayid), index = children_global_rayid)
         self.ray_processor.update_global_ray_fields()
         pass
 

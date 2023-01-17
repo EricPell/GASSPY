@@ -168,6 +168,9 @@ class observer_plane_class:
         
         # Initialize the amr refinement of the rays
         global_rays.set_field("amr_lrefine", ray_defaults["amr_lrefine"], index  = global_rayids)
+
+        # Initialize the fractional area of the rays
+        global_rays.set_field("ray_fractional_area", self.get_ray_area_fraction(global_rays), index = global_rayids)
         return global_rays
 
 
@@ -180,7 +183,8 @@ class observer_plane_class:
         
         # Fields that are set here
         fields_new = ["xp", "yp", 
-                      "xi", "yi", "zi"]
+                      "xi", "yi", "zi",
+                      "ray_fractional_area"]
 
         fields_from_parent = ["raydir_x", "raydir_y", "raydir_z"]
         child_rays = {}        
@@ -190,9 +194,9 @@ class observer_plane_class:
 
         for field in fields_from_parent:
             child_rays[field] = cupy.repeat(parent_rays[field], repeats=4)
+    
         # Set the position and pixel of the children
         self.set_child_fields(child_rays, parent_rays)
-    
         return  child_rays
 
     def set_child_fields(self, child_rays, parent_rays):
@@ -285,5 +289,8 @@ class observer_plane_class:
         # NOT IMPLEMENTED, DO NOTHING AND RETURN
         return
 
-    def get_ray_area_fraction(self, ray_struct):
-        return 1/4**ray_struct.get_field("ray_lrefine").astype(float)
+    def get_ray_area_fraction(self, ray_struct, index = None):
+        if index is not None:
+            return 1/4**ray_struct.get_field("ray_lrefine", index = index).astype(float)
+        else:
+            return 1/4**ray_struct.get_field("ray_lrefine").astype(float)

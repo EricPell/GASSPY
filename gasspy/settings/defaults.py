@@ -40,6 +40,7 @@ ray_dtypes = {
     "buffer_current_step": cupy.int16,                              # Current cell in the buffer
     "dump_number" : cupy.int16,                                     # Number of dumps the current ray has done
     "ray_area"    : pos_dtype,                                    # current area covered by the solid angle of the ray
+    "ray_fractional_area"    : pos_dtype,                                    # current area covered by the solid angle of the ray
     # Variables specific to the buffer
     "buff_slot_occupied":cupy.int8,                                  # Flag if a spot in the buffer is occupied 
     
@@ -74,6 +75,7 @@ ray_defaults = {
     "buffer_current_step": 0,
     "dump_number" : -1,
     "ray_area"    : 0,
+    "ray_fractional_area"    : 0,
 
     # Variables specific to the buffer
     "buff_slot_occupied": 0,
