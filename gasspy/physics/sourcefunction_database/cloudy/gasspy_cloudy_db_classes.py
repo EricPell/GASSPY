@@ -555,7 +555,7 @@ class gasspy_to_cloudy(object):
                 
             isIF = self.check_for_if(model["dx"], model["dens"], _phi_ih)
         else:
-            isIF = False
+            isIF = True
 
         """ Set common init file """
         if init_file is not None:
