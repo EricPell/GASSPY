@@ -50,7 +50,7 @@ os.chdir(workdir)
 
 ## create GASSPY dir where all files specific to this snapshot is kept
 if not os.path.exists(args.gasspydir):
-    sys.exit("ERROR : cant find directory %s"%args.gasspydir)
+    os.makedirs(args.gasspydir)
 
 ## set prefix to snapshot specific files
 if args.sim_prefix is not None:
