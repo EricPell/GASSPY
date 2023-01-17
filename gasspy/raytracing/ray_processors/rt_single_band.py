@@ -23,29 +23,35 @@ class Single_band_radiative_transfer:
 
         self.raytracer = raytracer
     def load_database(self):
+        print("loading database")
         # Load the required energies
         self.energies = self.gasspy_database["energy"][:]
         deltaEnergies = np.zeros(self.energies.shape)
-        deltaEnergies[1:-1] = self.energies[2:] - self.energies[:-2]
-        deltaEnergies[0] = deltaEnergies[1]
-        deltaEnergies[-1] = deltaEnergies[-2]
+        edgesEnergies = np.zeros((self.energies.shape[0]+1))
+        edgesEnergies[1:-1] = (self.energies[1:] + self.energies[:-1])*0.5
+        edgesEnergies[0]  = 2*self.energies[0]  - edgesEnergies[1]
+        edgesEnergies[-1] = 2*self.energies[-1] - edgesEnergies[-1] 
+        
+        deltaEnergies[:] = edgesEnergies[1:] - edgesEnergies[:-1]
         
         # Initialize array of models
         em_models = np.zeros((self.gasspy_database["avg_em"].shape[0],  self.nbands))
         op_models = np.zeros((self.gasspy_database["tot_opc"].shape[0], self.nbands))
         for iband in range(self.nbands):
-            Eidxs = np.where((self.energies >= self.energy_lims[iband][0])*(self.energies<=self.energy_lims[iband][1]))[0]
+            Eidxs = np.where((edgesEnergies[1:] >= self.energy_lims[iband][0])*(edgesEnergies[:-1]<=self.energy_lims[iband][1]))[0]
 
             current_energies = self.energies[Eidxs]
-            current_deltaEnergies = deltaEnergies[Eidxs]
+            energy_left  = np.maximum(edgesEnergies[Eidxs]    , self.energy_lims[iband][0])
+            energy_right = np.minimum(edgesEnergies[Eidxs + 1], self.energy_lims[iband][1])
+            current_deltaEnergies = energy_right - energy_left
             # Figure out which gasspyIDs we need and remap to the new "snap specific" database 
             unique_gasspy_ids, self.cell_local_index = np.unique(self.cell_gasspy_index, return_inverse=True)
             # NOTE: np.unique returns sorted indexes. IF THIS EVER CHANGES WE NEED TO SORT MANUALLY
 
             # Total photons/s/cm^3 emitted from cell within energy range
-            em_models[:,iband] = np.sum(current_deltaEnergies*self.gasspy_database["avg_em"] [unique_gasspy_ids, Eidxs[0]:Eidxs[-1]+1]/(current_energies*(1*apyu.rydberg).cgs.value), axis = 1)/(4*np.pi)
+            em_models[:,iband] = np.sum(current_deltaEnergies*(1*apyu.rydberg).cgs.value*self.gasspy_database["avg_em"] [unique_gasspy_ids, Eidxs[0]:Eidxs[-1]+1]/(current_energies*(1*apyu.rydberg).cgs.value)**2, axis = 1)/(4*np.pi)
             # Average opacity of energy range
-            op_models[:,iband] = np.sum(current_deltaEnergies*self.gasspy_database["tot_opc"][unique_gasspy_ids, Eidxs[0]:Eidxs[-1]+1], axis = 1)/(current_energies[-1]-current_energies[0])
+            op_models[:,iband] = np.sum(current_deltaEnergies*self.gasspy_database["tot_opc"][unique_gasspy_ids, Eidxs[0]:Eidxs[-1]+1], axis = 1)/(energy_right[-1]-energy_left[0])
         
         self.em = em_models[self.cell_local_index,:]
         self.op = op_models[self.cell_local_index,:]
