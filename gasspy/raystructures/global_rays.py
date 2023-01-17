@@ -29,7 +29,8 @@ class global_ray_class(base_ray_class):
             "aid",
             "ray_lrefine",
             "amr_lrefine",
-            "cell_index"
+            "cell_index",
+            "ray_fractional_area"
         ]
         self.on_cpu = on_cpu
         if self.on_cpu:
