@@ -106,7 +106,6 @@ if args.recompile_cloudy_spectra_mesh:
 ##############################
 # III) Load config files and simulation reader 
 ##############################
-'''
 ## Load the fluxdef yaml file
 fluxdef = gasspy_io.read_fluxdef("./gasspy_fluxdef.yaml")
 
@@ -229,7 +228,7 @@ if not processor.args.log:
 
 ## clean up
 del(processor)
-'''
+
 ####################################
 #VI) Collect the models
 ####################################
