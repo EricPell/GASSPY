@@ -15,8 +15,8 @@ from gasspy.io.gasspy_io import read_fluxdef, read_yaml
 class cloudy_model_runner():
 
     def __init__(self, gasspy_config, indir, fluxdef_file, 
-        ForceFullDepth = False,
-        IF_ionfrac = 0.1):
+        force_full_depth_all = False,
+        IF_ionfrac = 0.01):
 
         self.energy_bins = None
         self.denergy_bins = None
@@ -29,7 +29,10 @@ class cloudy_model_runner():
         self.indir = indir
         if isinstance(gasspy_config, str):
             self.gasspy_config = read_yaml(gasspy_config)
-        self.ForceFullDepth = ForceFullDepth
+        else:
+            self.gasspy_config = gasspy_config
+        self.force_full_depth_all = force_full_depth_all
+        self.force_full_depth = self.force_full_depth_all
         self.IF_ionfrac = IF_ionfrac
 
         # Make sure that the directory exists
@@ -46,36 +49,49 @@ class cloudy_model_runner():
 
         # Set the default .ini file 
         self.get_ini_file()
+        self.line_labels = None
 
+        self.model_successful = True
+        self.read_line_data = False
+        self.skip = False
 
-
-        
-    def run_single_model(self, model, cloudy_path, model_name = "gasspy", linelist = None):
+    def run_single_model(self, model, cloudy_path, model_name = "gasspy", linelist = None, force_full_depth = False):
         root_dir = os.getcwd()
         os.chdir(self.indir)
+        
+        # set if we want to enforce full ionization front calculation
+        self.force_full_depth = force_full_depth or self.force_full_depth_all
         
         # Create in file
         self.create_in(model, model_name=model_name, linelist=linelist)
 
         # Run model
-        #cloudy_exe = cloudy_path + "/source/cloudy.exe"
-        #out = open(model_name+".out", "w")
-        #with subprocess.Popen([cloudy_exe, model_name+".in"], stdout=subprocess.PIPE) as p:
-        #    pass
-        #    out.write(p.stdout.read().decode("utf-8"))
-        #out.close()
+        cloudy_exe = cloudy_path + "/source/cloudy.exe"
+        out = open(model_name+".out", "w")
+        with subprocess.Popen([cloudy_exe, model_name+".in"], stdout=subprocess.PIPE) as p:
+            pass
+            out.write(p.stdout.read().decode("utf-8"))
+        out.close()
 
         # Reset quantities that were specific to the previous model
         self.total_depth = None
         self.delta_r = None
         self.n_zones = None
+
         os.chdir(root_dir)
+        # Check for model failure
+
+        self.model_successful = self.check_success()
+
         self.skip = False
         return
 
     """
         Methods for reading cloudy output files 
     """
+    def check_success(self, suff = ".spec_em"):
+        filename = self.indir + "/%s"%self.model_name+suff
+        return os.path.getsize(filename) > 1000
 
     def read_ebins(self, suff = ".ebins"):
         filename = self.indir + "/%s"%self.model_name+suff
@@ -87,6 +103,8 @@ class cloudy_model_runner():
         self.denergy_bins = df["d(anu)/Ryd"].to_numpy()[:self.n_energy_bins]
 
     def read_mol(self, suff=".mol"):
+        if not self.model_successful:
+            return 0 
         """Read the molecular data file, mostly to get out the depth array of the model"""
         filename = self.indir + "/%s"%self.model_name+suff
         with open(filename,"r") as f:
@@ -110,39 +128,43 @@ class cloudy_model_runner():
 
 
     def read_spec_em(self, suff = ".spec_em"):
+        if not self.model_successful:
+            return 0 
         filename = self.indir+"/%s"%self.model_name+suff
-        if self.isIF:
-            if self.delta_r is None or self.total_depth is None:
-                self.read_mol()
-            mydf = pandas.read_csv(
-                filename,
-                delimiter="\t",
-                comment="#",
-                header=None, na_filter=False, dtype=np.float64, low_memory=False)
+        #if self.isIF:
+        if self.delta_r is None or self.total_depth is None:
+            self.read_mol()
+        mydf = pandas.read_csv(
+            filename,
+            delimiter="\t",
+            comment="#",
+            header=None, na_filter=False, dtype=np.float64, low_memory=False)
 
-            data = np.array(mydf)
+        data = np.array(mydf)
 
-            if len(data[0,:]) > 0 and self.energy_bins is None:
+        if len(data[0,:]) > 0 and self.energy_bins is None:
 
-                self.read_ebins()
+            self.read_ebins()
 
-            data = data[1:,:]
-            avg_em = (data.T * self.delta_r).sum(axis=1)/float(self.total_depth)
+        data = data[1:,:]
+        avg_em = (data.T * self.delta_r).sum(axis=1)/float(self.total_depth)/(4*np.pi*self.energy_bins)
         
-        else:
-            mydf = pandas.read_csv(
-                filename,
-                delimiter="\t",
-                usecols=["#energy/Ryd", "Total"], na_filter=False, dtype=np.float64, low_memory=False)
-            data = np.array(mydf)
-            if len(data[:,0]) > 0 and self.energy_bins is None:
-                self.read_ebins()
-
-            avg_em = data[:,1].reshape(len(self.energy_bins))
+        #else:
+        #    mydf = pandas.read_csv(
+        #        filename,
+        #        delimiter="\t",
+        #        usecols=["#energy/Ryd", "Total"], na_filter=False, dtype=np.float64, low_memory=False)
+        #    data = np.array(mydf)
+        #    if len(data[:,0]) > 0 and self.energy_bins is None:
+        #        self.read_ebins()
+        
+        #    avg_em = data[:,1].reshape(len(self.energy_bins))
         
         return avg_em     
 
     def read_spec_op(self, suff=".spec_op"):
+        if not self.model_successful:
+            return 0 
         """ Read the multizone opacity spectrum"""
         filename = self.indir+"/%s"%self.model_name+suff
 
@@ -150,28 +172,32 @@ class cloudy_model_runner():
         if self.energy_bins is None and len(mydf["Tot opac"]) > 0 : 
             self.read_ebins()
 
-        if self.isIF:
-            if self.delta_r is None or self.total_depth is None:
-                self.read_mol()
-            #del mydf["#nu/Ryd"], mydf["elem"], mydf["Albedo"]
+        #if self.isIF:
+        if self.delta_r is None or self.total_depth is None:
+            self.read_mol()
+        #del mydf["#nu/Ryd"], mydf["elem"], mydf["Albedo"]
 
 
-            tau = (mydf["Tot opac"].iloc[0:self.n_energy_bins] * float(self.delta_r[0])).to_numpy()
+        tau = (mydf["Tot opac"].iloc[0:self.n_energy_bins] * float(self.delta_r[0])).to_numpy()
 
-            for izone in range(1, self.n_zones):
-                tau[:] += (mydf["Tot opac"].iloc[izone*self.n_energy_bins:(izone+1)*self.n_energy_bins] * self.delta_r[izone]).to_numpy()[:]
-            
-            tot_opc = tau / float(self.total_depth)
+        for izone in range(1, self.n_zones):
+            tau[:] += (mydf["Tot opac"].iloc[izone*self.n_energy_bins:(izone+1)*self.n_energy_bins] * self.delta_r[izone]).to_numpy()[:]
+        
+        tot_opc = tau / float(self.total_depth)
 
-        else:
-            #nu/Ryd	Tot opac	Abs opac	Scat opac	Albedo	elem
-            tot_opc = np.asarray(mydf["Tot opac"])
+        #else:
+        #    #nu/Ryd	Tot opac	Abs opac	Scat opac	Albedo	elem
+        #    tot_opc = np.asarray(mydf["Tot opac"])
 
         return tot_opc
         
     def read_line_em(self, suff = ".line_em"): 
+        if not self.model_successful:
+            return 0 
         if not self.read_line_data: 
             return None 
+        if self.delta_r is None or self.total_depth is None:
+            self.read_mol()
         filename = self.indir+"/%s"%self.model_name+suff
 
         df = pandas.read_csv(filename, delimiter = "\t") 
@@ -179,12 +205,16 @@ class cloudy_model_runner():
             self.line_labels = df.columns[1:].to_list() 
  
         line_em  = df.to_numpy()[:,1:].T 
-        avg_line_em = np.sum(line_em*self.delta_r, axis = 1)/float(self.total_depth) 
+        avg_line_em = np.sum(line_em*self.delta_r, axis = 1)/float(self.total_depth)/(4*np.pi)
         return avg_line_em 
  
     def read_line_op(self, suff = ".line_op"): 
+        if not self.model_successful:
+            return 0 
         if not self.read_line_data: 
             return None 
+        if self.delta_r is None or self.total_depth is None:
+            self.read_mol()
         filename = self.indir+"/%s"%self.model_name+suff
         df = pandas.read_csv(filename, delimiter = "\t") 
         if self.line_labels is None: 
@@ -307,7 +337,7 @@ class cloudy_model_runner():
 
         _phi_ih = 99.99
 
-        if self.ForceFullDepth is False:
+        if self.force_full_depth is False:
             """
                 When flux is defined as an intensity, explicitly calculating the number of ionizing photons requires using the SED.
                 To speed that up we calculate a min and max number of photons based on the limits. At the moment since we are not accounting for the
@@ -346,6 +376,9 @@ class cloudy_model_runner():
         self.set_spec_opacity_emiss(self.isIF)
         if linelist is not None:
             self.set_line_opacity_emiss(linelist, self.isIF)
+            self.read_line_data = True
+        else:
+            self.read_line_data = False
 
         """ Close input file """
         self.outfile.close()
@@ -354,7 +387,7 @@ class cloudy_model_runner():
 
     def check_for_if(self, cell_depth, cell_hden, cell_phi_ih, alpha=4.0e-13):
         """Check to see if cell contains a Hydrogen ionization front"""
-        if self.ForceFullDepth is True:
+        if self.force_full_depth is True:
             return True
         else:
             cell_depth = 10**cell_depth
@@ -364,37 +397,36 @@ class cloudy_model_runner():
                 ion_depth = cell_phi_ih_limit /(alpha * (10**(cell_hden))**2)
 
                 # Change hardcoded 1e13 to mean free path of ionizing photon in H0.
-                print(ion_depth/cell_depth, cell_phi_ih)
                 if ion_depth <= cell_depth and ion_depth/cell_depth > self.IF_ionfrac:
                     is_IF = True
             return is_IF
 
     def set_spec_opacity_emiss(self, model_is_ionization_front):
         self.outfile.write("save continuum bins \".ebins\" last\n")
-        if model_is_ionization_front:
-            """If an IF then we need to average over the entire cell"""
-            self.outfile.write("save diffuse continuum last zone \".spec_em\"\n")
-            self.outfile.write("save opacity total last every\".spec_op\"\n")
-        else:
-            """If not an IF we use the last zone to estimate emissivity and opacity"""
-            self.outfile.write("save diffuse continuum last \".spec_em\"\n")
-            self.outfile.write("save opacity total last \".spec_op\"\n")
+        #if model_is_ionization_front:
+        #    """If an IF then we need to average over the entire cell"""
+        self.outfile.write("save diffuse continuum last zone \".spec_em\"\n")
+        self.outfile.write("save opacity total last every\".spec_op\"\n")
+        #else:
+        #    """If not an IF we use the last zone to estimate emissivity and opacity"""
+        #    self.outfile.write("save diffuse continuum last \".spec_em\"\n")
+        #    self.outfile.write("save opacity total last \".spec_op\"\n")
 
     def set_line_opacity_emiss(self, linelist, model_is_ionization_front):
         # Emissivity
-        if model_is_ionization_front:
-            self.outfile.write("save lines, emissivity, \".line_em\" every no hash\n")
-        else:
-            self.outfile.write("save lines, emissivity, \".line_em\" last no hash\n")
+#        if model_is_ionization_front:
+        self.outfile.write("save lines, emissivity, \".line_em\" last no hash\n")
+#        else:
+        #self.outfile.write("save lines, emissivity, \".line_em\" last no hash\n")
         for line in linelist:
             self.outfile.write("%s\n"%line)
         self.outfile.write("end of lines\n")
 
         # Opacity
-        if model_is_ionization_front:
-            self.outfile.write("save lines, optical some, \".line_op\" every no hash\n")
-        else:
-            self.outfile.write("save lines, optical some, \".line_op\" last no hash\n")
+        #if model_is_ionization_front:
+        self.outfile.write("save lines, optical some, \".line_op\" last no hash\n")
+        #else:
+        #self.outfile.write("save lines, optical some, \".line_op\" last no hash\n")
         for line in linelist:
             self.outfile.write("%s\n"%line)
         self.outfile.write("end of lines\n")
@@ -417,9 +449,9 @@ class cloudy_model_runner():
             #Do not set constant temperature if IF exists
             self.outfile.write("set nend 5000\n")
 
-        if model_is_ionization_front is False:
+        #if model_is_ionization_front is False:
             #Set constant temperature if IF does not exist
-            self.outfile.write("set nend 10\n")
+            #self.outfile.write("set nend 100\n")
 
     def set_temperature(self, log10_temperature, is_ionization_front, force_Teq=False, force_Tconst=False, T_law=False):
         """Set constant temperature if not modeling the actual ionization front temp gradients"""
@@ -432,6 +464,8 @@ class cloudy_model_runner():
 
     def set_fluxes(self, model):
         for field in self.fluxdef.keys():
+            if model[field] <= self.gasspy_config["log10_flux_low_limit"][field]:
+                continue
             flux_value = model[field]+np.log10(self.fluxdef[field]["conversion"])
             if self.fluxdef[field]["unit"] in ["luminosity", "photon_count"]:
                 flux_value -= 2*model["dx"]
@@ -443,8 +477,8 @@ class cloudy_model_runner():
             if flux_type == "photon_count":
                 flux_type = "phi"
 
-            EminRyd = self.fluxdef[field]['Emin']/13.6
-            EmaxRyd = self.fluxdef[field]['Emax']/13.6
+            EminRyd = self.fluxdef[field]['Emin']/apyu.rydberg.to("eV")
+            EmaxRyd = self.fluxdef[field]['Emax']/apyu.rydberg.to("eV")
             if self.fluxdef[field]['shape'].endswith(".sed"):
                 self.outfile.write("table SED \"%s\"\n"%self.fluxdef[field]['shape'])
             else:
