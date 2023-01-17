@@ -17,7 +17,6 @@ import cupy
 import h5py as hp
 import argparse
 import importlib.util
-
 from gasspy.raytracing.raytracers import Raytracer_AMR_neighbor
 from gasspy.raytracing.ray_processors import Single_band_radiative_transfer
 from gasspy.raytracing.observers import observer_plane_class, observer_healpix_class
@@ -26,6 +25,7 @@ from gasspy.io import gasspy_io
 ap = argparse.ArgumentParser()
 #-------------DIRECTORIES AND FILES---------------#
 ap.add_argument("--simdir", default="./", help="Directory of the simulation and also default work directory")
+ap.add_argument("--config_yaml", default="./gasspy_config.yaml")
 ap.add_argument("--workdir", default= None, help="work directory. If not specified its the same as simdir")
 ap.add_argument("--gasspydir", default="GASSPY", help="directory inside of simdir to put the GASSPY files")
 ap.add_argument("--modeldir" , default="GASSPY", help = "directory inside of workdir where to read, put and run the cloudy models")
@@ -78,9 +78,10 @@ else:
 fluxdef = gasspy_io.read_fluxdef("./gasspy_fluxdef.yaml")
 
 ## Load the gasspy_config yaml
-gasspy_config = gasspy_io.read_fluxdef("./gasspy_config.yaml")
+gasspy_config = gasspy_io.read_fluxdef(args.config_yaml)
 
 ## Load the simulation data class from directory
+print("Initializing simulation reader")
 spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
 reader_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reader_mod)
@@ -169,7 +170,9 @@ if bband_data is not None:
 maxflux = np.zeros(len(energy_limits))
 ## Initialize the raytracer and ray_processer
 raytracer = Raytracer_AMR_neighbor(sim_reader, gasspy_config, bufferSizeCPU_GB = max_mem_CPU, bufferSizeGPU_GB = max_mem_GPU, no_ray_splitting=False, liteVRAM = args.liteVRAM, NcellBuff=16)
+print("Initializing ray_processor")
 ray_processor = Single_band_radiative_transfer(raytracer, gasspy_database, cell_gasspy_index, energy_limits, liteVRAM=args.liteVRAM)
+print("Setting ray_processor")
 raytracer.set_ray_processor(ray_processor)
 
 for idir in range(len(pov_center)):
@@ -185,8 +188,10 @@ for idir in range(len(pov_center)):
     else:
         observer = observer_plane_class  (gasspy_config, observer_center = observer_center[idir,:], pov_center = pov_center[idir,:])
     ## set observer
+    print("Updating observer")
     raytracer.update_obsplane(obs_plane = observer)
     ## run
+    print("Running raytrace")
     raytracer.raytrace_run()
     
     
