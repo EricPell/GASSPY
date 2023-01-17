@@ -22,7 +22,7 @@ ap.add_argument("--xlims", default=None, type = float, nargs = 2)
 ap.add_argument("--ylims", default=None, type = float, nargs = 2)
 ap.add_argument("--nx", default=None, type = int)
 ap.add_argument("--ny", default=None, type = int)
-ap.add_argument("--outdir",default="./")
+ap.add_argument("--outdir",default=None)
 ap.add_argument("--vlims", default = None, type = float, nargs = 2)
 ap.add_argument("--colormap", default="viridis")
 ap.add_argument("--idirs", default=None, nargs = "+", type = int)
@@ -269,8 +269,11 @@ for idir in idirs:
             divider = make_axes_locatable(axes[1])
             cax = divider.append_axes("right", size = "2.5%", pad = 0.03)
             cbar = fig.colorbar(P, cax = cax)
-            plt.savefig(args.outdir+"%s_flux_%05d"%(line,idir), dpi = 300)
-            plt.close(fig)
+            if args.outdir is not None:
+                plt.savefig(args.outdir+"%s_flux_%05d"%(line,idir), dpi = 300)
+                plt.close(fig)
+            else:
+                plt.show()
             ##
         
     #np.save("%s/habands_frame_%05d.npy"%(args.outdir, idir), np.log10(plotmap).astype(np.float16))
