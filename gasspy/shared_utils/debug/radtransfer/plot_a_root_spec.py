@@ -20,6 +20,7 @@ ap.add_argument("--ylims", nargs = 2, default = None, type = float)
 ap.add_argument("--outpath", default = None)
 ap.add_argument("--no_legend", action = "store_true")
 ap.add_argument("--pos_in_code_units", action = "store_true")
+ap.add_argument("--marker", default= None, type = str)
 args=ap.parse_args()
 
 assert len(args.xp) == len(args.yp), "xp and yp are required to have the same shape"
@@ -61,13 +62,13 @@ for i in range(len(args.xp)):
         yp = args.yp[i]/ysize
     Eplot, flux, line, bband= reader.read_spec(xp, yp, Elims = Elims, return_integrated_line = True, return_broadband = True)
     np.save("spec_%f_%f.npy"%(args.xp[i], args.yp[i]),np.array([Eplot,flux]) )
-    plt.plot(Eplot, flux, label = "xp = %.3e, yp=%.3e"%(xp,yp), color = colors[i], marker = "x")
+    plt.plot(Eplot, flux, label = "xp = %.3e, yp=%.3e"%(xp,yp), color = colors[i], marker = args.marker)
     print("xp = %.4e, yp = %.4e: line = %.4e bband = %.4e"%(xp, yp, line, bband))
 if not args.no_legend:
     plt.legend()
 plt.xscale("log")
 plt.yscale("log")
-plt.ylabel(r"$4\pi \nu J_\nu$ [erg/cm$^2$/s]")
+plt.ylabel(r"$\nu F_\nu$ [code units]")
 plt.xlim(Emin, Emax)
 plt.ylim(args.ylims)
 plt.xlabel(r"$E_\gamma$ [Ryd]")
