@@ -59,11 +59,15 @@ class cloudy_model_runner():
         root_dir = os.getcwd()
         os.chdir(self.indir)
         
+        self.model = model
+        self.model_name = model_name
+        self.linelist = linelist
+
         # set if we want to enforce full ionization front calculation
         self.force_full_depth = force_full_depth or self.force_full_depth_all
         
         # Create in file
-        self.create_in(model, model_name=model_name, linelist=linelist)
+        self.create_in()
 
         # Run model
         cloudy_exe = cloudy_path + "/source/cloudy.exe"
@@ -225,6 +229,7 @@ class cloudy_model_runner():
         return avg_line_op
 
     def get_error(self, suff = ".out"):
+        problems = []
         filename = self.indir+"/%s"%self.model_name+suff
         with open(filename,"r") as f:
             lines = f.readlines()
@@ -233,10 +238,10 @@ class cloudy_model_runner():
             for line in lines:
                 if line.startswith(" PROBLEM"):
                     problem_line = line.strip("\n").strip(" PROBLEM ")
-                    if problem_line in self.problem_dict.keys():
-                        self.problem_dict[problem_line].append(int(filename.split("-")[1]))
-                    else:
-                        self.problem_dict[problem_line] = [int(filename.split("-")[1])]
+                    if problem_line not in problems:
+                        problems.append(problem_line)
+        return problems
+
     
 
     def read_all(self, modelname):
@@ -327,13 +332,19 @@ class cloudy_model_runner():
     """
         Methods for setting parameters for the current model
     """
-    def create_in(self, model, model_name = "gasspy", linelist = None):
+    def create_in(self, model = None, model_name = None, linelist = None, force_Teq = False):
         """
             Main function to create the .in file
         """
-        self.model_name = model_name
+        if model is not None:
+            self.model = model
+        if model_name is not None:
+            self.model_name = model_name
+        if linelist is not None:
+            self.linelist = linelist
+
         self.outfile = open(self.model_name+".in", "w")
-        self.outfile.write("set save prefix \"%s\"\n"%model_name)
+        self.outfile.write("set save prefix \"%s\"\n"%self.model_name)
 
         _phi_ih = 99.99
 
@@ -347,18 +358,18 @@ class cloudy_model_runner():
             for field in self.fluxdef.keys():
                 if self.fluxdef[field]['Emin'] > 13.5984:
                     if self.fluxdef[field]["unit"] == 'phi':
-                        _phi_ih[0] += 10**model[field] * self.fluxdef[field]["conversion"]
-                        _phi_ih[1] += 10**model[field] * self.fluxdef[field]["conversion"]
+                        _phi_ih[0] += 10**self.model[field] * self.fluxdef[field]["conversion"]
+                        _phi_ih[1] += 10**self.model[field] * self.fluxdef[field]["conversion"]
                     elif self.fluxdef[field]["unit"] == "photon_count":
-                        _phi_ih[0] += 10**(model[field] - 2*model["dx"]) * self.fluxdef[field]["conversion"]
-                        _phi_ih[1] += 10**(model[field] - 2*model["dx"])* self.fluxdef[field]["conversion"]
+                        _phi_ih[0] += 10**(self.model[field] - 2*self.model["dx"]) * self.fluxdef[field]["conversion"]
+                        _phi_ih[1] += 10**(self.model[field] - 2*self.model["dx"])* self.fluxdef[field]["conversion"]
                     elif self.fluxdef[field] == 'intensity':
-                        phi_from_min = 10**model[field] / (self.fluxdef[field]['Emin']*apyu.eV).to("erg").value
-                        phi_from_max = 10**model[field] / (self.fluxdef[field]['Emax']*apyu.eV).to("erg").value
+                        phi_from_min = 10**self.model[field] / (self.fluxdef[field]['Emin']*apyu.eV).to("erg").value
+                        phi_from_max = 10**self.model[field] / (self.fluxdef[field]['Emax']*apyu.eV).to("erg").value
                         _phi_ih[0] += phi_from_min
                         _phi_ih[1] += phi_from_max
                 
-            self.isIF = self.check_for_if(model["dx"], model["dens"], _phi_ih)
+            self.isIF = self.check_for_if(self.model["dx"], self.model["dens"], _phi_ih)
         else:
             self.isIF = True
 
@@ -366,16 +377,16 @@ class cloudy_model_runner():
         self.set_cloudy_init_file()
 
         """ Write individual cloudy parameters to input file """
-        self.set_depth(model["dx"])
-        self.set_hden(model["dens"])
+        self.set_depth(self.model["dx"])
+        self.set_hden(self.model["dens"])
         self.set_nend(self.isIF)
-        self.set_temperature(model["temp"], self.isIF)
+        self.set_temperature(self.model["temp"], self.isIF, force_Teq=force_Teq)
 
-        self.set_fluxes(model)
+        self.set_fluxes(self.model)
 
         self.set_spec_opacity_emiss(self.isIF)
-        if linelist is not None:
-            self.set_line_opacity_emiss(linelist, self.isIF)
+        if self.linelist is not None:
+            self.set_line_opacity_emiss(self.linelist, self.isIF)
             self.read_line_data = True
         else:
             self.read_line_data = False
@@ -401,8 +412,9 @@ class cloudy_model_runner():
                     is_IF = True
             return is_IF
 
-    def set_spec_opacity_emiss(self, model_is_ionization_front):
-        self.outfile.write("save continuum bins \".ebins\" last\n")
+    def set_spec_opacity_emiss(self, model_is_ionization_front, force_continuum_bins = False):
+        if force_continuum_bins or self.energy_bins is None:
+            self.outfile.write("save continuum bins \".ebins\" last\n")
         #if model_is_ionization_front:
         #    """If an IF then we need to average over the entire cell"""
         self.outfile.write("save diffuse continuum last zone \".spec_em\"\n")
@@ -514,3 +526,63 @@ class cloudy_model_runner():
         """
         if os.path.exists(filename):
             os.remove(filename)
+
+
+
+    """
+
+        Methods for handling failed models
+    
+    """
+
+    def handle_model_failure(self, cloudy_path):
+        problems = self.get_error()
+
+        convergence_error = False
+
+        for problem in problems:
+            if "not converged" in problem:
+                convergence_error = True
+
+        if convergence_error:
+            # See if we should rerun this model without fixed temperature 
+            if "failure_unfix_temperature_in_ranges" in self.gasspy_config:
+                ranges = self.gasspy_config["failure_unfix_temperature_in_ranges"]
+                rerun = True
+                
+                # loop over all supplied model parameters
+                for key in ranges.keys():
+                    if 10**self.model[key] < ranges[key][0] or self.model[key] > ranges[key][1]:  
+                        rerun = False         
+                
+                # If model lies within the ranges, rerun but force Teq
+                if rerun:
+                    root_dir = os.getcwd()
+                    os.chdir(self.indir)
+                    self.create_in(force_Teq= True)
+
+                    # Run model
+                    cloudy_exe = cloudy_path + "/source/cloudy.exe"
+                    out = open(self.model_name+".out", "w")
+                    with subprocess.Popen([cloudy_exe, self.model_name+".in"], stdout=subprocess.PIPE) as p:
+                        pass
+                        out.write(p.stdout.read().decode("utf-8"))
+                    out.close()
+
+                    # Reset quantities that were specific to the previous model
+                    self.total_depth = None
+                    self.delta_r = None
+                    self.n_zones = None
+                
+                    os.chdir(root_dir)
+
+                    # recheck for model failure
+                    self.model_successful = self.check_success()
+
+                    if self.model_successful:
+                        problems = ["Convergence error - fixed with Teq"]
+
+        return problems
+
+
+
