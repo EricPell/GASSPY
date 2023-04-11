@@ -15,6 +15,7 @@ import sys
 import numpy as np
 import cupy
 import torch
+import gc
 
 import argparse
 import importlib.util
@@ -25,6 +26,7 @@ from gasspy.raytracing.ray_processors import Raytrace_saver
 from gasspy.raytracing.observers import observer_plane_class, observer_healpix_class
 from gasspy.radtransfer.rt_trace import Trace_processor
 from gasspy.io import gasspy_io
+from gasspy.shared_utils.gpu_util.gpu_memory import free_memory
 
 ap = argparse.ArgumentParser()
 #-------------DIRECTORIES AND FILES---------------#
@@ -119,7 +121,7 @@ if not os.path.exists(trace_file) or args.rerun_raytrace:
     ray_processor = Raytrace_saver(raytracer)
     raytracer.set_ray_processor(ray_processor)
     ## set observer
-    raytracer.update_obsplane(obs_plane = observer)
+    raytracer.update_observer(observer = observer)
 
     ## run
     print(" - running raytrace")
@@ -132,7 +134,10 @@ if not os.path.exists(trace_file) or args.rerun_raytrace:
     ## clean up a bit
     del raytracer
     del observer
-
+    ray_processor.clean()
+    del ray_processor
+    free_memory()
+    gc.collect()
 ##########################
 # IV) Radiative transfer
 ##########################
