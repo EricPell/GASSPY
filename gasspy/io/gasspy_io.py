@@ -132,3 +132,15 @@ def read_gasspy_config_hdf5(gasspy_config, h5file):
     # Loop through all of entries into the group and add them to the dictionary
     for key in config_grp.keys():
         read_value_to_dict(key, gasspy_config, config_grp)
+
+
+def check_parameter_in_config(gasspy_config : dict, parameter: str, supplied_value, default_value):
+    """
+        Determines which value to choose for parameter
+    """
+    if supplied_value is not None:
+        return supplied_value
+    elif parameter in gasspy_config:
+        return gasspy_config[parameter]
+    else:
+        return default_value
