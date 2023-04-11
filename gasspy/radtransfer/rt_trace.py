@@ -405,6 +405,7 @@ class Trace_processor():
         self.raydump_dict['segment_global_rayid'] = self.traced_rays_h5file['ray_segments']['global_rayid'][:]
         self.raydump_dict["pathlength"] = self.traced_rays_h5file["ray_segments"]["pathlength"][:,:].astype(self.dtype)*self.dtype(self.sim_unit_length)
         self.raydump_dict["ray_area"] = self.traced_rays_h5file["ray_segments"]["ray_area"][:,:]
+        self.raydump_dict["solid_angle"] = self.traced_rays_h5file["ray_segments"]["solid_angle"][:,:]
         self.raydump_dict["cell_index"] = self.traced_rays_h5file["ray_segments"]["cell_index"][:,:]
 
         self.raydump_dict["splitEvents"] = self.traced_rays_h5file["splitEvents"][:,:]
@@ -474,6 +475,7 @@ class Trace_processor():
         # The last element of each of the following arrays is assumed to be zero, and is used for out of bound indexes, which will have values -1.
         self.raydump_dict["pathlength"] = np.vstack([self.raydump_dict["pathlength"], np.zeros(self.raydump_dict["pathlength"].shape[1], dtype = self.dtype)])
         self.raydump_dict["ray_area"] = np.vstack([self.raydump_dict["ray_area"], np.zeros(self.raydump_dict["ray_area"].shape[1], dtype = self.dtype)])
+        self.raydump_dict["solid_angle"] = np.vstack([self.raydump_dict["solid_angle"], np.zeros(self.raydump_dict["solid_angle"].shape[1], dtype = self.dtype)])
 
         # Padd the last value with zero, so that indexing to -1 is safe when doing RT
         self.em = np.vstack([self.em.T, np.zeros(self.em.shape[0], dtype = self.dtype)]).T
@@ -736,6 +738,7 @@ class Trace_processor():
             segment_iray         = torch.zeros((nsegs), device=cuda_device, dtype=torch.int64)
             segment_pathlength   = torch.zeros((nsegs, self.raydump_dict["NcellPerRaySeg"]), device=cuda_device, dtype=self.torch_dtype)
             segment_ray_area     = torch.zeros((nsegs, self.raydump_dict["NcellPerRaySeg"]), device=cuda_device, dtype=self.torch_dtype)
+            segment_solid_angle  = torch.zeros((nsegs, self.raydump_dict["NcellPerRaySeg"]), device=cuda_device, dtype=self.torch_dtype)
 
         else:
             ray_segment_istart   = cupy.zeros((iray_end - iray_start), dtype=np.int64)
@@ -743,6 +746,7 @@ class Trace_processor():
             segment_iray         = cupy.zeros((nsegs), dtype=np.int64)
             segment_pathlength   = cupy.zeros((nsegs, self.raydump_dict["NcellPerRaySeg"]), dtype=self.dtype)
             segment_ray_area     = cupy.zeros((nsegs, self.raydump_dict["NcellPerRaySeg"]), dtype=self.dtype)
+            segment_solid_angle  = cupy.zeros((nsegs, self.raydump_dict["NcellPerRaySeg"]), dtype=self.dtype)
 
 
         iseg = 0
@@ -770,11 +774,13 @@ class Trace_processor():
 
             # Set ray-cell intersection properties
             if self.accel == "torch":
-                segment_pathlength[iseg:iseg+nsegs] = torch.as_tensor(self.raydump_dict["pathlength"][trace_segment_istart:trace_segment_iend,:], device = cuda_device)
-                segment_ray_area[iseg:iseg+nsegs]   = torch.as_tensor(self.raydump_dict["ray_area"][trace_segment_istart:trace_segment_iend,:], device = cuda_device)
+                segment_pathlength[iseg:iseg+nsegs]  = torch.as_tensor(self.raydump_dict["pathlength"][trace_segment_istart:trace_segment_iend,:], device = cuda_device)
+                segment_ray_area[iseg:iseg+nsegs]    = torch.as_tensor(self.raydump_dict["ray_area"][trace_segment_istart:trace_segment_iend,:], device = cuda_device)
+                segment_solid_angle[iseg:iseg+nsegs] = torch.as_tensor(self.raydump_dict["solid_angle"][trace_segment_istart:trace_segment_iend,:], device = cuda_device)
             else:
-                segment_pathlength[iseg:iseg+nsegs] = cupy.ndarray(self.raydump_dict["pathlength"][trace_segment_istart:trace_segment_iend,:])
-                segment_ray_area[iseg:iseg+nsegs]   = cupy.ndarray(self.raydump_dict["ray_area"][trace_segment_istart:trace_segment_iend,:])
+                segment_pathlength[iseg:iseg+nsegs]  = cupy.ndarray(self.raydump_dict["pathlength"][trace_segment_istart:trace_segment_iend,:])
+                segment_ray_area[iseg:iseg+nsegs]    = cupy.ndarray(self.raydump_dict["ray_area"][trace_segment_istart:trace_segment_iend,:])
+                segment_solid_angle[iseg:iseg+nsegs] = cupy.ndarray(self.raydump_dict["solid_angle"][trace_segment_istart:trace_segment_iend,:])
 
 
             if self.liteVRAM:
@@ -796,6 +802,7 @@ class Trace_processor():
                 "cell_indexes" : segment_cell_index,
                 "pathlengths"  : segment_pathlength,
                 "ray_areas"    : segment_ray_area,
+                "solid_angle"  : segment_solid_angle,
                 "segment_iray" : segment_iray,
                 "segment_global_rayids" : segment_global_rayids,
                 "rays_segment_istart": ray_segment_istart,
@@ -956,6 +963,7 @@ class Trace_processor():
         cell_indexes = segments["cell_indexes"]
         pathlengths  = segments["pathlengths"]
         ray_area     = segments["ray_areas"]
+        solid_angle  = segments["solid_angle"]
 
         if self.liteVRAM:
             # If the emissivity and opacity tables are not on GPU, reduce data transfer by only taking unique gasspy_ids
@@ -992,7 +1000,7 @@ class Trace_processor():
         # Take from emissivity to flux 
         torch.multiply(emissivity, pathlengths, out = emissivity)
         # Take from flux to counts
-        torch.multiply(emissivity, ray_area,    out = emissivity)
+        torch.multiply(emissivity, torch.multiply(ray_area, solid_angle),    out = emissivity)
 
         # Apply attenuation from local cell (approximation as half the cell)
         # TODO: Should be changed to em*(1-exp(op*pathlength))/op, but where opacity is zero might cause issues

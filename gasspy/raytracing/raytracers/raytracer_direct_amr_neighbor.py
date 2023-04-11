@@ -2,7 +2,6 @@ import cupy
 import numpy as np
 import sys
 import h5py
-from gasspy.raytracing.ray_processors.raytrace_saver import Raytrace_saver
 from .raytracer_amr_base import Raytracer_AMR_Base
 
 from gasspy.raytracing.utils.gpu2cpu import pipeline as gpu2cpu_pipeline
@@ -138,8 +137,7 @@ class Raytracer_AMR_neighbor(Raytracer_AMR_Base):
         return
 
 
-    def raytrace_onestep(self):
- 
+    def __kernel_specific_raytrace_onestep__(self):
         #debug_ray = cupy.where(self.active_rays.get_field("global_rayid") == 8613159)[0]
         #if len(debug_ray)>0:
         #    print("Before")
@@ -184,7 +182,7 @@ class Raytracer_AMR_neighbor(Raytracer_AMR_Base):
                         ))
  
         # Update area to be half way point through cell before saving to buffers
-        self.obs_plane.update_ray_area(self.active_rays, back_half = True)
+        self.observer.update_ray_area(self.active_rays, back_half = True)
   
         # Store in the buffer
         self.store_in_buffer()
@@ -223,6 +221,7 @@ class Raytracer_AMR_neighbor(Raytracer_AMR_Base):
     def store_in_buffer(self):
         # store in buffer        
         self.__store_in_buffer__()
+        self.ray_processor.store_in_buffer()
         self.active_rays.field_add("buffer_current_step", 1)
         # Use a mask, and explicitly set mask dtype. This prevents creating a mask value with the default cudf/cupy dtypes, and saving them to arrays with different dtypes.
         # Currently this just throws warnings if they are different dtypes, but this behavior could be subject to change which may produce errors or worse...
@@ -306,7 +305,7 @@ if __name__ == "__main__":
     observer = observer_plane_class(gasspy_config)
 
     ## set observer
-    raytracer.update_obsplane(obs_plane = observer)
+    raytracer.update_observer(observer = observer)
 
     ## run
     print(" - running raytrace")

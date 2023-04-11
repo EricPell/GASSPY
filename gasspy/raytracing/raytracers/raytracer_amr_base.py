@@ -2,7 +2,6 @@ import cupy
 import numpy as np
 import sys
 import h5py
-from gasspy.raytracing.ray_processors.raytrace_saver import Raytrace_saver
 
 from gasspy.raytracing.utils.gpu2cpu import pipeline as gpu2cpu_pipeline
 from gasspy.raystructures import active_ray_class, traced_ray_class
@@ -12,14 +11,14 @@ from gasspy.shared_utils.functions import sorted_in1d
 from gasspy.io import gasspy_io
 
 class Raytracer_AMR_Base:
-    def __init__(self, sim_reader, gasspy_config, obs_plane = None, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 20, NcellBuff  = 64, raster=1, no_ray_splitting = False, liteVRAM = False):
+    def __init__(self, sim_reader, gasspy_config, observer = None, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 20, NcellBuff  = 64, raster=1, no_ray_splitting = False, liteVRAM = False):
         self.liteVRAM = liteVRAM
 
         self.set_new_sim_data(sim_reader, gasspy_config)
         """
             Input:
                 sim_data, required - simulation_data_class object containing the needed data from the simulation
-                obs_plane          - initial obs_plane definition, can be set later 
+                observer          - initial observer definition, can be set later 
                 line_labels        - Names of the wanted lines
                 savefiles          - Boolean flag if user wants to save the resulting fluxes or not as fits and npys
                 NcellBuff          - integer describing the number of cells a ray will hold in the buffer before
@@ -28,10 +27,10 @@ class Raytracer_AMR_Base:
         # Initially set ray processor to None
         self.ray_processor = None
         self.threads_per_block = 64
-        if obs_plane is not None:
-            self.set_obsplane(obs_plane)
+        if observer is not None:
+            self.set_observer(observer)
         else:
-            self.obs_plane = None
+            self.observer = None
         self.savefiles = savefiles
 
         # These keys need to be intialized at the transfer of an array from the global_rays to the active_rays data structures
@@ -50,18 +49,14 @@ class Raytracer_AMR_Base:
         #   cell_index       : 64b bit int to describe highly sims with some safety index
         #   path_length      : 64b or... 8 bit in log if someone wants to sacrifies a flop for a lot of memory
         #   ray_area         : 64b float
-        oneRayCell = 272
+        self.oneRayCell = 272
 
         # Use this to determine the number of buffer cells we can afford for a given total memory and number of buffered rays.
         self.NcellBuff = NcellBuff
         self.bufferSizeGPU_GB = bufferSizeGPU_GB
         self.bufferSizeCPU_GB = bufferSizeCPU_GB
 
-        self.NrayBuff = int(bufferSizeGPU_GB * 8*1024**3 / (4*NcellBuff * oneRayCell))
-        self.NraySegs = int(bufferSizeCPU_GB * 8*1024**3 / (NcellBuff * oneRayCell)) 
-        # Call the method to allocate the buffers and the gpu2cpu pipes
-        self.init_active_rays()
-
+        self.NrayBuff = int(bufferSizeGPU_GB * 8*1024**3 / (NcellBuff * self.oneRayCell))
         self.no_ray_splitting = no_ray_splitting
 
         if "ray_lrefine_max" in gasspy_config:
@@ -69,64 +64,23 @@ class Raytracer_AMR_Base:
         else:
             self.ray_lrefine_max = ray_defaults["ray_lrefine_max"]
 
+
     """
-        Externally used methods    
+        Table of contents:
+
+            (I) Data management
+            (II) Ray management
+            (III) Ray splitting
+            (IV) Ray tracing 
+            (V) Buffer management  
     """
 
-    def raytrace_run(self, save = True, saveprefix = None):
-        """
-            Main method to run the ray tracing     
-        """
-        assert self.global_rays is not None, "Need to define rays with an observer class"
 
-        # Need to check that the user has set a ray processor, otherwise chose default
-        if self.ray_processor is None:
-            self.set_ray_processor()
-
-        # start by moving all cells outside of box to the first intersecting cell
-        self.move_to_first_intersection()
-        
-        # Send as many rays as possible to the active_rayDF and associated buffers
-        self.activate_new_rays(N = min(self.NrayBuff, self.global_rays.nrays))
-
-        print("step\tnactive\t\tnfinished\tntotal")
-        # transport rays until all rays are outside the box
-        i = 0
-        self.first_step = cupy.int8(1)
-        # changed to a wrapper method call for easier optmization
-        while(self.check_trace_status()):
-            # transport the rays through the current cell
-            self.raytrace_onestep()
-
-            self.update_rays()
-            i+=1
-
-            if i%100 == 0:
-                print("%d\t%d\t\t%d\t\t%d"%(i, self.active_rays.nactive, self.global_Nraysfinished, self.global_rays.nrays))
-
-
-        # Dump the buffer one last time. Should be unneccesary depending on the stopping condition
-        self.ray_processor.process_buff(cupy.arange(self.active_rays.nactive))
-        self.ray_processor.finalize()
-
-    def set_ray_processor(self, ray_processor = None):
-        if ray_processor is None:
-            print("NOTE: no ray_processor has been chosen. Defaulting to raytrace saver and saving all rays")
-            from gasspy.raytracing.ray_processors import Raytrace_saver
-            # Pass reference to self to raytrace saver. 
-            self.ray_processor = Raytrace_saver(self)
-        else:
-            self.ray_processor = ray_processor
-        # We know the active rays are here, so lets set fields
-        self.ray_processor.init_active_ray_fields()
-
-
-    def save_trace(self, filename):
-        #try: 
-        self.ray_processor.save_trace(filename)
-        #except:
-        #    print("ERROR: Chosen ray processor cant save_trace")
-
+    """
+    
+        (I) Data management
+    
+    """
     def set_new_sim_data(self, sim_reader, gasspy_config):
         """
             Method to take an observer plane set internal values 
@@ -184,14 +138,17 @@ class Raytracer_AMR_Base:
         #Save a local GASSPY config
         self.gasspy_config = gasspy_config
 
-    def set_obsplane(self, obs_plane):
+    def __kernel_specific_set_new_sim_data__(self, sim_reader, gasspy_config):
+        return
+
+    def set_observer(self, observer):
         """
             Method to take an observer plane set global_rays
         """
 
-        self.update_obsplane(obs_plane)
+        self.update_observer(observer)
 
-    def update_obsplane(self, obs_plane, prefix = None):
+    def update_observer(self, observer, prefix = None):
         """
             Method to take an observer plane and set global_rays if the observer has changed
         """
@@ -200,10 +157,10 @@ class Raytracer_AMR_Base:
         self.global_Nsplit_events = -1
         self.global_index_of_last_ray_added = -1
 
-        self.obs_plane = obs_plane
+        self.observer = observer
 
         # get the first rays from the observation plane classes definitions
-        self.global_rays = self.obs_plane.get_first_rays()
+        self.global_rays = self.observer.get_first_rays()
         print(self.global_rays.nrays, self.global_rays.get_field("global_rayid")[-1] )
         self.ray_processor.init_global_ray_fields()
         self.ray_processor.update_global_ray_fields()
@@ -211,10 +168,10 @@ class Raytracer_AMR_Base:
 
         # initialize the number of split
         self.total_Nsplits = 0
-
-
     """
-        Internally used methods    
+    
+        (II) Ray management
+    
     """
     def check_trace_status(self):
         """
@@ -226,10 +183,11 @@ class Raytracer_AMR_Base:
 
     def init_active_rays(self):
         """
-            super call to initialize the active_rayDF and allocate the buffers and pipes for GPU2CPU transfer and storage
+            super call to initialize the active_rays and allocate the buffers 
         """
 
         self.active_rays = active_ray_class(nrays = self.NrayBuff)
+        self.ray_processor.init_active_ray_fields()
         self.Nactive = 0
         self.alloc_buffer()
 
@@ -244,7 +202,7 @@ class Raytracer_AMR_Base:
         # and prune from active_rayDF and set number of available slots
 
         # Get all rays that need to have their buffers dumped, regardles of whether the ray has filled its buffer or is just done
-        # and dump these rays to the system memory using the gpu2cpu_pipeline objects
+        # and tell the ray_processor to process the cell intersections so that they can be removed
         active_indexes_to_dump = cupy.where(self.active_rays.get_field("ray_status") > 0)[0]
         self.ray_processor.process_buff(active_indexes_to_dump, full = True)
         self.clean_buff(active_indexes_to_dump, full = True)
@@ -266,7 +224,7 @@ class Raytracer_AMR_Base:
         if(navail == 0):
             return
         self.activate_new_rays(N=navail)
-        pass
+        return
     
     def activate_new_rays(self, N=None):
         if N is None:
@@ -305,7 +263,7 @@ class Raytracer_AMR_Base:
         # Set the current area of the rays
         # given the observer plane, we might have different ways of setting the area of a ray
         # so we set this as a function of the observer plane
-        self.obs_plane.set_ray_area(self.active_rays)
+        self.observer.set_ray_area(self.active_rays)
 
         # Let ray processors do their things
         self.ray_processor.update_active_ray_fields()
@@ -330,26 +288,7 @@ class Raytracer_AMR_Base:
                 self.activate_new_rays(N=navail)
 
         return
-    def clean_buff(self, active_rays_indexes_todump, full = False):
-        indexes_in_buffer = self.active_rays.get_field("active_rayDF_to_buffer_map", index = active_rays_indexes_todump, full = full)
-        # reset the buffers 
-        self.buff_pathlength[indexes_in_buffer, :]  = ray_defaults["pathlength"]
-        self.buff_amr_lrefine[indexes_in_buffer, :] = ray_defaults["amr_lrefine"]
-        self.buff_ray_area[indexes_in_buffer, :]    = ray_defaults["ray_area"]
 
-        self.buff_cell_index[indexes_in_buffer,:]   = ray_defaults["cell_index"]
-
-        #TODO: Change the raystatus flag to a bitmask (https://www.sdss.org/dr12/algorithms/bitmasks/) so that we can know both if a ray buffer is filled AND terminated due to boundary or refined, terminated for any reason while it's buffer is full
-        # This would be a nice improvement, as the next bit of code would then be removable because we wouldn't need to check for pathlengths when dumping buffers
-        #TODO: If above todo is finished remove next
-        # rays that are not pruned but are dumped due to filling their buffer has to have their status updated somewhere
-        # reset the buffer index of the rays that have been dumped and add one to the number of dumps the ray have done
-        self.active_rays.buffer_current_step[active_rays_indexes_todump] = 0
-        self.active_rays.dump_number[active_rays_indexes_todump] += 1
-
-        not_terminated = cupy.where(self.active_rays.get_field("ray_status", index = active_rays_indexes_todump) == ray_dtypes["ray_status"](1))[0]       
-        self.active_rays.set_field("ray_status", ray_dtypes["ray_status"](0), index = active_rays_indexes_todump[not_terminated])    
-       
     def prune_active_rays(self, indexes_to_drop):
         """
             Gather all rays that need to be deactivatd.
@@ -368,14 +307,215 @@ class Raytracer_AMR_Base:
         self.global_Nraysfinished += len(buff_slot_newly_freed)
 
         self.buff_slot_occupied[buff_slot_newly_freed] = 0
-        # Buffer to store the ray id, since these will become unordered as random rays are added and removed
-        #self.buff_global_rayid[buff_slot_newly_freed, :] = -1
-
-        # Save the last cell index traced by the ray
-        #self.global_rays.set_field("cell_index", self.active_rays.get_field("cell_index", index=indexes_to_drop), index = self.active_rays.get_field("global_rayid", index=indexes_to_drop))
 
         # Remove rays that have terminated
         self.active_rays.remove_rays(indexes_to_drop)
+
+    def append_shared_active_key(self, key):
+        self.shared_column_keys.append(key)
+
+    def append_new_active_key(self, key, dtype = None, default = None):
+        self.new_keys_for_active_rayDF.append(key)
+        if dtype is None:
+            dtype = ray_dtypes[key]
+        if default is None:
+            default = ray_defaults[key]
+        self.new_keys_for_active_rayDF_dtype.append(dtype)
+        self.new_keys_for_active_rayDF_default.append(default)
+    def reset_trace(self):
+        # Reset the active_ray structure
+        self.active_rays.remove_rays(cupy.arange(self.active_rays.nactive))
+        
+        # reset the buffers
+        self.reset_buffer()
+
+        pass
+
+    def __kernel_specific_init_active_rays__(self):
+        return
+
+
+    def __kernel_specific_activate_new_rays__(self, indexes):
+        return
+
+    """
+    
+        (III) Ray splitting
+    
+    """
+
+    def find_unresolved_rays(self):
+        """
+            Method to find all rays whos current level of ray_lrefine is not sufficient to resolve
+            the local grid and flag them
+        """
+        # in the case of non-parallell rays, we may need to update the area of each ray as we move along
+        # if so, this is also a function that belongs to the observer
+        self.observer.update_ray_area(self.active_rays)
+        # check where the area covered by the ray is larger than some fraction of its cell
+        unresolved = self.active_rays.get_field("ray_area") > self.ray_max_area_frac * self.cell_smallest_area[self.active_rays.get_field("amr_lrefine") - self.amr_lrefine_min]
+        to_split = cupy.where(unresolved*(self.active_rays.get_field("ray_lrefine")<self.ray_lrefine_max)*(self.active_rays.get_field("ray_status") != 2))[0]
+        if len (to_split) > 0:
+            self.active_rays.set_field("ray_status", 3, index = to_split)
+
+        pass
+
+    def split_rays(self, split_termination_indexes = None):
+        """
+            Take all rays that need to be split, spawn their children and add them to the global_rays
+            and add to the split event array 
+            TODO: currently we assume that a ray wont have to be split twice to match the grid
+                  this should be changed 
+        """
+        # Find out which rays need to be split
+        if split_termination_indexes is None:
+            split_termination_indexes = cupy.where(self.active_rays.get_field("ray_status") == 3)[0]
+        # and how many we have
+        Nsplits = len(split_termination_indexes)
+
+        # if there are no rays to be split, return
+        if Nsplits == 0:
+            return
+
+        # Grab the parent rays
+        parent_rays = self.active_rays.get_subset(split_termination_indexes)
+        # Find the global_rayid's of the rays to be split and their ancestral id
+        parent_aid  = self.global_rays.get_field("aid", index = parent_rays["global_rayid"])
+
+        # Generate the split event ids (sequential)
+        split_event_ids = cupy.arange(self.total_Nsplits, self.total_Nsplits + Nsplits)
+        
+        # Set the parent child split event id
+        self.global_rays.set_field("cevid", split_event_ids, index = parent_rays["global_rayid"])
+        
+        # allocate the array for the split events. shape = (Nsplit, 5), one parent, 4 children
+        split_events = cupy.zeros((Nsplits, 5))
+
+        # set the parent ID
+        split_events[:,0] = parent_rays["global_rayid"]
+
+        # Generate the childrens id
+        children_global_rayid = cupy.arange(self.global_rays.nrays, self.global_rays.nrays + 4*Nsplits)
+        
+        # set them in the split events array
+        split_events[:,1:] = children_global_rayid.reshape(Nsplits,4)        
+        
+        # Tell the ray_processor about the events
+        self.ray_processor.add_to_splitEvents(split_events)
+
+        # Create the new children arrays and add them to the global_rays
+        self.create_child_rays(parent_rays, split_event_ids, children_global_rayid, parent_aid)
+        
+        # Increment the number of splits
+        self.total_Nsplits += Nsplits
+        return
+
+    def create_child_rays(self, parent_rays, peid, children_global_rayid, parent_aid):
+        """
+            Method to spawn child rays from a set of parent rays
+            parent_rays : Dataframe containing the active parent rays
+            peid        : parent split event id 
+        """
+        nchild = len(peid)*4
+        # Since we might have non-paralell rays, we let the observer class do the actual splitting
+        child_rays = self.observer.create_child_rays(parent_rays)
+
+        # Set variables related to the raytrace such as ID numbers and refinement levels
+        # Any variable that are copied from the parent needs be repeated 4 times 
+        
+        # Set the parent event id, global id and initialize the child event ID
+        child_rays["pevid"] = cupy.repeat(peid, repeats = 4)
+        child_rays["pid"]   = cupy.repeat(parent_rays["global_rayid"] , repeats = 4)
+        child_rays["cevid"] = cupy.full( nchild, -1, dtype = ray_dtypes["cevid"])
+        child_rays["aid"]   = cupy.repeat(parent_aid, repeats = 4)
+        
+        # Copy the variables that are identical or similar to the parent
+        fields_from_parent = ["amr_lrefine", "ray_lrefine", "cell_index"]
+
+        for field in fields_from_parent:
+            child_rays[field] = cupy.repeat(parent_rays[field],4)
+        
+        # Advance the ray_lrefine by 1
+        child_rays["ray_lrefine"] += 1
+
+        # Let the ray processor deal with any fields it happened to add
+        self.ray_processor.create_child_fields(child_rays, parent_rays)
+
+        # Kernel specific things
+        self.__kernel_specific_create_child_rays__(parent_rays, peid, children_global_rayid, parent_aid, child_rays)
+        # append the child dataframe to the global datafram
+        self.global_rays.append(nchild, fields = child_rays)
+        self.global_rays.set_field("ray_fractional_area", self.observer.get_ray_area_fraction(self.global_rays, index = children_global_rayid), index = children_global_rayid)
+        self.ray_processor.update_global_ray_fields()
+        pass     
+
+    def __kernel_specific_create_child_rays__(self, parent_rays, peid, children_global_rayid, parent_aid, child_rays):
+        return
+
+    """
+    
+        (IV) Ray tracing 
+    
+    """
+
+    def raytrace_run(self, save = True, saveprefix = None):
+        """
+            Main method to run the ray tracing     
+        """
+        assert self.global_rays is not None, "Need to define rays with an observer class"
+
+        # Need to check that the user has set a ray processor, otherwise chose default
+        if self.ray_processor is None:
+            self.set_ray_processor()
+
+        # start by moving all cells outside of box to the first intersecting cell
+        self.move_to_first_intersection()
+        
+        # Send as many rays as possible to the active_rayDF and associated buffers
+        self.activate_new_rays(N = min(self.NrayBuff, self.global_rays.nrays))
+
+        print("step\tnactive\t\tnfinished\tntotal")
+        # transport rays until all rays are outside the box
+        i = 0
+        self.first_step = cupy.int8(1)
+        # changed to a wrapper method call for easier optmization
+        while(self.check_trace_status()):
+            if i%100 == 0:
+                print("%d\t%d\t\t%d\t\t%d"%(i, self.active_rays.nactive, self.global_Nraysfinished, self.global_rays.nrays))
+            # transport the rays through the current cell
+            self.raytrace_onestep()
+            self.update_rays()
+
+            i+=1
+
+
+
+
+        # Dump the buffer one last time. Should be unneccesary depending on the stopping condition
+        self.ray_processor.process_buff(cupy.arange(self.active_rays.nactive))
+        print(" - finalizing raytrace")
+        self.ray_processor.finalize()
+
+    def set_ray_processor(self, ray_processor = None):
+        if ray_processor is None:
+            print("NOTE: no ray_processor has been chosen. Defaulting to raytrace saver and saving all rays")
+            from gasspy.raytracing.ray_processors import Raytrace_saver
+            # Pass reference to self to raytrace saver. 
+            self.ray_processor = Raytrace_saver(self)
+        else:
+            self.ray_processor = ray_processor
+        # Update how large we can set the number of active rays and buffer ray slots
+        self.ray_processor.update_sizes()
+
+        
+        # We now have all the information to allocate active rays and buffers
+        self.init_active_rays()
+
+    def save_trace(self, filename):
+        #try: 
+        self.ray_processor.save_trace(filename)
+        #except:
+        #    print("ERROR: Chosen ray processor cant save_trace")
 
     def move_to_first_intersection(self):
         """
@@ -445,9 +585,9 @@ class Raytracer_AMR_Base:
                  (zi >= 0) & (zi <= self.sim_size_z))
 
         idx_outside = cupy.where(~inbox)
-        #TODO: This is an important todo. We must resolve starting rays outside of the box in a graceful manner which allows the remainder of the code to assume that rays are in the box until they leave.
+        
+        #We must resolve starting rays outside of the box in a graceful manner which allows the remainder of the code to assume that rays are in the box until they leave.
         # Identify rays which start outside of the box, and move their position to the box edge, with a buffer for floating point rounding errors.
-        # This is for Loke to remember how "where" works: move rays outside of box. cudf where replaces where false     
 
         if len(idx_outside[0]) > 0:
             for i, ix in enumerate(["x", "y", "z"]):
@@ -459,37 +599,6 @@ class Raytracer_AMR_Base:
         del(min_pathlength)
 
         return
-
-
-
-    def alloc_buffer(self):
-        """
-            Allocate buffers and pipes to store and transfer the ray-trace from the GPU to the CPU.
-        """
-        
-        dtype_dict = {
-            "buff_slot_occupied": ray_dtypes["buff_slot_occupied"],
-            "buff_global_rayid":  ray_dtypes["global_rayid"],
-            "buff_amr_lrefine":   ray_dtypes["amr_lrefine"],
-            "buff_pathlength":    ray_dtypes["pathlength"],
-            "buff_ray_area":      ray_dtypes["ray_area"],
-            "buff_cell_index":    ray_dtypes["cell_index"]
-
-        }
-
-        # Array to store the occupancy, and inversly the availablity of a buffer
-        self.buff_slot_occupied = cupy.zeros(self.NrayBuff, dtype=dtype_dict["buff_slot_occupied"])
-
-        # Buffer to store the ray id, since these will become unordered as random rays are added and removed
-        # LOKE finally agreed that Eric was right hahaha: changed to a 2D array such that each ray-cell-intersection has a rayID assosiated with it
-        #self.buff_global_rayid = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_global_rayid"])
-
-        # only occupy available buffers with rays to create new buffer
-        self.buff_cell_index = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_cell_index"])
-        self.buff_pathlength = cupy.zeros((self.NrayBuff, self.NcellBuff), dtype=dtype_dict["buff_pathlength"])
-        self.buff_amr_lrefine = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_amr_lrefine"])
-        self.buff_ray_area = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_ray_area"])
-        pass
 
     def check_amr_level(self, active_index1D, active_amr_lrefine, index):
         """
@@ -513,7 +622,7 @@ class Raytracer_AMR_Base:
             if len(at_lref) == 0:
                 continue
             # grab the indexes of those who we need to find their new amr_lrefine by identifying those that have no matching cell at their current amr_lrefine in the grid
-            correct_lref = sorted_in1d(active_index1D[at_lref], self.grid_index1D_lref[lref-self.amr_lrefine_min]) 
+            correct_lref = sorted_in1d(active_index1D[at_lref], self.grid_index1D_lref[lref-self.amr_lrefine_min], numlib=cupy) 
             lref_incorrect[at_lref[correct_lref]] = False
 
         indexes_to_find = cupy.where(lref_incorrect)[0]
@@ -543,12 +652,9 @@ class Raytracer_AMR_Base:
             if(N_not_found == 0):
                 break
             ilref = lref_new - self.amr_lrefine_min
-            #Nmax_lref = self.Nmax_lref[ilref]
-
             index1D_at_lref = cupy.zeros(N_not_found, dtype = ray_dtypes["index1D"])
             blocks_per_grid = ((N_not_found  + self.threads_per_block - 1)//self.threads_per_block)
 
-#            find_index1D[blocks_per_grid, self.threads_per_block](
             self.get_index1D_kernel( (blocks_per_grid,), (self.threads_per_block,),(
                                                 xi[not_found], 
                                                 yi[not_found],
@@ -568,7 +674,7 @@ class Raytracer_AMR_Base:
             # Determine if this index1D and amr_lrefine has a match in the simulation 
             # From testing it is faster to do the following calculations on all the rays, even if some of them have already been found
             # rather than masking those out before hand. However...
-            matches = sorted_in1d(index1D_to_find, self.grid_index1D_lref[ilref])
+            matches = sorted_in1d(index1D_to_find, self.grid_index1D_lref[ilref], numlib=cupy)
             # .. We must make sure that we dont accedentially have a match here as an index1D could exist on multiple refinement levels, 
             # just pointing to different parts of the domain
             matches[~not_found] = False
@@ -610,128 +716,67 @@ class Raytracer_AMR_Base:
             if len(at_lref) == 0:
                 continue
             # Find all the valid cells here
-            valid = cupy.where(sorted_in1d(index1D[at_lref], self.grid_index1D_lref[lref-self.amr_lrefine_min]))[0]
+            valid = cupy.where(sorted_in1d(index1D[at_lref], self.grid_index1D_lref[lref-self.amr_lrefine_min], numlib=cupy))[0]
             # grab the indexes of those who we need to find their new amr_lrefine by identifying those that have no matching cell at their current amr_lrefine in the grid
             cell_index[at_lref[valid]] = self.grid_cell_index_lref[lref - self.amr_lrefine_min][cupy.searchsorted(self.grid_index1D_lref[lref-self.amr_lrefine_min], index1D[at_lref[valid]])]
         return cell_index
 
-    def find_unresolved_rays(self):
-        """
-            Method to find all rays whos current level of ray_lrefine is not sufficient to resolve
-            the local grid and flag them
-        """
-        # in the case of non-parallell rays, we may need to update the area of each ray as we move along
-        # if so, this is also a function that belongs to the observer
-        self.obs_plane.update_ray_area(self.active_rays)
-        # check where the area covered by the ray is larger than some fraction of its cell
-        unresolved = self.active_rays.get_field("ray_area") > self.ray_max_area_frac * self.cell_smallest_area[self.active_rays.get_field("amr_lrefine") - self.amr_lrefine_min]
-        to_split = cupy.where(unresolved*(self.active_rays.get_field("ray_lrefine")<self.ray_lrefine_max)*(self.active_rays.get_field("ray_status") != 2))[0]
-        if len (to_split) > 0:
-            self.active_rays.set_field("ray_status", 3, index = to_split)
+    def set_raytrace_kernel(self):
+        return
 
+    def raytrace_onestep(self):
+        self.__kernel_specific_raytrace_onestep__()
+        self.ray_processor.raytrace_onestep()
+        return
+    
+    def __kernel_specific_raytrace_onestep__(self):
+        return
+
+    """
+
+        (V) Buffer management  
+
+    """
+
+    def alloc_buffer(self):
+        """
+            Allocate buffers to store and transfer the ray-trace from the GPU to the CPU.
+        """
+        
+        dtype_dict = {
+            "buff_slot_occupied": ray_dtypes["buff_slot_occupied"],
+            "buff_global_rayid":  ray_dtypes["global_rayid"],
+            "buff_amr_lrefine":   ray_dtypes["amr_lrefine"],
+            "buff_pathlength":    ray_dtypes["pathlength"],
+            "buff_ray_area":      ray_dtypes["ray_area"],
+            "buff_cell_index":    ray_dtypes["cell_index"]
+
+        }
+
+        # Start by letting the ray processor allocate its buffer. It should reset the number of rays to buffer
+        self.ray_processor.alloc_buffer()
+
+        # Array to store the occupancy, and inversly the availablity of a buffer
+        self.buff_slot_occupied = cupy.zeros(self.NrayBuff, dtype=dtype_dict["buff_slot_occupied"])
+
+        # Buffer to store the ray id, since these will become unordered as random rays are added and removed
+        # LOKE finally agreed that Eric was right hahaha: changed to a 2D array such that each ray-cell-intersection has a rayID assosiated with it
+        #self.buff_global_rayid = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_global_rayid"])
+
+        # only occupy available buffers with rays to create new buffer
+        self.buff_cell_index = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_cell_index"])
+        self.buff_pathlength = cupy.zeros((self.NrayBuff, self.NcellBuff), dtype=dtype_dict["buff_pathlength"])
+        self.buff_amr_lrefine = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_amr_lrefine"])
+        self.buff_ray_area = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_ray_area"])
+        self.ray_processor.alloc_buffer()
         pass
 
-    def create_child_rays(self, parent_rays, peid, children_global_rayid, parent_aid):
-        """
-            Method to spawn child rays from a set of parent rays
-            parent_rays : Dataframe containing the active parent rays
-            peid        : parent split event id 
-        """
-        nchild = len(peid)*4
-        # Since we might have non-paralell rays, we let the observer class do the actual splitting
-        child_rays = self.obs_plane.create_child_rays(parent_rays)
-
-        # Set variables related to the raytrace such as ID numbers and refinement levels
-        # Any variable that are copied from the parent needs be repeated 4 times 
-        
-        # Set the parent event id, global id and initialize the child event ID
-        child_rays["pevid"] = cupy.repeat(peid, repeats = 4)
-        child_rays["pid"]   = cupy.repeat(parent_rays["global_rayid"] , repeats = 4)
-        child_rays["cevid"] = cupy.full( nchild, -1, dtype = ray_dtypes["cevid"])
-        child_rays["aid"]   = cupy.repeat(parent_aid, repeats = 4)
-        
-        # Copy the variables that are identical or similar to the parent
-        fields_from_parent = ["amr_lrefine", "ray_lrefine", "cell_index"]
-
-        for field in fields_from_parent:
-            child_rays[field] = cupy.repeat(parent_rays[field],4)
-        
-        # Advance the ray_lrefine by 1
-        child_rays["ray_lrefine"] += 1
-
-        # Let the ray processor deal with any fields it happened to add
-        self.ray_processor.create_child_fields(child_rays, parent_rays)
-
-        # Kernel specific things
-        self.__kernel_specific_create_child_rays__(parent_rays, peid, children_global_rayid, parent_aid, child_rays)
-        # append the child dataframe to the global datafram
-        self.global_rays.append(nchild, fields = child_rays)
-        self.global_rays.set_field("ray_fractional_area", self.obs_plane.get_ray_area_fraction(self.global_rays, index = children_global_rayid), index = children_global_rayid)
-        self.ray_processor.update_global_ray_fields()
-        pass
-
-    def split_rays(self, split_termination_indexes = None):
-        """
-            Take all rays that need to be split, spawn their children and add them to the global_rays
-            and add to the split event array 
-            TODO: currently we assume that a ray wont have to be split twice to match the grid
-                  this should be changed 
-        """
-        # Find out which rays need to be split
-        if split_termination_indexes is None:
-            split_termination_indexes = cupy.where(self.active_rays.get_field("ray_status") == 3)[0]
-        # and how many we have
-        Nsplits = len(split_termination_indexes)
-
-        # if there are no rays to be split, return
-        if Nsplits == 0:
-            return
-
-        # Grab the parent rays
-        parent_rays = self.active_rays.get_subset(split_termination_indexes)
-        # Find the global_rayid's of the rays to be split and their ancestral id
-        parent_aid  = self.global_rays.get_field("aid", index = parent_rays["global_rayid"])
-
-        # Generate the split event ids (sequential)
-        split_event_ids = cupy.arange(self.total_Nsplits, self.total_Nsplits + Nsplits)
-        
-        # Set the parent child split event id
-        self.global_rays.set_field("cevid", split_event_ids, index = parent_rays["global_rayid"])
-        
-        # allocate the array for the split events. shape = (Nsplit, 5), one parent, 4 children
-        split_events = cupy.zeros((Nsplits, 5))
-
-        # set the parent ID
-        split_events[:,0] = parent_rays["global_rayid"]
-
-        # Generate the childrens id
-        children_global_rayid = cupy.arange(self.global_rays.nrays, self.global_rays.nrays + 4*Nsplits)
-        
-        # set them in the split events array
-        split_events[:,1:] = children_global_rayid.reshape(Nsplits,4)        
-        
-        # Tell the ray_processor about the events
-        self.ray_processor.add_to_splitEvents(split_events)
-
-        # Create the new children arrays and add them to the global_rays
-        self.create_child_rays(parent_rays, split_event_ids, children_global_rayid, parent_aid)
-        
-        # Increment the number of splits
-        self.total_Nsplits += Nsplits
-        pass            
-               
     def store_in_buffer(self):
-        # Dont st as these are moved back one step to avoid artifacts
-        #indexes_to_buffer = cupy.where((self.active_rays.get_field("ray_status") != 2))[0]
-        # store in buffer        
-        #self.buff_pathlength [self.active_rays.get_field("active_rayDF_to_buffer_map", index = indexes_to_buffer), self.active_rays.get_field("buffer_current_step", index = indexes_to_buffer)] = self.active_rays.get_field("pathlength", index = indexes_to_buffer)
-        #self.buff_ray_area   [self.active_rays.get_field("active_rayDF_to_buffer_map", index = indexes_to_buffer), self.active_rays.get_field("buffer_current_step", index = indexes_to_buffer)] = self.active_rays.get_field("ray_area"  , index = indexes_to_buffer)
-        #self.buff_cell_index [self.active_rays.get_field("active_rayDF_to_buffer_map", index = indexes_to_buffer), self.active_rays.get_field("buffer_current_step", index = indexes_to_buffer)] = self.active_rays.get_field("cell_index", index = indexes_to_buffer)
-        #self.active_rays.field_add("buffer_current_step", 1, index = indexes_to_buffer)
-
         self.buff_pathlength [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("pathlength")
         self.buff_ray_area   [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("ray_area"  )
         self.buff_cell_index [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("cell_index")
+        self.ray_processor.store_in_buffer()
+        
         self.active_rays.field_add("buffer_current_step", 1)
         # Use a mask, and explicitly set mask dtype. This prevents creating a mask value with the default cudf/cupy dtypes, and saving them to arrays with different dtypes.
         # Currently this just throws warnings if they are different dtypes, but this behavior could be subject to change which may produce errors or worse...
@@ -741,48 +786,32 @@ class Raytracer_AMR_Base:
         pass
 
 
-    def reset_trace(self):
-        # Reset the active_ray structure
-        self.active_rays.remove_rays(cupy.arange(self.active_rays.nactive))
-        
-        # reset the buffers
-        self.reset_buffer()
+    def clean_buff(self, active_rays_indexes_todump, full = False):
+        indexes_to_clean = self.active_rays.get_field("active_rayDF_to_buffer_map", index = active_rays_indexes_todump, full = full)
+        # clean the buffers 
+        self.buff_pathlength[indexes_to_clean, :]  = ray_defaults["pathlength"]
+        self.buff_amr_lrefine[indexes_to_clean, :] = ray_defaults["amr_lrefine"]
+        self.buff_ray_area[indexes_to_clean, :]    = ray_defaults["ray_area"]
+        self.buff_cell_index[indexes_to_clean,:]   = ray_defaults["cell_index"]
+        self.ray_processor.clean_buff(indexes_to_clean)
 
-        pass
+        #TODO: Change the raystatus flag to a bitmask (https://www.sdss.org/dr12/algorithms/bitmasks/) so that we can know both if a ray buffer is filled AND terminated due to boundary or refined, terminated for any reason while it's buffer is full
+        # This would be a nice improvement, as the next bit of code would then be removable because we wouldn't need to check for pathlengths when dumping buffers
+        #TODO: If above todo is finished remove next
+        # rays that are not pruned but are dumped due to filling their buffer has to have their status updated somewhere
+        # reset the buffer index of the rays that have been dumped and add one to the number of dumps the ray have done
+        self.active_rays.buffer_current_step[active_rays_indexes_todump] = 0
+        self.active_rays.dump_number[active_rays_indexes_todump] += 1
+
+        not_terminated = cupy.where(self.active_rays.get_field("ray_status", index = active_rays_indexes_todump) == ray_dtypes["ray_status"](1))[0]       
+        self.active_rays.set_field("ray_status", ray_dtypes["ray_status"](0), index = active_rays_indexes_todump[not_terminated])    
+       
     def reset_buffer(self):
-        # set the buffered fields to their default values and tell their pipes to reset
+        # set the buffered fields to their default values
         for field in ["pathlength", "amr_lrefine", "cell_index", "ray_area"]:
             self.__dict__["buff_"+field][:,:] = ray_dtypes[field](ray_defaults[field]) 
-            self.__dict__[field+"_pipe"].reset()
         
         # Set all buffer slots as un occupied
         self.buff_slot_occupied[:] = ray_dtypes["buff_slot_occupied"](0)
 
-        # tell the traced rays reset
-        self.traced_rays.reset()
         pass
-
-    def append_shared_active_key(self, key):
-        self.shared_column_keys.append(key)
-
-    def append_new_active_key(self, key, dtype = None, default = None):
-        self.new_keys_for_active_rayDF.append(key)
-        if dtype is None:
-            dtype = ray_dtypes[key]
-        if default is None:
-            default = ray_defaults[key]
-        self.new_keys_for_active_rayDF_dtype.append(dtype)
-        self.new_keys_for_active_rayDF_default.append(default)
-
-    def set_raytrace_kernel(self):
-        return
-    def __kernel_specific_init_active_rays__(self):
-        return
-    def __kernel_specific_set_new_sim_data__(self, sim_reader, gasspy_config):
-        return
-
-    def __kernel_specific_activate_new_rays__(self, indexes):
-        return
-
-    def __kernel_specific_create_child_rays__(self, parent_rays, peid, children_global_rayid, parent_aid, child_rays):
-        return

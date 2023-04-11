@@ -9,9 +9,12 @@ import astropy.units as apyu
 import sys
 
 from gasspy.settings.defaults import ray_dtypes
+from gasspy.raytracing.raytracers import Raytracer_AMR_Base
+from gasspy.raytracing.ray_processors.ray_processor_base import Ray_processor_base
 from gasspy.io import gasspy_io
-class Single_band_radiative_transfer:
-    def __init__(self, raytracer, gasspy_database, cell_gasspy_index, energy_lims, liteVRAM = False):
+from gasspy.raystructures import active_ray_class
+class Single_band_radiative_transfer(Ray_processor_base):
+    def __init__(self, raytracer : Raytracer_AMR_Base, gasspy_database, cell_gasspy_index, energy_lims, liteVRAM = False):
         self.liteVRAM = liteVRAM
         
         # set and load the database
@@ -86,14 +89,16 @@ class Single_band_radiative_transfer:
         # Extract pathlength and cell index from buffer
         pathlength  = self.raytracer.buff_pathlength[indexes_in_buffer,:,cupy.newaxis]*self.raytracer.gasspy_config["sim_unit_length"]
         cell_index  = self.raytracer.buff_cell_index[indexes_in_buffer,:]
-        ray_area    = self.raytracer.buff_ray_area[indexes_in_buffer,:, cupy.newaxis]*self.raytracer.gasspy_config["sim_unit_length"]**2
+        # Solid angle is currently 1/area so no need to scale ray_area by sim_unit_length
+        ray_area    = self.raytracer.buff_ray_area[indexes_in_buffer,:, cupy.newaxis]#*self.raytracer.gasspy_config["sim_unit_length"]**2
+        solid_angle = self.buff_solid_angle[indexes_in_buffer,:,cupy.newaxis]
         if self.liteVRAM:
             cell_index_cpu = cell_index.get()
             optical_depth  = cupy.cumsum(cupy.asarray(self.op[cell_index_cpu,:])*pathlength,axis = 1) + current_optical_depth[:,cupy.newaxis,:]
-            emisivity = cupy.asarray(self.em[cell_index_cpu,:])*ray_area
+            emisivity = cupy.asarray(self.em[cell_index_cpu,:])*ray_area*solid_angle
         else:
-            optical_depth  = cupy.cumsum(cupy.asarray(self.op[cell_index_cpu,:])*pathlength,axis = 1) + current_optical_depth[:,cupy.newaxis,:]
-            emisivity = self.em[cell_index,:]*ray_area
+            optical_depth  = cupy.cumsum(cupy.asarray(self.op[cell_index,:])*pathlength,axis = 1) + current_optical_depth[:,cupy.newaxis,:]
+            emisivity = self.em[cell_index,:]*ray_area*solid_angle
         del ray_area
         current_flux += cupy.sum(emisivity*pathlength*cupy.exp(-optical_depth), axis = 1)
         current_optical_depth = optical_depth[:,-1,:]
@@ -111,7 +116,27 @@ class Single_band_radiative_transfer:
             self.raytracer.global_rays.append_field("photon_count_%d" %iband, default_value = 0.0, dtype = cupy.float64)
             self.raytracer.global_rays.append_field("optical_depth_%d"%iband, default_value = 0.0, dtype = cupy.float64)
 
-    def update_global_ray_fields(self):
+
+    def update_sizes(self):
+        # We require extra variables (solid angle of pixel + opacity and emissivity for each band)
+        self.raytracer.oneRayCell += 64 + 2*64*self.nbands
+        self.raytracer.NrayBuff = int(self.raytracer.bufferSizeGPU_GB * 8*1024**3 / (self.raytracer.NcellBuff * self.raytracer.oneRayCell))
+
+        return 
+
+    def alloc_buffer(self):
+        self.buff_solid_angle = cupy.zeros((self.raytracer.NrayBuff, self.raytracer.NcellBuff), dtype = ray_dtypes["ray_area"])  
+        return 
+    def store_in_buffer(self):
+        self.buff_solid_angle[self.raytracer.active_rays.get_field("active_rayDF_to_buffer_map"), self.raytracer.active_rays.get_field("buffer_current_step")] = self.raytracer.observer.get_pixel_solid_angle(self.raytracer.active_rays, back_half = True)
+        return
+
+    def clean_buff(self, indexes_to_clean):
+        self.buff_solid_angle[indexes_to_clean,:] = 0
+        return
+    
+    def reset_buffer(self):
+        self.buff_solid_angle[:,:] = 0
         return
 
     def init_active_ray_fields(self):
@@ -119,14 +144,11 @@ class Single_band_radiative_transfer:
         # TODO: do this smarter
         # set total number of rays
         maxmem_GPU = self.raytracer.bufferSizeGPU_GB
-        oneRayCell = 272 + 2*64*self.nbands
-        self.raytracer.NrayBuff = int(maxmem_GPU*8*1024**3/(4*self.raytracer.NcellBuff*oneRayCell))
+        self.raytracer.oneRayCell = self.raytracer.oneRayCell + 2*64*self.nbands
+        self.raytracer.NrayBuff = int(maxmem_GPU*8*1024**3/(4*self.raytracer.NcellBuff*self.raytracer.oneRayCell))
         del self.raytracer.active_rays
-        self.raytracer.init_active_rays()
+        self.raytracer.active_rays = active_ray_class(nrays = self.raytracer.NrayBuff)
         return
-    def update_active_ray_fields(self):
-        return
-
 
     def create_child_fields(self, child_rays, parent_rays):
         for iband in range(self.nbands):
@@ -141,11 +163,7 @@ class Single_band_radiative_transfer:
     def finalize(self):
         # Change to "surface density" of photons, eg the number of photons/s going through a unit solid angle/pixel_area (NOTE STILL IN CODE UNITS)
         for iband in range(self.nbands):
-            self.final_flux = (self.raytracer.global_rays.get_field("photon_count_%d"%iband)/self.raytracer.obs_plane.get_ray_area_fraction(self.raytracer.global_rays))
+            self.final_flux = (self.raytracer.global_rays.get_field("photon_count_%d"%iband)/self.raytracer.observer.get_ray_area_fraction(self.raytracer.global_rays))
             self.raytracer.global_rays.set_field("photon_count_%d"%iband, self.final_flux)
-        pass
-    
-
-
-    def add_to_splitEvents(self, split_events):
         return
+    

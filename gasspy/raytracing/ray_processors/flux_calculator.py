@@ -6,8 +6,10 @@ import astropy.constants as apyc
 import sys
 
 from gasspy.settings.defaults import ray_dtypes
+from gasspy.raytracing.ray_processors.ray_processor_base import Ray_processor_base
+
 from gasspy.io import gasspy_io
-class Flux_calculator:
+class Flux_calculator(Ray_processor_base):
     def __init__(self, raytracer, sim_reader, source_Nphoton, cell_opacity_function, opacity_function_needed_fields, liteVRAM = False):
         self.liteVRAM = liteVRAM
         
@@ -90,16 +92,12 @@ class Flux_calculator:
     
     def init_global_ray_fields(self):
         self.raytracer.global_rays.append_field("Nphotons", default_value = 0.0, dtype = cupy.float64)
-        rays_Nphoton = self.source_Nphotons*self.raytracer.obs_plane.get_ray_area_fraction(self.raytracer.global_rays)
+        rays_Nphoton = self.source_Nphotons*self.raytracer.observer.get_ray_area_fraction(self.raytracer.global_rays)
         self.raytracer.global_rays.set_field("Nphotons", rays_Nphoton)
 
-    def update_global_ray_fields(self):
-        return
 
     def init_active_ray_fields(self):
         self.raytracer.active_rays.append_field("Nphotons", default_value = 0.0, dtype = cupy.float64)
-        return
-    def update_active_ray_fields(self):
         return
 
 
@@ -120,6 +118,3 @@ class Flux_calculator:
 
     def get_fluxes(self):
         return self.cell_fluxes
-
-    def add_to_splitEvents(self, split_events):
-        return

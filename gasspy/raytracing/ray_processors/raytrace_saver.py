@@ -5,26 +5,14 @@ import h5py as hp
 from gasspy.raystructures import traced_ray_class
 from gasspy.raytracing.utils.gpu2cpu import pipeline as gpu2cpu_pipeline
 from gasspy.settings.defaults import ray_dtypes
+from gasspy.raytracing.raytracers import Raytracer_AMR_Base
+from gasspy.raytracing.ray_processors.ray_processor_base import Ray_processor_base
 from gasspy.io import gasspy_io
-class Raytrace_saver:
-    def __init__(self, raytracer):
+class Raytrace_saver(Ray_processor_base):
+    def __init__(self, raytracer : Raytracer_AMR_Base):
         self.raytracer = raytracer
-
-        self.NcellBuff = self.raytracer.NcellBuff
-        self.NrayBuff  = self.raytracer.NrayBuff
-        self.NraySegs  = self.raytracer.NraySegs
-
-        # LOKE CODING: I HAVE NO IDEA OF WHERE WE WANT TO PUT THIS THING....
-        # initialize the traced_rays object which stores the trace data on the cpu
-        self.traced_rays = traced_ray_class(self.NraySegs, self.NcellBuff, ["pathlength", "index1D","amr_lrefine", "cell_index", "ray_area"])
-
-        # create gpu2cache pipeline objects
-        # Instead of calling the internal dtype dictionary, explicitly call the global_ray_dtype to ensure a match.  
-        self.pathlength_pipe   = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["pathlength"], self.NcellBuff, "pathlength", self.traced_rays)
-        self.cell_index_pipe   = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["cell_index"],self.NcellBuff, "cell_index", self.traced_rays)
-        self.amr_lrefine_pipe  = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["amr_lrefine"],self.NcellBuff, "amr_lrefine", self.traced_rays)
-        self.ray_area_pipe     = gpu2cpu_pipeline(self.NrayBuff, ray_dtypes["ray_area"],self.NcellBuff, "ray_area", self.traced_rays)
-
+        
+        return
     
 
     def process_buff(self, active_rays_indexes_todump, full = False):
@@ -50,6 +38,7 @@ class Raytrace_saver:
         tmp_cell_index  = self.raytracer.buff_cell_index[indexes_in_buffer,:]
         tmp_amr_lrefine = self.raytracer.buff_amr_lrefine[indexes_in_buffer,:]
         tmp_ray_area    = self.raytracer.buff_ray_area[indexes_in_buffer,:]
+        tmp_solid_angle = self.buff_solid_angle[indexes_in_buffer,:]
 
         # Dump into the raytrace data into the pipelines which then will put it on host memory
         #self.global_rayid_pipe.push(tmp_global_rayid)
@@ -57,26 +46,16 @@ class Raytrace_saver:
         self.amr_lrefine_pipe.push(tmp_amr_lrefine)
         self.cell_index_pipe.push(tmp_cell_index)
         self.ray_area_pipe.push(tmp_ray_area)
+        self.solid_angle_pipe.push(tmp_solid_angle)
+
         pass
 
-    def init_global_ray_fields(self):
-        return
-    def update_global_ray_fields(self):
-        return
-
-    def init_active_ray_fields(self):
-        return
-    def update_active_ray_fields(self):
-        return
-
-    def create_child_fields(self, child_rays, parent_rays):
-        # This processor does not need this 
-        return 
     def finalize(self):
         self.amr_lrefine_pipe.finalize()
         self.cell_index_pipe.finalize()
         self.pathlength_pipe.finalize()
         self.ray_area_pipe.finalize()
+        self.solid_angle_pipe.finalize()
 
         # Tell the traced rays object that the trace is done, such that it can trim the data and move it out of pinned memory
         self.traced_rays.finalize_trace()        
@@ -100,3 +79,51 @@ class Raytrace_saver:
 
     def add_to_splitEvents(self, split_events):
         self.traced_rays.add_to_splitEvents(split_events)
+
+
+    def update_sizes(self):
+        # We require one extra variable (solid angle of pixel)
+        self.raytracer.oneRayCell += 64
+        # Since we are transfering using 4 pipelines, we need to account for there being 4 times as many buffers
+        self.raytracer.NrayBuff = int(self.raytracer.bufferSizeGPU_GB * 8*1024**3 / (4*self.raytracer.NcellBuff * self.raytracer.oneRayCell))
+        self.NraySegs = int(self.raytracer.bufferSizeCPU_GB * 8*1024**3 / (self.raytracer.NcellBuff * self.raytracer.oneRayCell))
+
+    
+    def alloc_buffer(self):
+        self.buff_solid_angle = cupy.zeros((self.raytracer.NrayBuff, self.raytracer.NcellBuff), dtype = ray_dtypes["ray_area"])  
+        self.allocate_pipelines()      
+        return 
+
+
+    def allocate_pipelines(self):
+        # initialize the traced_rays object which stores the trace data on the cpu
+        self.traced_rays = traced_ray_class(self.NraySegs, self.raytracer.NcellBuff, ["pathlength","amr_lrefine", "cell_index", "ray_area", "solid_angle"])
+
+        # create gpu2cache pipeline objects
+        # Instead of calling the internal dtype dictionary, explicitly call the global_ray_dtype to ensure a match.  
+        self.pathlength_pipe   = gpu2cpu_pipeline(self.raytracer.NrayBuff, ray_dtypes["pathlength"] ,self.raytracer.NcellBuff, "pathlength" , self.traced_rays)
+        self.cell_index_pipe   = gpu2cpu_pipeline(self.raytracer.NrayBuff, ray_dtypes["cell_index"] ,self.raytracer.NcellBuff, "cell_index" , self.traced_rays)
+        self.amr_lrefine_pipe  = gpu2cpu_pipeline(self.raytracer.NrayBuff, ray_dtypes["amr_lrefine"],self.raytracer.NcellBuff, "amr_lrefine", self.traced_rays)
+        self.ray_area_pipe     = gpu2cpu_pipeline(self.raytracer.NrayBuff, ray_dtypes["ray_area"]   ,self.raytracer.NcellBuff, "ray_area"   , self.traced_rays)
+        self.solid_angle_pipe  = gpu2cpu_pipeline(self.raytracer.NrayBuff, ray_dtypes["ray_area"]   ,self.raytracer.NcellBuff, "solid_angle", self.traced_rays)
+
+    def store_in_buffer(self):
+        self.buff_solid_angle[self.raytracer.active_rays.get_field("active_rayDF_to_buffer_map"), self.raytracer.active_rays.get_field("buffer_current_step")] = self.raytracer.observer.get_pixel_solid_angle(self.raytracer.active_rays, back_half = True)
+        return
+
+    def clean_buff(self, indexes_to_clean):
+        self.buff_solid_angle[indexes_to_clean,:] = 0
+        return
+    
+    def reset_buffer(self):
+        self.buff_solid_angle[:,:] = 0
+        return
+
+    def clean(self):
+        del self.pathlength_pipe
+        del self.cell_index_pipe
+        del self.ray_area_pipe
+        del self.solid_angle_pipe
+        self.traced_rays.clean()
+        del self.traced_rays
+        
