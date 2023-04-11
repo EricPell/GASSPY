@@ -183,7 +183,7 @@ class active_ray_class(base_ray_class):
         """
         # first figure out which indexes are to be kept 
         # NOTE ASSUMES THAT INDEX IS SORTED MUSTY CHANGE TO CUPY:
-        to_keep = cupy.where(sorted_in1d(cupy.arange(self.nactive), index, invert=True))[0]
+        to_keep = cupy.where(sorted_in1d(cupy.arange(self.nactive), index, invert=True, numlib = cupy))[0]
         Nremaining = len(to_keep)
 
         # Loop over all fields, copy the rays we want to keep and put them on the top
