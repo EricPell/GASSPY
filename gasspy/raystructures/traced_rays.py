@@ -198,3 +198,15 @@ class traced_ray_class(object):
         # If any of the cpu arrays are missing, reallocate them
         self.alloc_cpu_arrays()
         
+    def clean(self):
+        # Delete all the reduced arrays and delete the large _cpu arrays 
+        cpu_arrays_exists = True
+        for field in self.traced_vars:
+            if field in self.__dict__:
+                del self.__dict__[field]
+            if field + "_cpu_array" in self.__dict__:
+                del self.__dict__[field+ "_cpu_array"]
+        del self.global_rayid_ofSegment
+        del self.dump_number_ofSegment
+        # Reset splitEvent history
+        self.splitEvents = None
