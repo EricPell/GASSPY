@@ -20,10 +20,9 @@ import importlib.util
 
 from gasspy.raytracing.ray_processors import Flux_calculator
 from gasspy.raytracing.raytracers import Raytracer_AMR_neighbor
-from gasspy.raytracing.observers import observer_healpix_class, observer_plane_class
+from gasspy.raytracing.observers import observer_healpix_class
 
 from gasspy.io import gasspy_io
-from gasspy.shared_utils.functions import sorted_in1d
 
 ap = argparse.ArgumentParser()
 #-------------DIRECTORIES AND FILES---------------#
@@ -133,7 +132,7 @@ for isource in range(len(sourcetable)):
         raytracer.set_ray_processor(ray_processor)
         #"""
         ## set observer
-        raytracer.update_obsplane(obs_plane = observer)
+        raytracer.update_observer(observer = observer)
         ## run
         print(" - running raytrace")
         raytracer.raytrace_run()
@@ -174,6 +173,8 @@ print(zs[debug_id]/gasspy_config["sim_unit_length"], zs[neighs[debug_id,idirs]]/
 print(lrefs[debug_id], lrefs[neighs[debug_id,idirs]])
 """
 # Initialize per refinement level lists
+from gasspy.shared_utils.functions import sorted_in1d
+
 cell_index_lref = []
 index1D_lref = []
 amr_lrefine_min = sim_reader.sim_info["minref"]

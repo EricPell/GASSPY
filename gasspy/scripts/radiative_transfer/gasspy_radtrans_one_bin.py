@@ -189,7 +189,7 @@ for idir in range(len(pov_center)):
         observer = observer_plane_class  (gasspy_config, observer_center = observer_center[idir,:], pov_center = pov_center[idir,:])
     ## set observer
     print("Updating observer")
-    raytracer.update_obsplane(obs_plane = observer)
+    raytracer.update_observer(observer = observer)
     ## run
     print("Running raytrace")
     raytracer.raytrace_run()
