@@ -15,7 +15,7 @@ import sys
 import numpy as np
 import cupy
 import torch
-
+import gc
 import argparse
 import importlib.util
 
@@ -119,7 +119,7 @@ if not os.path.exists(trace_file) or args.rerun_raytrace:
     ray_processor = Raytrace_saver(raytracer)
     raytracer.set_ray_processor(ray_processor)
     ## set observer
-    raytracer.update_obsplane(obs_plane = observer)
+    raytracer.update_observer(observer = observer)
 
     ## run
     print(" - running raytrace")
@@ -132,7 +132,9 @@ if not os.path.exists(trace_file) or args.rerun_raytrace:
     ## clean up a bit
     del raytracer
     del observer
-
+    ray_processor.clean()
+    del ray_processor
+gc.collect()
 ##########################
 # IV) Radiative transfer
 ##########################
