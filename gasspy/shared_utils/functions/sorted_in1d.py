@@ -1,7 +1,6 @@
-import cupy
 import numpy
 
-def sorted_in1d(ar1, ar2, assume_unique=False, invert=False, numlib = cupy):
+def sorted_in1d(ar1, ar2, assume_unique=False, invert=False, numlib = numpy):
     """Tests whether each element of a 1-D array is also present in a second
     array.
     Returns a boolean array the same length as ``ar1`` that is ``True``
