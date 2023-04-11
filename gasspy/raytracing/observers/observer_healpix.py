@@ -3,19 +3,26 @@ from scipy.spatial.transform import Rotation as R
 import cupy
 import healpy as hpix
 import sys
-from gasspy.raystructures.global_rays import global_ray_class
 
+from gasspy.raystructures.global_rays import global_ray_class, base_ray_class
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
+from gasspy.io.gasspy_io import check_parameter_in_config
 
 class observer_healpix_class:
-    def __init__(self, config_yaml, ray_lrefine_min = None, ray_lrefine_max = None, ipix_lmin = None, min_pix_lmin = None, max_pix_lmin = None, **kwargs):
+    def __init__(self, gasspy_config, ray_lrefine_min = None, ray_lrefine_max = None, ipix_lmin = None, min_pix_lmin = None, max_pix_lmin = None, ignore_within_distance = None, **kwargs):
+       
+        self.gasspy_config = gasspy_config
+        
+        
+        self.ignore_within_distance = check_parameter_in_config(gasspy_config, "ignore_within_distance", ignore_within_distance, 0)
+    
         # Minimum (eg. initial) refinement level of the rays/healpix 
         # If not minimum refinement level is not defined, either in call or in yaml file, 
         # we take it as the lowest possible (eg, 1)
         if ray_lrefine_min is not None:
             self.ray_lrefine_min = ray_lrefine_min
-        elif "ray_lrefine_min" in config_yaml.keys():
-            self.ray_lrefine_min = config_yaml["ray_lrefine_min"]
+        elif "ray_lrefine_min" in gasspy_config.keys():
+            self.ray_lrefine_min = gasspy_config["ray_lrefine_min"]
         else:
             self.ray_lrefine_min = 1
 
@@ -27,8 +34,8 @@ class observer_healpix_class:
         # we default to a reasonably large number
         if ray_lrefine_max is not None:
             self.ray_lrefine_max = ray_lrefine_max
-        elif "ray_lrefine_max" in config_yaml:
-            self.ray_lrefine_max = config_yaml["ray_lrefine_max"]
+        elif "ray_lrefine_max" in gasspy_config:
+            self.ray_lrefine_max = gasspy_config["ray_lrefine_max"]
         else:
             self.ray_lrefine_max = ray_defaults["ray_lrefine_max"]
 
@@ -48,29 +55,29 @@ class observer_healpix_class:
             # Starting ipix
             if min_pix_lmin is not None:
                 self.min_pix_lmin = min_pix_lmin
-            elif "min_pix_lim" in config_yaml:
-                self.min_pix_lmin = config_yaml["min_pix_lmin"]
+            elif "min_pix_lim" in gasspy_config:
+                self.min_pix_lmin = gasspy_config["min_pix_lmin"]
             else:
                 self.min_pix_lmin = 0
             
             # Final ipix
             if max_pix_lmin is not None:
                 self.max_pix_lmin = max_pix_lmin
-            elif "max_pix_lim" in config_yaml:
-                self.max_pix_lmin = config_yaml["max_pix_lmin"]
+            elif "max_pix_lim" in gasspy_config:
+                self.max_pix_lmin = gasspy_config["max_pix_lmin"]
             else:
                 self.max_pix_lmin = hpix.nside2npix(self.Nsides_min) - 1
 
             # Create range
             self.ipix_lmin = np.arange(self.min_pix_lmin, self.max_pix_lmin + 1)
 
-        self.Nrays = len(self.ipix_lmin)
+        self.Npixels = len(self.ipix_lmin)
         
 
 
 
         # Get the ray directions the pixels
-        self.raydir = np.zeros((self.Nrays,3))
+        self.raydir = np.zeros((self.Npixels,3))
         self.raydir[:,0], self.raydir[:,1], self.raydir[:,2] = hpix.pix2vec(self.Nsides_min, self.ipix_lmin, nest = True)
 
 
@@ -78,28 +85,28 @@ class observer_healpix_class:
         # TODO: Change both here and in observer.py. sim_size needs to be defined, and 
         # self.Numz should no longer be in units of number of cells, but between 0 and 1
         self.NumZ = np.sqrt(
-                            config_yaml["sim_size_x"]**2 + 
-                            config_yaml["sim_size_y"]**2 + 
-                            config_yaml["sim_size_z"]**2 
+                            gasspy_config["sim_size_x"]**2 + 
+                            gasspy_config["sim_size_y"]**2 + 
+                            gasspy_config["sim_size_z"]**2 
                             )
 
 
         #  pov_center: the point at which long = lat = 0 from the viewpoint of the observer. Default to box center 
         if "pov_center" in kwargs:
             self.pov_center = np.array(kwargs["pov_center"])
-        elif "pov_center" in config_yaml:
-            self.pov_center = np.array(config_yaml["pov_center"])
+        elif "pov_center" in gasspy_config:
+            self.pov_center = np.array(gasspy_config["pov_center"])
         else:
-            self.pov_center = np.array(config_yaml["origin"])
+            self.pov_center = np.array(gasspy_config["origin"])
 
         # observer center is the position of the observer center in the coordinate frame of the simulation
         if "observer_center" in kwargs:
             self.observer_center = np.array(kwargs["observer_center"])
-        elif "pov_center" in config_yaml:
-            self.observer_center = np.array(config_yaml["observer_center"])
+        elif "pov_center" in gasspy_config:
+            self.observer_center = np.array(gasspy_config["observer_center"])
         else:
             # default to negative z axis
-            self.observer_center = np.array(config_yaml["origin"])
+            self.observer_center = np.array(gasspy_config["origin"])
             self.observer_center[2] = 0
         
         self.__dict__.update(kwargs)
@@ -110,14 +117,14 @@ class observer_healpix_class:
         # In the observer coordinate frame
         pov_center_o = self.pov_center - self.observer_center
         # determine quaternions:
-        # zhat     =                 [0, 0, 1]
-        # new_zhat =                 [pxo, pyo, pzo]
-        # quat_n = zhat x new_zhat = [0*pzo - 1*pyo, 1*pxo - 0*pzo, 0*pyo - 0*pxo]
-        quat_n = np.array([-pov_center_o[1], pov_center_o[0],0])#*np.sign(pov_center_o[2])
-        quat_n_mag = np.sqrt(np.sum(np.square(quat_n)))
+        # xhat     =                 [1, 0, 0]
+        # new_xhat =                 [pxo, pyo, pzo]
+        # quat_n = xhat x new_xhat=  [0*pyo - 0*pxo, ]
+        quat_n = np.array([0, -pov_center_o[2], pov_center_o[1]])#*np.sign(pov_center_o[2])
+        quat_n_mag = np.sqrt(np.sum(np.square(quat_n))) # _zhat = [0*pzo - 1*pyo, 1*pxo - 0*pzo]
         if quat_n_mag > 0:
             quat_n = quat_n/quat_n_mag
-        quat_theta = np.arctan2(quat_n_mag, pov_center_o[2])
+        quat_theta = np.arctan2(quat_n_mag, pov_center_o[0])
         quats = np.append(np.sin(quat_theta/2)*quat_n, np.array([np.cos(quat_theta/2)]))
         quats = quats/np.sqrt(np.sum(np.square(quats)))
 
@@ -126,13 +133,15 @@ class observer_healpix_class:
         # If there is no change in x and y, quat_n_mag is zero and the problem becomes degerate. 
         # make sure that the direction of z is respected
         if quat_n_mag == 0:
-            if np.sign(pov_center_o[2]) < 0:
-                self.rotation_matrix[0][0]=-self.rotation_matrix[0][0]
-                self.rotation_matrix[1][1]= self.rotation_matrix[1][1]
-                self.rotation_matrix[2][2]=-self.rotation_matrix[2][2]
+            if np.sign(pov_center_o[0]) < 0:
+                self.rotation_matrix[0][0] =- self.rotation_matrix[0][0]
+                self.rotation_matrix[1][1] =  self.rotation_matrix[1][1]
+                self.rotation_matrix[2][2] =- self.rotation_matrix[2][2]
 
         self.xps = -1
         self.yps = -1
+
+        
     def get_first_rays(self, old_rays = None):
         """
             Takes a ray dataframe and populates it with the original set of rays corresponding to this observer
@@ -144,17 +153,17 @@ class observer_healpix_class:
             global_rays = old_rays
 
         # Append rays defined by this observer
-        global_rayids = global_rays.append(self.Nrays)
+        global_rayids = global_rays.append(self.Npixels)
 
         # Set the observation plane definitions
         # NOTE: healpix pixels are defined by one number. we take xp to be the ipix and yp to be 0
         global_rays.set_field("xp", cupy.array(self.ipix_lmin, dtype = ray_dtypes["xp"]), index = global_rayids)
-        global_rays.set_field("yp", cupy.zeros(self.Nrays, dtype = ray_dtypes["xp"]), index = global_rayids)
+        global_rays.set_field("yp", cupy.zeros(self.Npixels, dtype = ray_dtypes["xp"]), index = global_rayids)
 
         #All rays start from one point
-        global_rays.set_field("xi", cupy.full(self.Nrays, self.observer_center[0], dtype = ray_dtypes["xi"]), index = global_rayids)
-        global_rays.set_field("yi", cupy.full(self.Nrays, self.observer_center[1], dtype = ray_dtypes["yi"]), index = global_rayids)
-        global_rays.set_field("zi", cupy.full(self.Nrays, self.observer_center[2], dtype = ray_dtypes["zi"]), index = global_rayids)
+        global_rays.set_field("xi", cupy.full(self.Npixels, self.observer_center[0], dtype = ray_dtypes["xi"]), index = global_rayids)
+        global_rays.set_field("yi", cupy.full(self.Npixels, self.observer_center[1], dtype = ray_dtypes["yi"]), index = global_rayids)
+        global_rays.set_field("zi", cupy.full(self.Npixels, self.observer_center[2], dtype = ray_dtypes["zi"]), index = global_rayids)
 
         # The directions of each ray needs to be rotated 
         for i, raydir in enumerate(["raydir_x", "raydir_y", "raydir_z"]):
@@ -170,9 +179,9 @@ class observer_healpix_class:
 
         # IDs of the parents and corresponding split events, set to null values
         for i, id in enumerate(["pid", "pevid", "cevid"]):
-            global_rays.set_field(id, cupy.full(self.Nrays, ray_defaults[id], dtype = ray_dtypes[id]), index=global_rayids)
+            global_rays.set_field(id, cupy.full(self.Npixels, ray_defaults[id], dtype = ray_dtypes[id]), index=global_rayids)
         # ID of the branch, which, since this is the first ray of the branch, is the same as the ID of the ray
-        global_rays.set_field("aid", cupy.arange(self.Nrays, dtype = ray_dtypes["aid"]), index= global_rayids)
+        global_rays.set_field("aid", cupy.arange(self.Npixels, dtype = ray_dtypes["aid"]), index= global_rayids)
 
         # Initialize the trace status of the rays
         global_rays.set_field("trace_status", 0, index=global_rayids)
@@ -321,3 +330,19 @@ class observer_healpix_class:
             return self.pixel_area[ray_struct.get_field("ray_lrefine", index = index) - self.ray_lrefine_min]/4*np.pi
         else:
             return self.pixel_area[ray_struct.get_field("ray_lrefine") - self.ray_lrefine_min]/4*np.pi
+
+
+    def get_pixel_solid_angle(self, ray_struct : base_ray_class, index = None, numlib = cupy, back_half : bool = False) -> np.ndarray:
+        # Get the distance the ray has travelled
+        distance = numlib.sqrt(numlib.square(self.observer_center[0]-ray_struct.get_field("xi", index = index))+
+                               numlib.square(self.observer_center[1]-ray_struct.get_field("yi", index = index))+
+                               numlib.square(self.observer_center[2]-ray_struct.get_field("zi", index = index))) 
+
+        if back_half:
+            distance -= ray_struct.get_field("pathlength", index = index)*0.5
+        solid_angle =1/numlib.square(distance)
+        if self.ignore_within_distance > 0:
+            ignore = cupy.where(distance<self.ignore_within_distance/self.gasspy_config["sim_unit_length"])
+            solid_angle[ignore] = 0
+        return solid_angle
+
