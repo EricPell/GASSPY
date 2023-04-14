@@ -75,6 +75,7 @@ class DatabasePopulator(object):
 
         return
 
+        
     def load_database(self, h5database = None):
         """
             Method to load database of models to populate
@@ -88,29 +89,13 @@ class DatabasePopulator(object):
                 self.h5database = hp.File(self.gasspy_modeldir + self.database_name, "r+")
             else:
                 self.h5database = h5database
-            # Load models
-            self.unique_models = self.h5database["unique_models"][:,:]
-            self.N_unique = self.unique_models.shape[0]
 
+        
             # Load contained fields
             fields = self.h5database["database_fields"][:]
             self.database_fields = []
             for field in fields:
                 self.database_fields.append(field.decode())
-
-            # If we have populated this database before, check if we have added new models since 
-            if "intensity" in self.h5database:
-                if self.h5database["intensity"].shape[0] != self.N_unique:
-                    old_N_unique = self.h5database["intensity"].shape[0]
-                    for key in ["intensity", "opacity", "model_completed", "model_successful"]:
-                        self.h5database[key].resize((self.N_unique), axis=0)
-                        self.h5database[key][old_N_unique:] = 0
-
-            # If we havent populated this dataset before, create room for model completion and success flags
-            if not "model_completed" in self.h5database:
-                self.h5database.create_dataset("model_completed" , shape = (self.unique_models.shape[0],), maxshape=(None,), dtype = int)
-                self.h5database.create_dataset("model_successful", shape = (self.unique_models.shape[0],), maxshape=(None,), dtype = int)
-
         else:
             self.database_fields = None
         
@@ -118,6 +103,26 @@ class DatabasePopulator(object):
         self.database_fields = mpi_comm.bcast(self.database_fields, root = 0)
 
         return
+
+    def check_database(self):
+        if mpi_rank != 0:
+            return
+        # Load models
+        self.unique_models = self.h5database["unique_models"][:,:]
+        self.N_unique = self.unique_models.shape[0]
+
+        # If we have populated this database before, check if we have added new models since 
+        if "intensity" in self.h5database:
+            if self.h5database["intensity"].shape[0] != self.N_unique:
+                old_N_unique = self.h5database["intensity"].shape[0]
+                for key in ["intensity", "opacity", "model_completed", "model_successful"]:
+                    self.h5database[key].resize((self.N_unique), axis=0)
+                    self.h5database[key][old_N_unique:] = 0
+        
+        # If we havent populated this dataset before, create room for model completion and success flags
+        if not "model_completed" in self.h5database:
+            self.h5database.create_dataset("model_completed" , shape = (self.unique_models.shape[0],), maxshape=(None,), dtype = int)
+            self.h5database.create_dataset("model_successful", shape = (self.unique_models.shape[0],), maxshape=(None,), dtype = int)
 
     def save_models(self, intensity, opacity, model_successful, gasspy_ids):
         """
@@ -151,6 +156,7 @@ class DatabasePopulator(object):
         """
             Method to distribute models to be run from the main rank to all ranks
         """
+        self.check_database()
         if mpi_rank == 0:
             # Determine all unique models
             unfinished_models = np.where(self.h5database["model_completed"][:] == 0)[0]
@@ -170,7 +176,7 @@ class DatabasePopulator(object):
             self.gasspy_ids    = unfinished_models[int(np.round((mpi_size-1)*N_per_rank)):]
             self.models_to_run = self.unique_models[self.gasspy_ids,:]
 
-            mpi_print("\tRunning %d new models"%N_unfinished)
+            mpi_print("Running %d new models"%N_unfinished)
         else:
             # Recieve models and gasspy_ids from rank 0
             self.gasspy_ids = mpi_comm.recv(source = 0, tag = 1)
@@ -210,9 +216,9 @@ class DatabasePopulator(object):
                 all_gasspy_ids[n_complete_cum[irank-1]:n_complete_cum[irank]] = mpi_comm.recv(source = irank, tag = 4*irank + 4)
             
             # Save them
+            mpi_print("\tdumping %d models"%n_complete_total)
             self.save_models(all_intensity, all_opacity, all_model_successful, all_gasspy_ids)
 
-            mpi_print("\t\tdumping %d models"%n_complete_total)
         
         else: # if not main rank
             if self.local_n_complete == 0:
@@ -323,8 +329,7 @@ class DatabasePopulator(object):
             all_ranks_complete = mpi_comm.gather(1)
 
 
-            time_since_last_dump = time.time()          
-
+        mpi_print("")        
     def finalize(self, close_hdf5 = True):
         """
             Method to safely finalize 
@@ -339,7 +344,7 @@ class DatabasePopulator(object):
         
         N_failed = np.sum(model_successful[model_completed==1]==0)
         if N_failed > 0:
-            print("\t%d models failed. Please figure out why and if you care"%np.sum(model_successful[model_completed==1]==0))
+            print("%d models failed. Please figure out why and if you care"%np.sum(model_successful[model_completed==1]==0))
         # Close the database
         if close_hdf5:
             self.h5database.close()

@@ -84,6 +84,7 @@ class DatabaseGenerator(object):
                 self.is_neighbor = None
                 self.neighbor_ids = None
             self.N_unique = 0
+        self.N_saved = 0
 
         self.__dict__.update(kwargs)
     
@@ -114,6 +115,27 @@ class DatabaseGenerator(object):
             self.h5database.create_dataset("is_neighbor", (1, ), maxshape=(None,), dtype = int)
         save_gasspy_config_hdf5(self.gasspy_config, self.h5database)
         self.h5database["database_fields"] = self.database_fields
+
+    def save_database(self):
+        """
+            save the database
+        """
+        # If no new models, dont bother
+        if self.N_unique == self.N_saved:
+            return
+        if self.need_neighbors: 
+            keys = ["unique_models", "neighbor_ids", "is_neighbor"]
+        else:
+            keys = ["unique_models"]
+        # Loop over all required fields ands save
+        for key in keys:
+            self.h5database[key].resize((self.N_unique), axis=0)
+            self.h5database[key][self.N_saved:] = self.__dict__[key][self.N_saved:]
+        
+        # Update number of saved fields
+        self.N_saved = self.N_unique
+
+
     def get_compressed_sim_data(self, sim_reader):
         """
             Loads each field, compres them and enforces limits
@@ -275,7 +297,11 @@ class DatabaseGenerator(object):
         return new_unique_ids
 
     def add_snapshot(self, sim_reader):
-        mpi_print("\tCompressing snapshot")
+        """
+            Adds a snapshot to the database, determening all required unique models
+            Simulation_Reader : sim_reader (class that loads/returns fields from the simulation)
+        """
+        mpi_print("Compressing snapshot")
         compressed_simdata = self.get_compressed_sim_data(sim_reader)
         
         # Determine all new unique models
@@ -291,32 +317,28 @@ class DatabaseGenerator(object):
         # If we do not have any previous data we can just set here
         sim_unique_ids = self.merge_uniques(sim_unique_models, sim_unique_ids, new_neighbor_ids = sim_neighbor_ids, new_is_neighbor = sim_is_neighbor)
 
-        mpi_print("\tSnapshot has %d unique models:"%(len(sim_unique_models)))
-        mpi_print("\t\t%d are new"%(self.N_unique- old_N_unique))
+        mpi_print("Snapshot has %d unique models:"%(len(sim_unique_models)))
+        mpi_print("\t%d are new"%(self.N_unique- old_N_unique))
         if self.need_neighbors:
-            mpi_print("\t\t%d new neighbors are required"%np.sum(self.is_neighbor[old_N_unique:]))
+            mpi_print("\t%d new neighbors are required"%np.sum(self.is_neighbor[old_N_unique:]))
         mpi_print("")
         # Make snapshot remember its models
         sim_reader.save_new_field("cell_gasspy_ids", sim_unique_ids)
         
     def finalize(self, close_hdf5 = True):
-        """
-            save the database
-        """
-        if self.need_neighbors: 
-            keys = ["unique_models", "neighbor_ids", "is_neighbor"]
-        else:
-            keys = ["unique_models"]
-        for key in keys:
-            self.h5database[key].resize((self.N_unique), axis=0)
-            self.h5database[key][...] = self.__dict__[key]
+
+        # Save database
+        self.save_database()
+
+        # Close unless not wanted
         if close_hdf5:
             self.h5database.close()        
 
-        mpi_print("\tDataset has %d unique models:"%(self.N_unique))
+        # Print dataset information
+        mpi_print("Dataset has %d unique models:"%(self.N_unique))
         if self.need_neighbors:
-            mpi_print("\t\t%d are explicitly needed"%(np.sum(self.is_neighbor==0)))
-            mpi_print("\t\t%d are only needed as neighbors"%(np.sum(self.is_neighbor==1)))
+            mpi_print("\t%d are explicitly needed"%(np.sum(self.is_neighbor==0)))
+            mpi_print("\t%d are only needed as neighbors"%(np.sum(self.is_neighbor==1)))
         mpi_print("")
 
 
