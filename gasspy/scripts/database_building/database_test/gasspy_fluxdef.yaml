@@ -1,0 +1,15 @@
+# [Name of Energy Bin]:
+#   Emax: Maximum energy in eV
+#   Emin: minimum energy in eV
+#   shape: Shape of SED, [File name| 'flat' | 'power law' | 'slope' | 'T_blackbody']
+#   Note: only fine names supported
+#   Note: if using T_blackbody, you may provide a temperature, or a file containing multiple temperatures, where T_bb becomes a grid parameter
+FUV_flux:
+  Emax: 13.59844
+  Emin: 0.1
+  shape: specFUV.sed
+ionizing_flux:
+  Emax: 24.58741
+  Emin: 13.59844
+  shape: specHII.sed
+
