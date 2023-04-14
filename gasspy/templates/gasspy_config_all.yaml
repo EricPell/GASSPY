@@ -1,0 +1,150 @@
+##########################
+# Simulation parameters
+##########################
+
+# Maximum refinement level of simulation, defined such that dx = box_size / 2^(amr_lrefine)
+amr_lrefine_max: 11
+# Minimum refinement level of simulation
+amr_lrefine_min: 6
+
+# Scale length of the box size in CGS
+sim_unit_length : 1.8729852524984215e+20 
+
+# boxsize in x, y, z in sim_unit_length
+sim_size_x : 1 
+sim_size_y : 1 
+sim_size_z : 1 
+
+# Origin of simulation
+origin: 
+  - 0.5 
+  - 0.5 
+  - 0.5 
+
+# Arguments to pass to the simulation reader
+sim_reader_args:
+  # in this specific case the reader only needs an output number 
+  output_number : 51
+
+
+##########################
+# Database parameters
+##########################
+
+# Names of the fields to use
+database_fields: 
+  - "cell_size"      # Cell size
+  - "number_density" # Density
+  - "temperature"    # temperature
+  - "FUV"            # Fluxes
+  - "HII"
+  - "HeII"
+  - "HeIII"
+
+# Limits for the fields in logspace (in units assumed to be CGS)
+# Should be a dictionary given as
+#
+# fieldname : 
+#         min : minval    minimum value
+#         max : maxcal    maximum value
+#         min_cutoff_value : -99  Value to set cells lower than the minimum limit, if not present set to minval
+#         max_cutoff_value :  99  Value to set cells higher than the maximum limit, if not present set to maxval
+
+log10_field_limits:
+  temperature  :        # For example, temperature
+          min : 0.0     # Minimum of 1K
+          max : 7.0     # maximum of 10^7 K
+  FUV   :               # For fluxes (names can change) we may want fluxes below the cutoff to be set to nothing
+          min : -8.0
+          min_cutoff_value : -99
+  HII   : 
+          min : -8.0
+          min_cutoff_value : -99
+  HeII  : 
+          min : -8.0
+          min_cutoff_value : -99
+  HeIII : 
+          min : -8.0
+          min_cutoff_value : -99
+
+# Compression ratios for each of the fields in the models
+compression_ratio:
+  # number density
+  number_density :
+    - 1   # Decimal precision
+    - 1.0 # compression ratio
+  
+  # temperature
+  temperature :
+    - 1
+    - 5.0
+  
+  # cellsize
+  cell_size:
+    - 3
+    - 1.0
+
+  # Fluxes
+  FUV:
+    - 1
+    - 1.0
+  HII:
+    - 1
+    - 1.0
+  HeII:
+    - 1
+    - 1.0
+  HeIII:
+    - 1
+    - 1.0
+
+############################
+# Cloudy parameters
+############################    
+# Path to ini file for cloudy
+cloudy_ini : "/path/to/GASSPY/gasspy/physics/sourcefunction_database/cloudy/init_files/spec_postprocess_atomic_no_qheat-c17.ini"
+
+# Path to cloudy directory
+cloudy_path : "/path/to/cloudy/"
+
+##########################
+# Raytracer  parameters
+##########################
+
+# The resolving power of the cells by the rays.
+# defined such that ray projecter area <= ray_max_area_frac * dx_cell^2
+ray_max_area_frac : 0.25
+
+# Minimum and maximum ray refinement levels
+ray_lrefine_min : 5
+ray_lrefine_max : 13
+
+observer_type : "plane"
+
+###
+# Plane observer settings
+###
+# Size of detector in units of boxsize
+detector_size_x : 1
+detector_size_y : 1
+
+# Number of initial rays in each direction
+Nxp : 512
+Nyp : 512
+
+###
+# Healpix observer 
+###
+
+# Range of pixels to use at minimum refinement level. ONLY UNCOMMENT IF YOU WANT TO SELECT
+# min_pix_lmin = 
+# max_pix_lmin = 
+
+#########################
+# Radiative transfer parameters
+#########################
+
+# Energy limits. Only specify if not all Ebins are wanted
+#Elims : 
+#    - [3e-2, 3e-1]
+#    - [3e-4, 3e-3]
