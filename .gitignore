@@ -9,3 +9,4 @@ cloudy-output/*
 cloudy-output 
 gasspy/scratch
 gasspy.egg-info
+gasspy/scripts/database_building/database_test/database
