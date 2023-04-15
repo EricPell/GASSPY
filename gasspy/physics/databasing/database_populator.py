@@ -16,6 +16,7 @@ import numpy as np
 import time
 from mpi4py import MPI
 import h5py as hp
+import traceback
 
 from gasspy.io.gasspy_io import check_parameter_in_config, read_yaml
 from gasspy.shared_utils.mpi_utils.mpi_print import mpi_print, mpi_all_print
@@ -55,8 +56,11 @@ class DatabasePopulator(object):
             self.gasspy_modeldir = self.gasspy_modeldir + "/"
         
         # an h5database can be passed such that it can be active here and for other purposes
-        self.load_database(h5database = h5database)
-        mpi_comm.barrier()
+        try:
+            self.load_database(h5database = h5database)
+        except:
+            mpi_all_print(traceback.format_exc())
+            mpi_comm.Abort(1)  
 
         # Set dump timing information
         self.populator_dump_time = check_parameter_in_config(self.gasspy_config, "populator_dump_time", populator_dump_time, 1800) # Default 30 minutes
@@ -66,12 +70,11 @@ class DatabasePopulator(object):
         # set model_runner
         self.model_runner = model_runner
 
-        # Set buffer arrays to be allocated
-        self.buffer_intensity = None
-        self.buffer_opacity = None          
-        self.buffer_model_successful = None
-        self.buffer_gasspy_ids = None
-        self.local_n_complete = None
+        # allocate buffer arrays
+        self.allocate_local_buffers()
+
+        self.local_n_complete = 0
+
 
         return
 
@@ -163,25 +166,37 @@ class DatabasePopulator(object):
             
             # How many should each rank have?
             N_unfinished = len(unfinished_models)
-            N_per_rank = int(N_unfinished/mpi_size)
-            
+            N_per_rank = N_unfinished/mpi_size 
             # Distribute models and gasspy_ids to each rank
             for irank in range(1,mpi_size):
-                gasspy_ids = unfinished_models[int(np.round((irank-1)*N_per_rank)): int(np.round((irank)*N_per_rank))]
+                istart = int(np.round((irank-1)*N_per_rank))
+                iend = min(int(np.round((irank)*N_per_rank)),N_unfinished-1)
+    
+                gasspy_ids = unfinished_models[istart: iend]
+                n_models_to_send = len(gasspy_ids)
+                mpi_comm.send(n_models_to_send, dest = irank, tag = 0)
+                if n_models_to_send == 0:
+                    continue
                 mpi_comm.send(gasspy_ids, dest = irank, tag = 1)
                 models_to_send = self.unique_models[gasspy_ids,:]
                 mpi_comm.send(models_to_send, dest = irank, tag = 2)
             
-            # Take remaining models as local
-            self.gasspy_ids    = unfinished_models[int(np.round((mpi_size-1)*N_per_rank)):]
+            # Take remaining models as local (minimum of one)
+            istart = min(int(np.round((mpi_size-1)*N_per_rank)),N_unfinished-1)
+
+            self.gasspy_ids    = unfinished_models[istart:]
             self.models_to_run = self.unique_models[self.gasspy_ids,:]
 
             mpi_print("Running %d new models"%N_unfinished)
         else:
             # Recieve models and gasspy_ids from rank 0
-            self.gasspy_ids = mpi_comm.recv(source = 0, tag = 1)
-            self.models_to_run = mpi_comm.recv(source = 0, tag= 2)
-
+            n_models_to_recieve = mpi_comm.recv(source= 0, tag = 0)
+            if n_models_to_recieve > 0:
+                self.gasspy_ids = mpi_comm.recv(source = 0, tag = 1)
+                self.models_to_run = mpi_comm.recv(source = 0, tag= 2)
+            else :
+                self.gasspy_ids = np.array([], dtype = int)
+                self.models_to_run = np.array([], dtype = int)
     def gather_results(self):
         """
             Method to gather the results from the run models in the buffers
@@ -192,6 +207,8 @@ class DatabasePopulator(object):
         n_complete_cum = np.cumsum(n_complete_rank)
         n_complete_total = np.sum(n_complete_rank)
         
+        if n_complete_total == 0:
+            return
         if mpi_rank == 0:
             # Create arrays to store these models
             all_intensity = np.zeros((n_complete_total, self.buffer_intensity.shape[1]))
@@ -228,10 +245,11 @@ class DatabasePopulator(object):
             mpi_comm.send(self.buffer_model_successful[:self.local_n_complete], dest = 0, tag = 4*mpi_rank + 3)            
             mpi_comm.send(self.buffer_gasspy_ids[:self.local_n_complete], dest = 0, tag = 4*mpi_rank + 4)
 
-    def allocate_local_buffers(self, n_spectral_bins):
+    def allocate_local_buffers(self):
         """
             Method to allocate the buffers
         """
+        n_spectral_bins = len(self.model_runner.get_energy_bins())
         # How many do we expect?
         n_buffered_models = int(self.populator_dump_time/self.est_model_time) + 1
         self.buffer_intensity = np.zeros((n_buffered_models,n_spectral_bins), dtype = float)
@@ -245,6 +263,7 @@ class DatabasePopulator(object):
         """
             Method to reset the buffers
         """
+        # if they havent been allocated, do nothing
         self.buffer_intensity[:,:] = 0
         self.buffer_opacity[:,:] = 0          
         self.buffer_model_successful[:] = 0
@@ -252,7 +271,7 @@ class DatabasePopulator(object):
         self.local_n_complete = 0
         return
 
-    def run_models(self):
+    def __run_models__(self):
         """
             Main call to run all required models
         """
@@ -265,7 +284,8 @@ class DatabasePopulator(object):
         self.local_n_complete = 0
 
         # Loop over all models
-        all_ranks_complete = mpi_comm.gather(0)
+        all_ranks_complete = np.array([mpi_comm.allgather(0)])
+        sys.stdout.flush()
         for imodel in range(len(self.models_to_run)):
             # Grab current model
             gasspy_id = self.gasspy_ids[imodel]
@@ -287,18 +307,17 @@ class DatabasePopulator(object):
             
             # Send model to model_runner
             self.model_runner.run_model(model_dict, "gasspy_%d"%gasspy_id)
-            # Get intensity and opacity off model
-            intensity = self.model_runner.get_intensity()
-            if self.buffer_intensity is None:
-                # Needs to be done here as we only now know the size of the spectra
-                self.allocate_local_buffers(len(intensity))
 
-            self.buffer_intensity[self.local_n_complete,:] = intensity
-            self.buffer_opacity[self.local_n_complete,:] = self.model_runner.get_opacity()
-            
             # set success state and gasspy id
             self.buffer_model_successful[self.local_n_complete] = self.model_runner.model_successful()
             self.buffer_gasspy_ids[self.local_n_complete] = gasspy_id
+
+            if self.model_runner.model_successful():   
+                # Get intensity and opacity off model
+                self.buffer_intensity[self.local_n_complete,:] = self.model_runner.get_intensity()
+                self.buffer_opacity[self.local_n_complete,:] = self.model_runner.get_opacity()
+            
+
             
             # advance number of completed models
             self.local_n_complete += 1
@@ -308,12 +327,13 @@ class DatabasePopulator(object):
 
             if current_time - start_runtime >= self.max_walltime or current_time - time_since_last_dump > self.populator_dump_time or imodel == len(self.models_to_run)-1:
                 self.gather_results()
-                self.reset_local_buffers()
+                self.reset_local_buffers() 
                 self.local_n_complete = 0
-                if imodel == len(self.models_to_run) or current_time - start_runtime >= self.max_walltime :
-                    all_ranks_complete = mpi_comm.gather(1)
+                if imodel == len(self.models_to_run) - 1 or current_time - start_runtime >= self.max_walltime :
+                    all_ranks_complete[:] = mpi_comm.allgather(1)
                 else:
-                    all_ranks_complete = mpi_comm.gather(0)
+                    all_ranks_complete[:] = mpi_comm.allgather(0)
+
 
                 time_since_last_dump = time.time()
                 
@@ -322,15 +342,24 @@ class DatabasePopulator(object):
             if current_time - start_runtime >= self.max_walltime:
                 break
         # Continue "gathering" untill every rank has completed all their models
-        while np.sum(all_ranks_complete == 0):
+        while np.sum(all_ranks_complete == 0) > 0:
             self.gather_results()
-            self.reset_local_buffers()
             self.local_n_complete = 0
-            all_ranks_complete = mpi_comm.gather(1)
+            all_ranks_complete[:] = mpi_comm.allgather(1)
 
+        mpi_print("")  
+    
+    def run_models(self):
+        """
+            Main call to run all required models
+        """
+        try:
+            self.__run_models__()
+        except:
+            mpi_all_print(traceback.format_exc())
+            mpi_comm.Abort(1)            
 
-        mpi_print("")        
-    def finalize(self, close_hdf5 = True):
+    def __finalize__(self, close_hdf5 = True):
         """
             Method to safely finalize 
         """
@@ -349,6 +378,12 @@ class DatabasePopulator(object):
         if close_hdf5:
             self.h5database.close()
 
+    def finalize(self, close_hdf5 = True):
+        try: 
+            self.__finalize__(close_hdf5=close_hdf5)
+        except:
+            mpi_all_print(traceback.format_exc())
+            mpi_comm.Abort(1)
 
 ####################################################################################
 # TESTING

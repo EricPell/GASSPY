@@ -5,12 +5,14 @@
 
 import os, sys
 import subprocess
-import shutil, glob, pathlib
+import traceback
 import astropy.units as apyu
 import numpy as np
 import pandas
 from gasspy.io.gasspy_io import read_fluxdef, read_yaml, check_parameter_in_config
 import gasspy.shared_utils.mpi_utils.mpi_os as mpi_os
+from gasspy.shared_utils.mpi_utils.mpi_print import mpi_print, mpi_all_print
+
 from mpi4py import MPI
 mpi_comm = MPI.COMM_WORLD
 mpi_rank = mpi_comm.rank
@@ -22,6 +24,20 @@ class CloudyModelRunner():
         cloudy_path = None,
         line_labels = None):
 
+        try:
+            self.__init_inner__(gasspy_config, indir, fluxdef_file,
+                                IF_ionfrac=IF_ionfrac,
+                                cloudy_path=cloudy_path,
+                                line_labels=line_labels
+                                )
+        except:
+            mpi_all_print(traceback.format_exc())
+            mpi_comm.Abort(1) 
+
+    def __init_inner__(self, gasspy_config, indir, fluxdef_file, 
+        IF_ionfrac = None,
+        cloudy_path = None,
+        line_labels = None):
         # Get the gasspy_config
         if isinstance(gasspy_config, str):
             self.gasspy_config = read_yaml(gasspy_config)
@@ -74,6 +90,26 @@ class CloudyModelRunner():
         self.total_depth = None
         self.delta_r = None
         self.n_zones = None
+
+        # Run an easy model to check that everything works and load energy bins
+        model_dict = {
+            "number_density" : 3,
+            "temperature" : 3,
+            "cell_size" : 17,
+        }
+        for field in self.fluxdef:
+            model_dict[field] = 0
+        self.run_model(model_dict, "test_%d"%mpi_rank)
+        if not self.model_successful():
+            mpi_print("ERROR: model_runner test model failed")
+            mpi_print("Test model parameters:")
+            for key in model_dict:
+                mpi_print("%s = %f"%(key,model_dict[key]))
+            sys.exit(0)
+        mpi_comm.barrier()
+        self.read_ebins()
+        self.delete_files()
+
 
     def run_model(self, model, model_name):
         """
@@ -157,6 +193,8 @@ class CloudyModelRunner():
     """
     def check_success(self, suff = ".spec_em"):
         filename = self.indir + "/%s"%self.model_name+suff
+        if not os.path.exists(filename) :
+            return False
         return os.path.getsize(filename) > 1000
 
     def read_ebins(self, suff = ".ebins"):
@@ -356,11 +394,18 @@ class CloudyModelRunner():
         """
         for field in self.fluxdef.keys():
             if self.fluxdef[field]['shape'].endswith(".sed"):
+                if mpi_rank != 0:
+                    continue
                 sedfile = self.indir + "/%s"%(self.fluxdef[field]['shape'])
                 os.popen("cp %s %s"%(self.fluxdef[field]['shape'], sedfile))
             
             else:
                 sedfile = self.indir + "/%s.sed"%(self.save_prefix, field)
+                self.fluxdef[field]["shape"] = sedfile
+
+                if mpi_rank != 0:
+                    return
+                
                 outfile = open(sedfile, 'w')
                 if self.fluxdef["fluxes"][field]["shape"] == 'const':
                     outfile.write("%f -35.0 nuFnu\n"%(self.fluxdef[field]["Emin"]*0.99/13.6) )
@@ -368,7 +413,6 @@ class CloudyModelRunner():
                     outfile.write("%f 1.000 nuFnu\n"%(self.fluxdef[field]["Emax"]/13.6) )
                     outfile.write("%f -35.0 nuFnu\n"%(self.fluxdef[field]["Emax"]*1.01/13.6) )
                 outfile.close()
-                self.fluxdef[field]["shape"] = sedfile
 
 
     """

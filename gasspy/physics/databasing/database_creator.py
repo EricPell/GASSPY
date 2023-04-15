@@ -10,12 +10,9 @@
 """
 
 
-import os
 import sys
-import numpy as np
-import time
 from mpi4py import MPI
-import h5py as hp
+import traceback
 
 from gasspy.io.gasspy_io import check_parameter_in_config, read_yaml
 from gasspy.shared_utils.mpi_utils.mpi_print import mpi_print, mpi_all_print
@@ -64,12 +61,14 @@ class DatabaseCreator(object):
         # Fields 
         self.database_fields = check_parameter_in_config(self.gasspy_config, "database_fields",database_fields, None)
         if self.database_fields is None:
-            sys.exit("Error: No database_fields specified")
+            mpi_print("Error: No database_fields specified", file = sys.stderr)
+            mpi_comm.Abort(1)
         self.__default_compression_ratio__ = (1,5.0)
         # Compression ratio
         self.compression_ratio = check_parameter_in_config(self.gasspy_config, "compression_ratio", compression_ratio, None)
         if self.database_fields is None:
-            sys.exit("Error: No compression_ratio specified")
+            mpi_print("Error: No compression_ratio specified", file = sys.stderr)
+            mpi_comm.Abort(1)
         # Limits
         self.log10_field_limits = check_parameter_in_config(self.gasspy_config, "log10_field_limits", log10_field_limits, {})
 
@@ -87,13 +86,17 @@ class DatabaseCreator(object):
 
         # Initialize the generator on the main rank only
         if mpi_rank == 0:
-            self.database_generator = DatabaseGenerator(self.gasspy_config, 
-                                                        database_name      = self.database_name,
-                                                        database_fields    = self.database_fields,
-                                                        gasspy_modeldir    = self.gasspy_modeldir,
-                                                        compression_ratio  = self.compression_ratio,
-                                                        log10_field_limits = self.log10_field_limits
-                                                        )
+            try:
+                self.database_generator = DatabaseGenerator(self.gasspy_config, 
+                                                            database_name      = self.database_name,
+                                                            database_fields    = self.database_fields,
+                                                            gasspy_modeldir    = self.gasspy_modeldir,
+                                                            compression_ratio  = self.compression_ratio,
+                                                            log10_field_limits = self.log10_field_limits
+                                                            )
+            except :
+                print(traceback.format_exc())
+                mpi_comm.Abort(1)
             # get pointer to h5database
             self.h5database = self.database_generator.h5database
         else:
@@ -121,11 +124,16 @@ class DatabaseCreator(object):
         # Only do this on the main rank
         if mpi_rank != 0:
             return    
-        # Give the snapshot to the generator to determine all uniques an neighbors if required
-        self.database_generator.add_snapshot(sim_reader)
+        # Catch exceptions here to nicely exit the mpi environment
+        try:
+            # Give the snapshot to the generator to determine all uniques an neighbors if required
+            self.database_generator.add_snapshot(sim_reader)
 
-        # Tell the generator to save its findings to the database
-        self.database_generator.save_database()
+            # Tell the generator to save its findings to the database
+            self.database_generator.save_database()
+        except:
+            mpi_print(traceback.format_exc())
+            mpi_comm.Abort(1)            
 
     def run_models(self):
         """
@@ -138,10 +146,22 @@ class DatabaseCreator(object):
             Ensures that everything has been saved properly and closes the hdf5 database file
         """
         if mpi_rank == 0 :
-            self.database_generator.finalize(close_hdf5 = False)
+            # Catch exceptions here to nicely exit the mpi environment
+            try:
+                self.database_generator.finalize(close_hdf5 = False)
+            except:
+                mpi_print(traceback.format_exc())
+                mpi_comm.Abort(1)                 
+        
         self.database_populator.finalize(close_hdf5 = True)
+        
         if mpi_rank == 0:
-            self.h5database.close()
+            # Catch exceptions here to nicely exit the mpi environment
+            try:
+                self.h5database.close()
+            except:
+                mpi_print(traceback.format_exc())
+                mpi_comm.Abort(1)     
 
 
 
