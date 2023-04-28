@@ -26,6 +26,8 @@ sys.path.append(os.getcwd())
 
 LastModDate = "2022.05.06.LO"
 
+print("DEPRICATION ALERT DONT USE THIS IMPORT")
+
 class uniq_dict_creator(object):
     def __init__(self, **kwags):
         """ Import default and model specific settings """

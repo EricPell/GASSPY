@@ -15,7 +15,7 @@ from pathlib import Path
 from scipy.fft import skip_backend
 import gasspy.physics.sourcefunction_database.cloudy.cloudy_model_collector as mcu
 
-
+print("DEPRICATION ALERT: DONT USE THIS FILE")
 class processor_class(object):
     """
     docstring

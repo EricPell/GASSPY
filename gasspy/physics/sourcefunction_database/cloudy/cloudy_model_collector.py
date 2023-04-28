@@ -14,6 +14,8 @@ import h5py as hp
 from gasspy.shared_utils import loop_progress
 from gasspy.io.gasspy_io import read_dict_hdf5, save_dict_hdf5
 
+print("DEPRICATION ALERT DONT USE THIS FILE")
+
 class ModelCollector():
     """Worker class for reading and collecting cloudy models into a gasspy db entry"""
     def __init__(
