@@ -7,6 +7,7 @@ import os, sys
 import subprocess
 import traceback
 import astropy.units as apyu
+import astropy.constants as apyc
 import numpy as np
 import pandas
 from gasspy.io.gasspy_io import read_fluxdef, read_yaml, check_parameter_in_config
@@ -22,13 +23,15 @@ class CloudyModelRunner():
     def __init__(self, gasspy_config, indir, fluxdef_file, 
         IF_ionfrac = None,
         cloudy_path = None,
-        line_labels = None):
+        line_labels = None,
+        lines_only = None):
 
         try:
             self.__init_inner__(gasspy_config, indir, fluxdef_file,
                                 IF_ionfrac=IF_ionfrac,
                                 cloudy_path=cloudy_path,
-                                line_labels=line_labels
+                                line_labels=line_labels,
+                                lines_only = lines_only
                                 )
         except:
             mpi_all_print(traceback.format_exc())
@@ -37,7 +40,8 @@ class CloudyModelRunner():
     def __init_inner__(self, gasspy_config, indir, fluxdef_file, 
         IF_ionfrac = None,
         cloudy_path = None,
-        line_labels = None):
+        line_labels = None,
+        lines_only = None):
         # Get the gasspy_config
         if isinstance(gasspy_config, str):
             self.gasspy_config = read_yaml(gasspy_config)
@@ -79,6 +83,9 @@ class CloudyModelRunner():
         # Set line labels if we want them
         self.line_labels = check_parameter_in_config(self.gasspy_config, "line_labels", line_labels, None)
 
+        # Check if we only want to run with lines
+        self.lines_only = check_parameter_in_config(self.gasspy_config, "lines_only", lines_only, False) 
+
 
         self.success = True
         self.read_line_data = False
@@ -105,11 +112,15 @@ class CloudyModelRunner():
             mpi_print("Test model parameters:")
             for key in model_dict:
                 mpi_print("%s = %f"%(key,model_dict[key]))
-            sys.exit(0)
+            sys.exit("ERROR: model_runner test model failed")
         mpi_comm.barrier()
         self.read_ebins()
         self.delete_files()
 
+
+    """
+        These functions are called by gasspy and are needed in this explicit form 
+    """
 
     def run_model(self, model, model_name):
         """
@@ -146,6 +157,17 @@ class CloudyModelRunner():
         self.skip = False
         return
     
+    def model_successful(self):
+        """
+            Function to return success state of model
+        """
+        return self.success
+    
+    """
+        Methods to get spectral data (energy, intensity opacity)
+        Technically only needed if spectral data is utilized
+    """
+
     def get_energy_bins(self):
         """
             Function to get the energy bins of the spectra
@@ -156,12 +178,7 @@ class CloudyModelRunner():
             Function to get the energy bins sizes of the spectra
         """
         return self.delta_energy_bins
-    def model_successful(self):
-        """
-            Function to return success state of model
-        """
-        return self.success
-        
+            
     def get_intensity(self):
         """
             Function to return calculated intensity of model
@@ -170,24 +187,55 @@ class CloudyModelRunner():
 
     def get_opacity(self):
         """
-            Function to return calculated intensity of model
-        """        
+            Function to return calculated opacity of model
+        """      
         return self.read_opacity()
     
+    """
+        Methods to get line data (energy, label, intensity opacity)
+        Technically only needed if line data is utilized
+    """
+    def get_line_energies(self):
+        # Conversion factors as defined in Cloudy (NOTE: if these change in Cloudy these should also change here)
+        Ang2Ryd = 1e8/1.0973731568160e5
+        Micro2Ryd = 1e4/1.0973731568160e5
     
-    def delete_files(self, delete_input = True):
+        line_energies = np.zeros(len(self.line_labels))
+
+        # Loop over line labels and determine the energies in Rydberg
+        # NOTE: Hopefully in the future this could be given by Cloudy itself to reduce possibility of errors
+        for iline, label in enumerate(self.line_labels):
+            wavelength_str = label.split(" ")[-1]
+            if wavelength_str.endswith("A"):
+                line_energies[iline] = Ang2Ryd/float(wavelength_str.strip("A"))
+            elif wavelength_str.endswith("m"):
+                line_energies[iline] = Micro2Ryd/float(wavelength_str.strip("m"))     
+        return line_energies
+    
+    def get_line_labels(self):
+        # In Cloudy's case the line labels are in the same order as provided
+        return self.line_labels
+
+    def get_line_intensity(self):
         """
-            deletes all files associated exclusively with the current model
-            arguments:
-                delete_input: boolian (Flag for deleting input file along with the outputs)
+            Function to return calculated line intensity of model
         """
-        suffixes = [".ebins", ".spec_em", ".spec_op", ".line_em", ".line_op", ".mol",".out"]
-        for suff in suffixes:
-            filename = self.indir + "/%s"%self.model_name + suff
-            self.__delete_file__(filename)
-        if delete_input:
-            filename = self.indir + "/%s"%self.model_name + ".in"
-            self.__delete_file__(filename)
+        return self.read_line_intensity()
+
+    def get_line_opacity(self):
+        """
+            Function to return calculated line opacity of model
+        """      
+        return self.read_line_opacity()
+  
+    def clean_model(self):
+        """
+            Function to clean model specific data no longer needed after a model has been processed
+        """
+        self.delete_files()
+        return
+    
+
     """
         Methods for reading cloudy output files 
     """
@@ -468,7 +516,7 @@ class CloudyModelRunner():
 
         self.set_spec_opacity_emiss(self.isIF)
         if self.line_labels is not None:
-            self.set_line_opacity_emiss(self.line_labels, self.isIF)
+            self.set_line_opacity_emiss()
             self.read_line_data = True
         else:
             self.read_line_data = False
@@ -660,6 +708,3 @@ class CloudyModelRunner():
                         problems = ["Convergence error - fixed with Teq"]
 
         return problems
-
-
-
