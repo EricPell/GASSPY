@@ -35,7 +35,6 @@ class DatabaseCreator(object):
                  est_model_time = None,
                  max_walltime = None,
                  database_name = None,
-                 h5database = None,
                  ) -> None:
 
         if isinstance(gasspy_config, str):
@@ -141,6 +140,8 @@ class DatabaseCreator(object):
         """
         self.database_populator.run_models()
     
+    def set_max_walltime(self, max_walltime):
+        self.database_populator.set_max_walltime(max_walltime)
     def finalize(self):
         """ 
             Ensures that everything has been saved properly and closes the hdf5 database file
