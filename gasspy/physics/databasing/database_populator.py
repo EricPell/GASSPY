@@ -35,6 +35,7 @@ class DatabasePopulator(object):
                  gasspy_modeldir = None,
                  database_name = None,
                  h5database = None,
+                 lines_only = None
                  ) -> None:
 
 
@@ -69,6 +70,17 @@ class DatabasePopulator(object):
         
         # set model_runner
         self.model_runner = model_runner
+
+        self.save_lines = False
+        # Check if we want to save lines, or if we only want to save lines
+        if "line_labels" in self.gasspy_config:
+            if len(self.gasspy_config["line_labels"]) > 0:
+                self.N_lines = len(self.gasspy_config["line_labels"])
+                self.save_lines = True
+        
+        self.save_spectra = not check_parameter_in_config(self.gasspy_config, "lines_only", lines_only, False)
+        if self.save_spectra:
+            self.N_spectral_bins = len(self.model_runner.get_energy_bins())
 
         # allocate buffer arrays
         self.allocate_local_buffers()
@@ -111,23 +123,46 @@ class DatabasePopulator(object):
         if mpi_rank != 0:
             return
         # Load models
-        self.unique_models = self.h5database["unique_models"][:,:]
-        self.N_unique = self.unique_models.shape[0]
+        self.model_data = self.h5database["model_data"][:,:]
+        self.N_unique = self.model_data.shape[0]
 
         # If we have populated this database before, check if we have added new models since 
-        if "intensity" in self.h5database:
-            if self.h5database["intensity"].shape[0] != self.N_unique:
-                old_N_unique = self.h5database["intensity"].shape[0]
-                for key in ["intensity", "opacity", "model_completed", "model_successful"]:
+        spectra_in_database = "intensity" in self.h5database
+        lines_in_database = "line_intensity" in self.h5database
+
+        if spectra_in_database or lines_in_database:
+            # Make sure that the database has been populated with spectra/lines if required 
+            if not self.save_spectra and spectra_in_database:
+                mpi_print("ERROR: Database contains spectral data, but config specifies lines_only")
+                mpi_comm.Abort(1)
+            if not self.save_lines and lines_in_database:
+                mpi_print("ERROR: Database contains emission line data, but config specifies no lines")
+                mpi_comm.Abort(1)
+            
+            # How big is the current database, do we need to extend it? 
+            n_allocated = self.h5database["model_successful"].shape[0]
+            if n_allocated != self.N_unique:
+                # List of all fields that need to be extended
+                keys = ["model_completed", "model_successful"]
+                if self.save_spectra:
+                    keys.append("intensity")
+                    keys.append("opacity")
+                if self.save_lines:
+                    keys.append("line_intensity")
+                    keys.append("line_opacity")
+
+                for key in keys:
                     self.h5database[key].resize((self.N_unique), axis=0)
-                    self.h5database[key][old_N_unique:] = 0
-        
+                    self.h5database[key][n_allocated:] = 0
+
+
+               
         # If we havent populated this dataset before, create room for model completion and success flags
         if not "model_completed" in self.h5database:
-            self.h5database.create_dataset("model_completed" , shape = (self.unique_models.shape[0],), maxshape=(None,), dtype = int)
-            self.h5database.create_dataset("model_successful", shape = (self.unique_models.shape[0],), maxshape=(None,), dtype = int)
+            self.h5database.create_dataset("model_completed" , shape = (self.model_data.shape[0],), maxshape=(None,), dtype = int)
+            self.h5database.create_dataset("model_successful", shape = (self.model_data.shape[0],), maxshape=(None,), dtype = int)
 
-    def save_models(self, intensity, opacity, model_successful, gasspy_ids):
+    def save_models(self,model_successful, gasspy_ids, intensity = None, opacity = None , line_intensity = None, line_opacity = None):
         """
             Method to save a list of models
         """
@@ -135,23 +170,39 @@ class DatabasePopulator(object):
         if mpi_rank != 0:
             return
         
+
+        # If this is the first time we save, we must create the dataset (since we now know the shape)
+        if self.save_spectra and not "intensity" in self.h5database:
+            self.h5database.create_dataset("intensity", shape = (self.N_unique, self.N_spectral_bins),maxshape=(None,self.N_spectral_bins))
+            self.h5database.create_dataset("opacity"  , shape = (self.N_unique, self.N_spectral_bins),maxshape=(None,self.N_spectral_bins))
+            # Also save energy bin information here
+            self.h5database["energy"] = self.model_runner.get_energy_bins()
+            self.h5database["delta_energy"] = self.model_runner.get_delta_energy_bins()     
+        if self.save_lines and not "line_intensity" in self.h5database:
+            self.h5database.create_dataset("line_intensity", shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
+            self.h5database.create_dataset("line_opacity"  , shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
+            # Also save line information here
+            self.h5database["line_labels"] = self.model_runner.get_line_labels()
+            self.h5database["line_energies"] = self.model_runner.get_line_energies()
+
         # Start by sorting since h5py is picky
         sorter = gasspy_ids.argsort()
         gasspy_ids = gasspy_ids[sorter]
-        intensity  = intensity[sorter,:]
-        opacity    = opacity[sorter,:]
+
         model_successful = model_successful[sorter]
 
-        # If this is the first time we save, we must create the dataset (since we now know the shape)
-        if not "intensity" in self.h5database:
-            self.h5database.create_dataset("intensity", shape = (self.N_unique, intensity.shape[1]),maxshape=(None,intensity.shape[1]))
-            self.h5database.create_dataset("opacity"  , shape = (self.N_unique, intensity.shape[1]),maxshape=(None,intensity.shape[1]))
-            # Also save energy bin information here
-            self.h5database["energy"] = self.model_runner.get_energy_bins()
-            self.h5database["delta_energy"] = self.model_runner.get_delta_energy_bins()        
         # Save these models
-        self.h5database["intensity"][gasspy_ids,:] = intensity
-        self.h5database["opacity"][gasspy_ids,:] = opacity
+        if self.save_spectra:
+            intensity  = intensity[sorter,:]
+            opacity    = opacity[sorter,:]
+            self.h5database["intensity"][gasspy_ids,:] = intensity
+            self.h5database["opacity"][gasspy_ids,:] = opacity
+        if self.save_lines:
+            line_intensity  = line_intensity[sorter,:]
+            line_opacity    = line_opacity[sorter,:]            
+            self.h5database["line_intensity"][gasspy_ids,:] = line_intensity
+            self.h5database["line_opacity"][gasspy_ids,:] = line_opacity    
+
         self.h5database["model_successful"][gasspy_ids] = model_successful
         self.h5database["model_completed"][gasspy_ids] = 1
 
@@ -161,12 +212,12 @@ class DatabasePopulator(object):
         """
         self.check_database()
         if mpi_rank == 0:
-            # Determine all unique models
+            # Determine all unique models that still need to be run
             unfinished_models = np.where(self.h5database["model_completed"][:] == 0)[0]
             
             # How many should each rank have?
             N_unfinished = len(unfinished_models)
-            N_per_rank = N_unfinished/mpi_size 
+            N_per_rank = min(N_unfinished/mpi_size, self.n_buffered_models)
             # Distribute models and gasspy_ids to each rank
             for irank in range(1,mpi_size):
                 istart = int(np.round((irank-1)*N_per_rank))
@@ -178,16 +229,16 @@ class DatabasePopulator(object):
                 if n_models_to_send == 0:
                     continue
                 mpi_comm.send(gasspy_ids, dest = irank, tag = 1)
-                models_to_send = self.unique_models[gasspy_ids,:]
+                models_to_send = self.model_data[gasspy_ids,:]
                 mpi_comm.send(models_to_send, dest = irank, tag = 2)
             
             # Take remaining models as local (minimum of one)
             istart = min(int(np.round((mpi_size-1)*N_per_rank)),N_unfinished-1)
 
             self.gasspy_ids    = unfinished_models[istart:]
-            self.models_to_run = self.unique_models[self.gasspy_ids,:]
+            self.models_to_run = self.model_data[self.gasspy_ids,:]
 
-            mpi_print("Running %d new models"%N_unfinished)
+            mpi_print("\t%d models remaining"%N_unfinished)
         else:
             # Recieve models and gasspy_ids from rank 0
             n_models_to_recieve = mpi_comm.recv(source= 0, tag = 0)
@@ -207,19 +258,33 @@ class DatabasePopulator(object):
         n_complete_cum = np.cumsum(n_complete_rank)
         n_complete_total = np.sum(n_complete_rank)
         
+        all_intensity = None
+        all_opacity = None
+        all_line_intensity = None
+        all_line_opacity = None
+
         if n_complete_total == 0:
             return
         if mpi_rank == 0:
             # Create arrays to store these models
-            all_intensity = np.zeros((n_complete_total, self.buffer_intensity.shape[1]))
-            all_opacity = np.zeros((n_complete_total, self.buffer_intensity.shape[1]))
+            if self.save_spectra:
+                all_intensity = np.zeros((n_complete_total, self.N_spectral_bins))
+                all_opacity = np.zeros((n_complete_total, self.N_spectral_bins))
+            if self.save_lines:
+                all_line_intensity = np.zeros((n_complete_total, self.N_lines))
+                all_line_opacity = np.zeros((n_complete_total, self.N_lines))
+                                
             all_model_successful = np.zeros((n_complete_total), dtype = int)
             all_gasspy_ids = np.zeros((n_complete_total), dtype = int)
 
             # Set values for local completed models
             if self.local_n_complete > 0:
-                all_intensity[:self.local_n_complete,:] = self.buffer_intensity[:self.local_n_complete,:]
-                all_opacity[:self.local_n_complete,:] = self.buffer_opacity[:self.local_n_complete,:]
+                if self.save_spectra:
+                    all_intensity[:self.local_n_complete,:] = self.buffer_intensity[:self.local_n_complete,:]
+                    all_opacity[:self.local_n_complete,:]   = self.buffer_opacity[:self.local_n_complete,:]
+                if self.save_lines:
+                    all_line_intensity[:self.local_n_complete,:] = self.buffer_line_intensity[:self.local_n_complete,:]
+                    all_line_opacity[:self.local_n_complete,:]   = self.buffer_line_opacity[:self.local_n_complete,:]
                 all_model_successful[:self.local_n_complete] = self.buffer_model_successful[:self.local_n_complete]
                 all_gasspy_ids[:self.local_n_complete] = self.buffer_gasspy_ids[:self.local_n_complete]
 
@@ -227,35 +292,50 @@ class DatabasePopulator(object):
             for irank in range(1, mpi_size):
                 if n_complete_rank[irank] == 0:
                     continue
-                all_intensity[n_complete_cum[irank-1]:n_complete_cum[irank],:] = mpi_comm.recv(source = irank, tag = 4*irank + 1)
-                all_opacity[n_complete_cum[irank-1]:n_complete_cum[irank],:] = mpi_comm.recv(source = irank, tag = 4*irank + 2)
-                all_model_successful[n_complete_cum[irank-1]:n_complete_cum[irank]] = mpi_comm.recv(source = irank, tag = 4*irank + 3)
-                all_gasspy_ids[n_complete_cum[irank-1]:n_complete_cum[irank]] = mpi_comm.recv(source = irank, tag = 4*irank + 4)
+                if self.save_spectra:
+                    all_intensity[n_complete_cum[irank-1]:n_complete_cum[irank],:] = mpi_comm.recv(source = irank, tag = 6*irank + 1)
+                    all_opacity[n_complete_cum[irank-1]:n_complete_cum[irank],:] = mpi_comm.recv(source = irank, tag = 6*irank + 2)
+                if self.save_lines:
+                    all_line_intensity[n_complete_cum[irank-1]:n_complete_cum[irank],:] = mpi_comm.recv(source = irank, tag = 6*irank + 3)
+                    all_line_opacity[n_complete_cum[irank-1]:n_complete_cum[irank],:] = mpi_comm.recv(source = irank, tag = 6*irank + 4)
+                
+                all_model_successful[n_complete_cum[irank-1]:n_complete_cum[irank]] = mpi_comm.recv(source = irank, tag = 6*irank + 5)
+                all_gasspy_ids[n_complete_cum[irank-1]:n_complete_cum[irank]] = mpi_comm.recv(source = irank, tag = 6*irank + 6)
             
             # Save them
             mpi_print("\tdumping %d models"%n_complete_total)
-            self.save_models(all_intensity, all_opacity, all_model_successful, all_gasspy_ids)
+            self.save_models(all_model_successful, all_gasspy_ids, 
+                            intensity=all_intensity, opacity=all_opacity, 
+                            line_intensity=all_line_intensity, line_opacity=all_line_opacity)
 
         
         else: # if not main rank
             if self.local_n_complete == 0:
                 return
-            mpi_comm.send(self.buffer_intensity[:self.local_n_complete,:], dest = 0, tag = 4*mpi_rank + 1)            
-            mpi_comm.send(self.buffer_opacity[:self.local_n_complete,:], dest = 0, tag = 4*mpi_rank + 2)            
-            mpi_comm.send(self.buffer_model_successful[:self.local_n_complete], dest = 0, tag = 4*mpi_rank + 3)            
-            mpi_comm.send(self.buffer_gasspy_ids[:self.local_n_complete], dest = 0, tag = 4*mpi_rank + 4)
+            if self.save_spectra:
+                mpi_comm.send(self.buffer_intensity[:self.local_n_complete,:], dest = 0, tag = 6*mpi_rank + 1)            
+                mpi_comm.send(self.buffer_opacity[:self.local_n_complete,:], dest = 0, tag = 6*mpi_rank + 2)            
+            if self.save_lines:
+                mpi_comm.send(self.buffer_line_intensity[:self.local_n_complete,:], dest = 0, tag = 6*mpi_rank + 3)            
+                mpi_comm.send(self.buffer_line_opacity[:self.local_n_complete,:], dest = 0, tag = 6*mpi_rank + 4)
+
+            mpi_comm.send(self.buffer_model_successful[:self.local_n_complete], dest = 0, tag = 6*mpi_rank + 5)            
+            mpi_comm.send(self.buffer_gasspy_ids[:self.local_n_complete], dest = 0, tag = 6*mpi_rank + 6)
 
     def allocate_local_buffers(self):
         """
             Method to allocate the buffers
         """
-        n_spectral_bins = len(self.model_runner.get_energy_bins())
         # How many do we expect?
-        n_buffered_models = int(self.populator_dump_time/self.est_model_time) + 1
-        self.buffer_intensity = np.zeros((n_buffered_models,n_spectral_bins), dtype = float)
-        self.buffer_opacity = np.zeros((n_buffered_models,n_spectral_bins), dtype = float)
-        self.buffer_model_successful = np.zeros(n_buffered_models, dtype = int)
-        self.buffer_gasspy_ids = np.zeros(n_buffered_models, dtype = int)
+        self.n_buffered_models = int(self.populator_dump_time/self.est_model_time) + 1
+        if self.save_spectra:
+            self.buffer_intensity = np.zeros((self.n_buffered_models,self.N_spectral_bins), dtype = float)
+            self.buffer_opacity = np.zeros((self.n_buffered_models,self.N_spectral_bins), dtype = float)
+        if self.save_lines:
+            self.buffer_line_intensity = np.zeros((self.n_buffered_models,self.N_lines), dtype = float)
+            self.buffer_line_opacity = np.zeros((self.n_buffered_models,self.N_lines), dtype = float)            
+        self.buffer_model_successful = np.zeros(self.n_buffered_models, dtype = int)
+        self.buffer_gasspy_ids = np.zeros(self.n_buffered_models, dtype = int)
         self.local_n_complete = 0
         return
     
@@ -264,17 +344,65 @@ class DatabasePopulator(object):
             Method to reset the buffers
         """
         # if they havent been allocated, do nothing
-        self.buffer_intensity[:,:] = 0
-        self.buffer_opacity[:,:] = 0          
+        if self.save_spectra:
+            self.buffer_intensity[:,:] = 0
+            self.buffer_opacity[:,:] = 0 
+        if self.save_lines:
+            self.buffer_line_intensity[:,:] = 0
+            self.buffer_line_opacity[:,:] = 0 
+
         self.buffer_model_successful[:] = 0
         self.buffer_gasspy_ids[:] = 0
         self.local_n_complete = 0
         return
 
+
+    def __run_model__(self):
+        if self.local_n_complete >= len(self.models_to_run):
+            # If there is nothing to run locally, do nothing
+            return
+        gasspy_id = self.gasspy_ids[self.local_n_complete]
+        model = self.models_to_run[self.local_n_complete,:]
+
+        # Create dictionary of fields needed for the model_runner
+        model_dict = {}
+        for field in self.model_runner.required_fields:
+            if field not in self.database_fields:
+                mpi_print("ERROR: could not find field %s required by model_runner in database"%field)
+                mpi_print("Fields required by model_runner :")
+                mpi_print(self.model_runner.required_fields)
+                mpi_print("Fields in database :")
+                mpi_print(self.database_fields)                   
+                sys.exit(0)
+
+            ifield = self.database_fields.index(field)
+            model_dict[field] = model[ifield]
+        
+        # Send model to model_runner
+        self.model_runner.run_model(model_dict, "gasspy_%d"%gasspy_id)
+
+        # set success state and gasspy id
+        self.buffer_model_successful[self.local_n_complete] = self.model_runner.model_successful()
+        self.buffer_gasspy_ids[self.local_n_complete] = gasspy_id
+
+        if self.model_runner.model_successful():   
+            # Get intensity and opacity off model
+            if self.save_spectra:
+                self.buffer_intensity[self.local_n_complete,:] = self.model_runner.get_intensity()
+                self.buffer_opacity[self.local_n_complete,:] = self.model_runner.get_opacity()
+            if self.save_lines:
+                self.buffer_line_intensity[self.local_n_complete,:] = self.model_runner.get_line_intensity()
+                self.buffer_line_opacity[self.local_n_complete,:] = self.model_runner.get_line_opacity()
+        # advance number of completed models
+        self.local_n_complete += 1
+        self.model_runner.clean_model()
+
+
     def __run_models__(self):
         """
             Main call to run all required models
         """
+        mpi_print("Running models")
         # Distribute models from main rank
         self.distribute_models()
 
@@ -285,67 +413,50 @@ class DatabasePopulator(object):
 
         # Loop over all models
         all_ranks_complete = np.array([mpi_comm.allgather(0)])
-        sys.stdout.flush()
-        for imodel in range(len(self.models_to_run)):
-            # Grab current model
-            gasspy_id = self.gasspy_ids[imodel]
-            model = self.models_to_run[imodel,:]
+        all_ranks_to_dump = np.array([mpi_comm.allgather(0)])
 
-            # Create dictionary of fields needed for the model_runner
-            model_dict = {}
-            for field in self.model_runner.required_fields:
-                if field not in self.database_fields:
-                    mpi_print("ERROR: could not find field %s required by model_runner in database"%field)
-                    mpi_print("Fields required by model_runner :")
-                    mpi_print(self.model_runner.required_fields)
-                    mpi_print("Fields in database :")
-                    mpi_print(self.database_fields)                   
-                    sys.exit(0)
-
-                ifield = self.database_fields.index(field)
-                model_dict[field] = model[ifield]
-            
-            # Send model to model_runner
-            self.model_runner.run_model(model_dict, "gasspy_%d"%gasspy_id)
-
-            # set success state and gasspy id
-            self.buffer_model_successful[self.local_n_complete] = self.model_runner.model_successful()
-            self.buffer_gasspy_ids[self.local_n_complete] = gasspy_id
-
-            if self.model_runner.model_successful():   
-                # Get intensity and opacity off model
-                self.buffer_intensity[self.local_n_complete,:] = self.model_runner.get_intensity()
-                self.buffer_opacity[self.local_n_complete,:] = self.model_runner.get_opacity()
-            
-
-            
-            # advance number of completed models
-            self.local_n_complete += 1
+        self.local_n_complete = 0
+        while np.any(all_ranks_complete == 0): # Run as long as any rank has something to do
+            mpi_print(self.local_n_complete)
+            # Run the next local model
+            self.__run_model__()
 
             # Check if we need to dump or exit the loop
             current_time = time.time()
+            # Check if ranks thinks wwe are done running models
+            if current_time - start_runtime >= self.max_walltime or self.local_n_complete == len(self.models_to_run):
+                all_ranks_complete[:] = mpi_comm.allgather(1)
+            else:
+                all_ranks_complete[:] = mpi_comm.allgather(0)
 
-            if current_time - start_runtime >= self.max_walltime or current_time - time_since_last_dump > self.populator_dump_time or imodel == len(self.models_to_run)-1:
+            rank_to_dump = (current_time - start_runtime >= self.max_walltime or # max wall time reached
+                            current_time - time_since_last_dump > self.populator_dump_time or # max dump intervall time reached
+                            self.local_n_complete == self.n_buffered_models or # Buffer size reached or all finished
+                            (self.local_n_complete == len(self.models_to_run) and len(self.models_to_run) != 0) or # We have no more to run
+                            np.all(all_ranks_complete == 1)) # All ranks are done 
+
+            # Check if any rank wants to dump
+            if rank_to_dump:
+                all_ranks_to_dump[:] = mpi_comm.allgather(1)
+            else:
+                all_ranks_to_dump[:] = mpi_comm.allgather(0)
+
+            # If any rank feels the need to dump, dump
+            if np.any(all_ranks_to_dump == 1):
                 self.gather_results()
+                # re-distribute models, reset buffers and buffer counter
                 self.reset_local_buffers() 
+                self.distribute_models()
                 self.local_n_complete = 0
-                if imodel == len(self.models_to_run) - 1 or current_time - start_runtime >= self.max_walltime :
+
+                # Check if we are done running models after re-destributing
+                if current_time - start_runtime >= self.max_walltime or len(self.models_to_run) == 0:
                     all_ranks_complete[:] = mpi_comm.allgather(1)
                 else:
                     all_ranks_complete[:] = mpi_comm.allgather(0)
 
-
+                # reset dump time
                 time_since_last_dump = time.time()
-                
-            
-            self.model_runner.delete_files()
-            if current_time - start_runtime >= self.max_walltime:
-                break
-        # Continue "gathering" untill every rank has completed all their models
-        while np.sum(all_ranks_complete == 0) > 0:
-            self.gather_results()
-            self.local_n_complete = 0
-            all_ranks_complete[:] = mpi_comm.allgather(1)
 
         mpi_print("")  
     
@@ -358,6 +469,9 @@ class DatabasePopulator(object):
         except:
             mpi_all_print(traceback.format_exc())
             mpi_comm.Abort(1)            
+
+    def set_max_walltime(self, max_walltime):
+        self.max_walltime = max_walltime
 
     def __finalize__(self, close_hdf5 = True):
         """
@@ -451,10 +565,10 @@ if __name__ == "__main__":
     
         # Create a fake test_database
         h5database = hp.File("test_database/test_database.hdf5", "w")
-        h5database.create_dataset("unique_models", shape = (N_models,2), maxshape = (None,2))
+        h5database.create_dataset("model_data", shape = (N_models,2), maxshape = (None,2))
 
         models = np.array([np.arange(N_models),np.arange(N_models)]).T
-        h5database["unique_models"][:,:] = models 
+        h5database["model_data"][:,:] = models 
         h5database["database_fields"] = ["var1" , "var2"]
         h5database.close()
 
@@ -476,8 +590,8 @@ if __name__ == "__main__":
 
 
         new_models = np.array([np.arange(N_models),np.arange(N_models)]).T
-        h5database["unique_models"].resize((N_models), axis = 0)
-        h5database["unique_models"][:,:] = new_models
+        h5database["model_data"].resize((N_models), axis = 0)
+        h5database["model_data"][:,:] = new_models
     else:
         h5database = None
 

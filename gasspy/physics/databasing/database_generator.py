@@ -79,7 +79,7 @@ class DatabaseGenerator(object):
             mpi_print("Creating new database %s"%(self.gasspy_modeldir + self.database_name))
             self.append = False
             self.open_database()
-            self.unique_models = None
+            self.model_data = None
             if self.need_neighbors:
                 self.is_neighbor = None
                 self.neighbor_ids = None
@@ -91,7 +91,7 @@ class DatabaseGenerator(object):
     def load_database(self):
         self.h5database = hp.File(self.gasspy_modeldir + self.database_name, "r+")
         # Load gasspy ids and models
-        self.unique_models = self.h5database["unique_models"][:,:]
+        self.model_data = self.h5database["model_data"][:,:]
 
         # If we need neighbor data, make sure that its there. conversly if we do not but the previous database does, 
         # something has been missconfigured
@@ -104,12 +104,12 @@ class DatabaseGenerator(object):
             if self.need_neighbors:
                 sys.exit("ERROR: Old database is not configured to use neighbor data, but new config does. Check config options")
 
-        self.N_unique = self.h5database["unique_models"].shape[0]
+        self.N_unique = self.h5database["model_data"].shape[0]
         self.original_N_unique = self.N_unique
     
     def open_database(self):
         self.h5database = hp.File(self.gasspy_modeldir + self.database_name, "w")
-        self.h5database.create_dataset("unique_models", (1, len(self.database_fields)), maxshape=(None,len(self.database_fields)), dtype = float)
+        self.h5database.create_dataset("model_data", (1, len(self.database_fields)), maxshape=(None,len(self.database_fields)), dtype = float)
         if self.need_neighbors:
             self.h5database.create_dataset("neighbor_ids", (1, 3**len(self.interpolate_fields)), maxshape=(None,3**len(self.interpolate_fields)), dtype = int)
             self.h5database.create_dataset("is_neighbor", (1, ), maxshape=(None,), dtype = int)
@@ -124,9 +124,9 @@ class DatabaseGenerator(object):
         if self.N_unique == self.N_saved:
             return
         if self.need_neighbors: 
-            keys = ["unique_models", "neighbor_ids", "is_neighbor"]
+            keys = ["model_data", "neighbor_ids", "is_neighbor"]
         else:
-            keys = ["unique_models"]
+            keys = ["model_data"]
         # Loop over all required fields ands save
         for key in keys:
             self.h5database[key].resize((self.N_unique), axis=0)
@@ -143,8 +143,8 @@ class DatabaseGenerator(object):
 
         compressed_sim_data = None
         for ifield, field in enumerate(self.database_fields):
-            # Load and compress the field
-            compressed_field_data = compress.array(np.log10(sim_reader.get_field(field)), self.compression_ratio[field])
+            # Load and compress the field (ensure double precision)
+            compressed_field_data = compress.array(np.log10(sim_reader.get_field(field).astype(np.float64)), self.compression_ratio[field])
 
             # If field has lower or upper limits, set these
             if field in self.log10_field_limits:
@@ -197,15 +197,15 @@ class DatabaseGenerator(object):
             ishift = self.__shift_recursive__(ishift, ifield + 1, sim_neighbors, non_neighbor_ids, total_shift=total_shift)
         return ishift
 
-    def add_neighbors(self, sim_unique_models, sim_unique_ids):
+    def add_neighbors(self, sim_model_data, sim_unique_ids):
         """
             Adds neighbors, checks for unique models again and returns a new list of id's, and neighbors
         """
         # Create space for neighbors. 3^nshift_field from left, centre and right
-        sim_neighbors = np.repeat(sim_unique_models, 3**len(self.interpolate_fields), axis = 0)
+        sim_neighbors = np.repeat(sim_model_data, 3**len(self.interpolate_fields), axis = 0)
         
         # Indexes of the original models
-        non_neighbor_ids = np.arange(sim_unique_models.shape[0])*3**len(self.interpolate_fields)
+        non_neighbor_ids = np.arange(sim_model_data.shape[0])*3**len(self.interpolate_fields)
         
         # Determine fields for all neighbors
         self.__shift_recursive__(0,0, sim_neighbors, non_neighbor_ids)
@@ -233,16 +233,16 @@ class DatabaseGenerator(object):
         # return all needed arrays
         return uniques, sim_unique_ids, sim_neighbor_ids, sim_is_neighbor
 
-    def merge_uniques(self, new_unique_models, new_unique_ids, new_neighbor_ids = None, new_is_neighbor = None):
-        if self.unique_models is None:
-            self.unique_models = new_unique_models
-            self.N_unique = self.unique_models.shape[0]
+    def merge_uniques(self, new_model_data, new_unique_ids, new_neighbor_ids = None, new_is_neighbor = None):
+        if self.model_data is None:
+            self.model_data = new_model_data
+            self.N_unique = self.model_data.shape[0]
             if self.need_neighbors:
                 self.neighbor_ids = new_neighbor_ids
                 self.is_neighbor = new_is_neighbor
             return new_unique_ids
         # Add to list of uniques
-        appended_uniques = np.append(self.unique_models, new_unique_models, axis = 0)
+        appended_uniques = np.append(self.model_data, new_model_data, axis = 0)
 
         # determine all uniques
         all_uniques, all_ids = np.unique(appended_uniques, axis = 0, return_inverse = True)
@@ -256,7 +256,7 @@ class DatabaseGenerator(object):
         # Next figure out where the new_ids and models are
         # Next figure out which of the new ids are in the old list
         in_old = np.in1d(all_ids[self.N_unique:],all_ids[:self.N_unique])
-        new_ids = np.zeros(new_unique_models.shape[0], dtype = int)
+        new_ids = np.zeros(new_model_data.shape[0], dtype = int)
         sort = all_ids[:self.N_unique].argsort()
         rank = np.searchsorted(all_ids[:self.N_unique], all_ids[self.N_unique:][in_old], sorter = sort)
         new_ids[in_old] = sort[rank]
@@ -290,9 +290,9 @@ class DatabaseGenerator(object):
             self.is_neighbor = is_neighbor
             self.neighbor_ids = neighbor_ids
 
-        # Update the models and return the id's of the new_unique_models
-        self.unique_models = uniques
-        self.N_unique = self.unique_models.shape[0]
+        # Update the models and return the id's of the new_model_data
+        self.model_data = uniques
+        self.N_unique = self.model_data.shape[0]
 
         return new_unique_ids
 
@@ -305,9 +305,9 @@ class DatabaseGenerator(object):
         compressed_simdata = self.get_compressed_sim_data(sim_reader)
         
         # Determine all new unique models
-        sim_unique_models, sim_unique_ids = np.unique(compressed_simdata, axis = 0, return_inverse = True)
+        sim_model_data, sim_unique_ids = np.unique(compressed_simdata, axis = 0, return_inverse = True)
         if self.need_neighbors:
-            sim_unique_models, sim_unique_ids, sim_neighbor_ids, sim_is_neighbor = self.add_neighbors(sim_unique_models, sim_unique_ids)
+            sim_model_data, sim_unique_ids, sim_neighbor_ids, sim_is_neighbor = self.add_neighbors(sim_model_data, sim_unique_ids)
         else:
             sim_is_neighbor = None
             sim_neighbor_ids = None
@@ -315,15 +315,15 @@ class DatabaseGenerator(object):
         # Save old_N_unique for book keeping
         old_N_unique = self.N_unique
         # If we do not have any previous data we can just set here
-        sim_unique_ids = self.merge_uniques(sim_unique_models, sim_unique_ids, new_neighbor_ids = sim_neighbor_ids, new_is_neighbor = sim_is_neighbor)
+        sim_unique_ids = self.merge_uniques(sim_model_data, sim_unique_ids, new_neighbor_ids = sim_neighbor_ids, new_is_neighbor = sim_is_neighbor)
 
-        mpi_print("Snapshot has %d unique models:"%(len(sim_unique_models)))
+        mpi_print("Snapshot has %d unique models:"%(len(sim_model_data)))
         mpi_print("\t%d are new"%(self.N_unique- old_N_unique))
         if self.need_neighbors:
             mpi_print("\t%d new neighbors are required"%np.sum(self.is_neighbor[old_N_unique:]))
         mpi_print("")
         # Make snapshot remember its models
-        sim_reader.save_new_field("cell_gasspy_ids", sim_unique_ids)
+        sim_reader.save_new_field("cell_gasspy_ids", sim_unique_ids, dtype = int)
         
     def finalize(self, close_hdf5 = True):
 
@@ -372,7 +372,7 @@ if __name__ == "__main__":
             """
             return self.__dict__[field]
         
-        def save_new_field(self, field, data):
+        def save_new_field(self, field, data, dtype = None):
             """
                 Function to save a new field, used to save the gasspy_ids, here just store in the class
             """
@@ -523,19 +523,19 @@ if __name__ == "__main__":
     h5database = hp.File("test_database/test_database.hdf5", "r")
     print("Snapshot 1:")
     for ifield, field in enumerate(gasspy_config["database_fields"]):
-        snapshot1.check_snapshot(field, h5database["unique_models"][:,ifield], gasspy_config)
+        snapshot1.check_snapshot(field, h5database["model_data"][:,ifield], gasspy_config)
     print("Snapshot 2:")
     for ifield, field in enumerate(gasspy_config["database_fields"]):
-        snapshot2.check_snapshot(field, h5database["unique_models"][:,ifield], gasspy_config)
+        snapshot2.check_snapshot(field, h5database["model_data"][:,ifield], gasspy_config)
     print("Snapshot 3:")
     for ifield, field in enumerate(gasspy_config["database_fields"]):
-        snapshot3.check_snapshot(field, h5database["unique_models"][:,ifield], gasspy_config)  
+        snapshot3.check_snapshot(field, h5database["model_data"][:,ifield], gasspy_config)  
     print("Snapshot 4:")
     for ifield, field in enumerate(gasspy_config["database_fields"]):
-        snapshot3.check_snapshot(field, h5database["unique_models"][:,ifield], gasspy_config)  
+        snapshot3.check_snapshot(field, h5database["model_data"][:,ifield], gasspy_config)  
     print("Snapshot 5:")
     for ifield, field in enumerate(gasspy_config["database_fields"]):
-        snapshot3.check_snapshot(field, h5database["unique_models"][:,ifield], gasspy_config)  
+        snapshot3.check_snapshot(field, h5database["model_data"][:,ifield], gasspy_config)  
 
     # Test if neighbor information makes sense
     is_neighbor = h5database["is_neighbor"][:]
