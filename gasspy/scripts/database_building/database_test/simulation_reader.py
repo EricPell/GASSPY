@@ -82,7 +82,7 @@ class Simulation_Reader():
         return 
 
 
-    def save_new_field(self, fieldname, data):
+    def save_new_field(self, fieldname, data, dtype = None):
         self.__dict__[fieldname] = data
         return
 
