@@ -4,6 +4,7 @@ import h5py as hp
 import sys
 import os
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcol
 from gasspy.io.gasspy_io import read_yaml, read_dict_hdf5
 from gasspy.physics.databasing.database_utils import get_neighbor_idxs
 from numba import jit
@@ -19,7 +20,7 @@ def interpolate_kernel(grid_points, grid_values, cell_points):
 
         # Deltas
         deltas = np.zeros(neigh_points.shape[1])
-        for idim in range(neigh_points.shape[0]):
+        for idim in range(neigh_points.shape[1]):
             if cell_point[idim] >= 0:
                 deltas[idim] = np.max(neigh_points[:,idim])
             else:
@@ -117,8 +118,9 @@ if "interpolate_fields" in gasspy_config:
 else:
     interpolate = False
 
+success = np.where(cell_database["model_successful"][:] == 1)[0]
 # gasspy ids specifically wanted by the cells
-cell_gasspy_ids = cell_database["cell_gasspy_ids"][:]
+cell_gasspy_ids = cell_database["cell_gasspy_ids"][success]
 # For sorting and inverse sorting due to h5py's particularity
 cell_unique_ids, cell_local_ids = np.unique(cell_gasspy_ids, return_inverse=True) 
 cell_gasspy_ids_sorter = cell_unique_ids.argsort()
@@ -138,7 +140,9 @@ if interpolate:
 
 
     # Get model_data for cell and gridded models
-    cell_model_data = cell_database["model_data"][:, interp_field_idxs]
+    cell_models = cell_database["model_data"][success, : ]
+    cell_model_data = cell_database["model_data"][:, interp_field_idxs][success]
+    grid_models = grid_database["model_data"][cell_unique_ids[cell_gasspy_ids_sorter],:][cell_cell_sorter][cell_local_ids]
     grid_model_data = grid_database["model_data"][unique_ids[gasspy_ids_sorter],:][gasspy_ids_inv_sorter][local_neighbor_ids]
     grid_model_data = grid_model_data.reshape(neighbor_shape + grid_model_data.shape[-1:])
     grid_model_data = grid_model_data[:,:,interp_field_idxs]
@@ -147,22 +151,23 @@ if interpolate:
 
 
 var_labels = ["$\Delta x$ [cm]", "$n$ [cm$^{-3}$]", "$T$ [K]", "$F_{FUV}$ [cm$^{-2}$]", "$F_{HII}$ [cm$^{-2}$]", "$F_{HeII}$ [cm$^{-2}$]", "$F_{HeIII}$ [cm$^{-2}$]"]
-var_lims = [[None,None],
-            [-2,5],
-            [0,7],
-            [-10, None],
-            [-10, None],
-            [-10, None],
-            [-10, None]]
+var_lims = [[1e-4,5e-4],
+            [1e-4,5e-2],
+            [1e-4,5e-2],
+            [1e-4,5e-2],
+            [1e-4,5e-2],
+            [1e-4,5e-2],
+            [1e-4,5e-2]]
 
 for line in line_list:
+    print(line)
     if line not in line_labels:
         print(line_labels)
         sys.exit("Error: line %s not in database"%line)
     iline = line_labels.index(line)
 
-    cell_line_intensity = cell_database["line_intensity"][:,iline]
-    cell_cont_intensity = cell_database["cont_intensity"][:,iline]
+    cell_line_intensity = cell_database["line_intensity"][success,iline]
+    cell_cont_intensity = cell_database["cont_intensity"][success,iline]
 
     grid_line_intensity = grid_database["line_intensity"][cell_unique_ids[cell_gasspy_ids_sorter], iline][cell_cell_sorter][cell_local_ids]
     # Determine relative error
@@ -177,8 +182,11 @@ for line in line_list:
     if interpolate:
         grid_ngbr_intensity = grid_database["line_intensity"][unique_ids[gasspy_ids_sorter], iline][gasspy_ids_inv_sorter][local_neighbor_ids]
         grid_ngbr_intensity = grid_ngbr_intensity.reshape(neighbor_shape)
+        # set minimum
+        grid_ngbr_intensity[grid_ngbr_intensity<1e-40] = 1e-40
+        print("interpolating")
         intr_line_intensity = 10**interpolate_kernel(grid_model_deltas, np.log10(grid_ngbr_intensity), cell_model_deltas)
-        
+        print("interpolation complete")
         # Determine relative error
         intr_error,  intr_relative_error = get_error(cell_line_intensity, intr_line_intensity)
 
@@ -189,6 +197,15 @@ for line in line_list:
 
         min_bin = min(min(min_bin,np.log10(np.nanmin(intr_relative_error[intr_relative_error>0]))),-3)
         max_bin = max(max_bin, min_bin+4)
+
+        diff = intr_relative_error - grid_relative_error
+        intr_worse = np.argmax(diff)
+        print("")
+        print(cell_models[intr_worse])
+        print(cell_model_deltas[intr_worse], cell_line_intensity[intr_worse])
+        print(grid_line_intensity[intr_worse], intr_line_intensity[intr_worse])
+        for i in range(grid_ngbr_intensity.shape[1]):
+            print(grid_model_deltas[intr_worse,i,:], grid_ngbr_intensity[intr_worse,i])
 
     # Simple plot of relative error distribution
     fig, axes = plt.subplots(nrows = 2,ncols = 1, sharex=True)
@@ -225,7 +242,38 @@ for line in line_list:
     else:
         plt.savefig(args.plotdir + line.replace(" ", "_").replace("__","_")+ ".png")
         plt.close()
-    
+
+    fig, axes = plt.subplots(4,2, figsize = (8,6))
+    axes = axes.ravel()
+    axes[1].set_title(line)
+    norm = mcol.LogNorm()
+    for ivar, var_label in enumerate(var_labels):
+        ax = axes[ivar]
+        if var_lims[ivar][0] is not None:
+            var_min = var_lims[ivar][0]
+        else:
+            var_min = np.min(np.abs(cell_models[:,ivar] - grid_models[:,ivar]))
+        if var_lims[ivar][1] is not None:
+            var_max = var_lims[ivar][1] 
+        else:
+            var_max = np.max(np.abs(cell_models[:,ivar] - grid_models[:,ivar]))
+
+        var_edges = np.linspace(var_min, var_max)
+        #fig, ax = plt.subplots()
+        ax.hist2d(np.abs(cell_models[:,ivar] - grid_models[:,ivar]), intr_relative_error, bins = [var_edges, bin_edges], density = True, norm = norm, cmap = "gnuplot2")
+        ax.set_xlabel(r"" + var_label)
+        ax.set_ylabel(r"$\Delta j/j_\mathrm{cell}$")
+        ax.set_yscale("log")
+        ax.set_xlim(var_min, var_max)
+    plt.subplots_adjust(hspace = 0.3)
+    if args.plotdir is None:
+        plt.show()
+    else:
+        plt.savefig(args.plotdir +"/var_error_ " + line.replace(" ", "_").replace("__","_")+ ".png")
+        plt.close()
+
+
+
 
     
 

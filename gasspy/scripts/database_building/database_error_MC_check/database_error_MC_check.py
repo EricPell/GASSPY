@@ -42,7 +42,7 @@ indir = args.rundir
 
 
 class Unified_Simulation_Reader:
-    def __init__(self, gasspy_config, h5out, sim_readers):
+    def __init__(self, gasspy_config, h5outfile, sim_readers):
         self.sim_readers = sim_readers
         self.sim_N_cells = np.zeros(len(sim_readers), dtype=int)
         for ireader, reader in enumerate(self.sim_readers):
@@ -52,21 +52,15 @@ class Unified_Simulation_Reader:
         self.tot_N_cells = np.sum(self.sim_N_cells)
         self.database_fields = gasspy_config["database_fields"]
         self.models = None
-        self.open_h5out(h5out)
-        if "database_fields" not in self.h5out:
-            self.h5out["database_fields"] = self.database_fields
-        return
-            
-    def open_h5out(self, h5out):
-        if isinstance(h5out, str):
-           if os.path.exists(h5out):
-               self.h5out = hp.File(h5out, "r+")  
-           else:
-               self.h5out = hp.File(h5out, "w")
+        self.h5outfile = h5outfile
+        if os.path.exists(self.h5outfile):
+            h5out = hp.File(self.h5outfile, "r+")  
         else:
-            self.h5out = h5out
-
-
+            h5out = hp.File(self.h5outfile, "w")
+        if "database_fields" not in h5out:
+            h5out["database_fields"] = self.database_fields
+        h5out.close()
+        return
 
     def append_cells(self, N_cells):
         cell_index = np.arange(N_cells)
@@ -78,13 +72,14 @@ class Unified_Simulation_Reader:
         models = np.zeros((N_cells, len(self.database_fields)))
 
         # Make sure that there's enough allocated in the hdf5 output
-        if not "model_data" in self.h5out:
+        h5out = hp.File(self.h5outfile, "r+")
+        if not "model_data" in h5out:
             N_previous = 0
-            self.h5out.create_dataset("model_data", shape = (N_cells, len(self.database_fields)), maxshape = (None, len(self.database_fields)), dtype=np.float64)
+            h5out.create_dataset("model_data", shape = (N_cells, len(self.database_fields)), maxshape = (None, len(self.database_fields)), dtype=np.float64)
         else:
-            N_previous = self.h5out["model_data"].shape[0]
+            N_previous = h5out["model_data"].shape[0]
             cell_index+=N_previous
-            self.h5out["model_data"].resize((N_previous+N_cells), axis = 0)
+            h5out["model_data"].resize((N_previous+N_cells), axis = 0)
         
         # get the models from the different readers
         for ireader, reader in enumerate(self.sim_readers):
@@ -94,25 +89,30 @@ class Unified_Simulation_Reader:
 
         models[models <= 0] = 1e-40
         # Save the the hdf5
-        self.h5out["model_data"][N_previous:,:] = np.log10(models)
+        h5out["model_data"][N_previous:,:] = np.log10(models)
+        h5out.close()
 
 
 
     def get_field(self, field):
         ifield = self.database_fields.index(field)
-        return 10**self.h5out["model_data"][:,ifield]
-
+        h5out = hp.File(self.h5outfile, "r+")
+        data = 10**h5out["model_data"][:,ifield]
+        h5out.close()
+        return data
+    
     def save_new_field(self, field, data, dtype = None):
         if dtype is None:
             dtype = data.dtype
-        if field in self.h5out:
-            if data.shape[0] > self.h5out[field].shape[0]:
-                self.h5out[field].resize(data.shape[0], axis = 0)
+        h5out = hp.File(self.h5outfile, "r+")
+        if field in h5out:
+            if data.shape[0] > h5out[field].shape[0]:
+                h5out[field].resize(data.shape[0], axis = 0)
         else:
-            self.h5out.create_dataset(field, shape = data.shape, maxshape = (None,), dtype = dtype)
+            h5out.create_dataset(field, shape = data.shape, maxshape = (None,), dtype = dtype)
 
-        self.h5out[field][:] = data.astype(dtype)
-    
+        h5out[field][:] = data.astype(dtype)
+        h5out.close()
 
 def get_line_indexes(line_labels, spec_energy):
     line_indexes = np.zeros(len(line_labels), dtype = int)
@@ -145,13 +145,7 @@ if mpi_rank == 0:
         snapshot = gasspy_config["snapshots"][key]
         sim_readers.append(reader_mod.Simulation_Reader(snapshot["simdir"], snapshot["simdir"]+"/GASSPY", snapshot["sim_args"]))
 
-    # open the hdf5 file here 
-    if not os.path.exists(args.cells_outfile):
-        h5out = hp.File(args.cells_outfile, "w")
-    else:
-        h5out = hp.File(args.cells_outfile, "r+")
-
-    sim_reader = Unified_Simulation_Reader(gasspy_config, h5out, sim_readers)
+    sim_reader = Unified_Simulation_Reader(gasspy_config, args.cells_outfile, sim_readers)
     N_cells = gasspy_config["N_cells"]
     sim_reader.append_cells(N_cells)
     
@@ -166,13 +160,9 @@ max_walltime = check_parameter_in_config(gasspy_config, "max_walltime", args.max
 database_creator.add_snapshot(sim_reader)
 
 # Next run all models for the actual cells
-populator = CellDatabasePopulator(gasspy_config, model_runner, h5database = h5out)
+populator = CellDatabasePopulator(gasspy_config, model_runner, gasspy_modeldir="./", database_name=args.cells_outfile)
 populator.set_max_walltime(max_walltime - (time.time()- wall_start))
 populator.run_models()
-
-# Close cell database
-if mpi_rank == 0:
-    h5out.close()
 
 # Finally run the actual models
 database_creator.set_max_walltime(max_walltime - (time.time()- wall_start))
