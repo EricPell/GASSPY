@@ -31,6 +31,12 @@ sim_reader_args:
 # Database parameters
 ##########################
 
+# Name of the database
+database_name : gasspy_database.hdf5
+
+# Path where to store the database
+gasspy_modeldir : /path/to/modeldir/
+
 # Names of the fields to use
 database_fields: 
   - "cell_size"      # Cell size
@@ -98,6 +104,27 @@ compression_ratio:
     - 1
     - 1.0
 
+# Fields for which we want to interpolate
+interpolate_fields: 
+  - "number_density"
+  - "temperature"
+
+# Save line emission and line opacity seperatly for these lines
+line_labels : 
+    -   "H  1 6562.80A"
+    -   "H  1 4861.32A" 
+# Only save lines (dont know why, but hey)
+lines_only : False
+
+# How often in seconds should we gather and save models that we have run. This is for 1) memory saving and 2) safer in case of crashes/forced exits
+populator_dump_time: 1800 
+
+# Optimistic estimate for how long a model takes in seconds. Used to set the buffers when running models
+est_model_time : 60
+
+# Maximum time we want to run in seconds, if this is reached, the code should exit safely and allow for restart
+max_walltime : 1.0e+99
+
 ############################
 # Cloudy parameters
 ############################    
@@ -111,6 +138,14 @@ cloudy_path : "/path/to/cloudy/"
 # Raytracer  parameters
 ##########################
 
+# Position of the observer in units of box size
+observer_center:
+  - [0.61896426, 0.66178062, 0.69535435]
+
+# point in space the observer looks towards from observer_center in units of box size
+pov_center :
+  - [0.51502489 , 0.51872035 , 0.5186332]
+
 # The resolving power of the cells by the rays.
 # defined such that ray projecter area <= ray_max_area_frac * dx_cell^2
 ray_max_area_frac : 0.25
@@ -119,6 +154,12 @@ ray_max_area_frac : 0.25
 ray_lrefine_min : 5
 ray_lrefine_max : 13
 
+# Distance from the observer results are ignored in cgs, usefull for removing block artefacts
+ignore_within_distance : 1.543e+18
+
+# Observer type: 
+# plane : grid of parallell rays
+# healpic : rays generated from central point 
 observer_type : "plane"
 
 ###
@@ -132,6 +173,9 @@ detector_size_y : 1
 Nxp : 512
 Nyp : 512
 
+# Assumed distance to the plane. Only used in calculating solid angles, not in the actual tracing
+external_distance : 1.0e+13
+
 ###
 # Healpix observer 
 ###
@@ -144,7 +188,60 @@ Nyp : 512
 # Radiative transfer parameters
 #########################
 
-# Energy limits. Only specify if not all Ebins are wanted
+# Energy limits of the spectra
+# For full spectra RT these should only be specified if not all spectral bins are wanted
+# In band RT these specify the bands used
 #Elims : 
-#    - [3e-2, 3e-1]
-#    - [3e-4, 3e-3]
+# Ha 6562A
+     #- [0.1380, 0.13835]
+     #- [0.13835, 0.1387]
+     #- [0.1387, 0.1389] # line 6562
+     #- [0.1389, 0.13925]
+     #- [0.13925, 0.1396]
+# Hb 4861A
+     #- [0.1869, 0.187]
+     #- [0.187, 0.18733]
+     #- [0.18739, 0.187421] # line 4861
+     #- [0.187561, 0.18777]
+     #- [0.18777, 0.188]
+# Dust
+     #- [0.0011309464909455696, 0.0015348559519975588]
+     #- [0.0004871836360589529, 0.0006860340997564845]
+     #- [0.00020126485761731073, 0.000368985572298403]
+
+###
+# Band RT settings
+###
+
+# Specify what lines you´ want to fit, and the indexes of the corresponging bands inside of Elims
+# Format:
+#   {line_label}:
+#       start_index: starting index of bands inside of Elims
+#       nbands: number of bands used for the line(s)
+#       line_index: array of which bands correspond to the line(s).   Index in Elims = start_index+line_index
+#       cont_index: array of which bands correspond to the continuum. Index in Elims = start_index+cont_index
+
+#line_data : 
+#    Ha_6562A :
+#        start_index : 0
+#        nbands : 5
+#        line_index: [2] 
+#        cont_index: [0,1,3,4]
+#    Hb_4681A :
+#        start_index : 5
+#        nbands : 5
+#        line_index: [2] 
+#        cont_index: [0,1,3,4]
+
+# bands that are used for broadband integration
+#bband_data : 
+    #cont_index : [10,11,12]
+
+
+###
+# Pre-processing parameters: Parameters used what adding in new flux bins to each cell
+###
+# path to file that defines where the sources are and how much they emit
+sourcetable_path : "path/to/sourcetable.npy"
+# Rotate the healpix observer to better converge
+nrots_per_source : 1
