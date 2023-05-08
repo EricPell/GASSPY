@@ -15,7 +15,6 @@ class CellDatabasePopulator(DatabasePopulator):
                  max_walltime = None,
                  gasspy_modeldir = None,
                  database_name = None,
-                 h5database = None,
                  lines_only = None
                  ) -> None:
         super(CellDatabasePopulator, self).__init__(gasspy_config, model_runner, 
@@ -24,7 +23,6 @@ class CellDatabasePopulator(DatabasePopulator):
                        max_walltime = max_walltime,
                        gasspy_modeldir = gasspy_modeldir,
                        database_name = database_name,
-                       h5database = h5database,
                        lines_only = lines_only)
         self.save_spectra = False
         if self.save_lines:
@@ -39,29 +37,38 @@ class CellDatabasePopulator(DatabasePopulator):
     def check_database(self):
         if mpi_rank != 0:
             return
+        
+        # open database
+        h5database =  hp.File(self.database_path, "r+")
+
         # Load models
-        self.model_data = self.h5database["model_data"][:,:]
+        self.model_data = h5database["model_data"][:,:]
         self.N_unique = self.model_data.shape[0]
 
+        # open database
+        h5database =  hp.File(self.database_path, "r+")
+
         # If we have populated this database before, check if we have added new models since 
-        lines_in_database = "line_intensity" in self.h5database
+        lines_in_database = "line_intensity" in h5database
 
         if lines_in_database:            
             # How big is the current database, do we need to extend it? 
-            n_allocated = self.h5database["model_successful"].shape[0]
+            n_allocated = h5database["model_successful"].shape[0]
             if n_allocated != self.N_unique:
                 # List of all fields that need to be extended
                 keys = ["model_completed", "model_successful", 
                         "line_intensity", "line_opacity",
                         "cont_intensity", "cont_opacity"]
                 for key in keys:
-                    self.h5database[key].resize((self.N_unique), axis=0)
-                    self.h5database[key][n_allocated:] = 0        
+                    h5database[key].resize((self.N_unique), axis=0)
+                    h5database[key][n_allocated:] = 0        
         # If we havent populated this dataset before, create room for model completion and success flags
-        if not "model_completed" in self.h5database:
-            self.h5database.create_dataset("model_completed" , shape = (self.model_data.shape[0],), maxshape=(None,), dtype = int)
-            self.h5database.create_dataset("model_successful", shape = (self.model_data.shape[0],), maxshape=(None,), dtype = int)
-    
+        if not "model_completed" in h5database:
+            h5database.create_dataset("model_completed" , shape = (self.model_data.shape[0],), maxshape=(None,), dtype = int)
+            h5database.create_dataset("model_successful", shape = (self.model_data.shape[0],), maxshape=(None,), dtype = int)
+
+        # Close database
+        h5database.close()
     def save_models(self,model_successful, gasspy_ids, cont_intensity = None, cont_opacity = None , line_intensity = None, line_opacity = None):
         """
             Method to save a list of models
@@ -70,16 +77,18 @@ class CellDatabasePopulator(DatabasePopulator):
         if mpi_rank != 0:
             return
         
+        # Open database
+        h5database =  hp.File(self.database_path, "r+")
 
         # If this is the first time we save, we must create the dataset (since we now know the shape)  
-        if self.save_lines and not "line_intensity" in self.h5database:
-            self.h5database.create_dataset("line_intensity", shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
-            self.h5database.create_dataset("line_opacity"  , shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
-            self.h5database.create_dataset("cont_intensity", shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
-            self.h5database.create_dataset("cont_opacity"  , shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
+        if self.save_lines and not "line_intensity" in h5database:
+            h5database.create_dataset("line_intensity", shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
+            h5database.create_dataset("line_opacity"  , shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
+            h5database.create_dataset("cont_intensity", shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
+            h5database.create_dataset("cont_opacity"  , shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
             # Also save line information here
-            self.h5database["line_labels"] = self.model_runner.get_line_labels()
-            self.h5database["line_energies"] = self.model_runner.get_line_energies()
+            h5database["line_labels"] = self.model_runner.get_line_labels()
+            h5database["line_energies"] = self.model_runner.get_line_energies()
 
         # Start by sorting since h5py is picky
         sorter = gasspy_ids.argsort()
@@ -92,13 +101,16 @@ class CellDatabasePopulator(DatabasePopulator):
             line_opacity    = line_opacity[sorter,:]
             cont_intensity  = cont_intensity[sorter,:]
             cont_opacity    = cont_opacity[sorter,:]                 
-            self.h5database["line_intensity"][gasspy_ids,:] = line_intensity
-            self.h5database["line_opacity"][gasspy_ids,:] = line_opacity    
-            self.h5database["cont_intensity"][gasspy_ids,:] = cont_intensity
-            self.h5database["cont_opacity"][gasspy_ids,:]   = cont_opacity  
-        self.h5database["model_successful"][gasspy_ids] = model_successful
-        self.h5database["model_completed"][gasspy_ids] = 1   
+            h5database["line_intensity"][gasspy_ids,:] = line_intensity
+            h5database["line_opacity"][gasspy_ids,:] = line_opacity    
+            h5database["cont_intensity"][gasspy_ids,:] = cont_intensity
+            h5database["cont_opacity"][gasspy_ids,:]   = cont_opacity  
+        h5database["model_successful"][gasspy_ids] = model_successful
+        h5database["model_completed"][gasspy_ids] = 1   
         
+        # close database
+        h5database.close()
+
     def gather_results(self):
         """
             Method to gather the results from the run models in the buffers

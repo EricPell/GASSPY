@@ -57,7 +57,6 @@ class DatabaseGenerator(object):
             sys.exit("Error: No compression_ratio specified")
         self.log10_field_limits = check_parameter_in_config(self.gasspy_config, "log10_field_limits", log10_field_limits, {})
 
-
         ##
         #  Name and path of hdf5 database 
         ## 
@@ -67,16 +66,19 @@ class DatabaseGenerator(object):
         
         # Path to database directory
         self.gasspy_modeldir = check_parameter_in_config(self.gasspy_config, "gasspy_modeldir", gasspy_modeldir, "gasspy_modeldir") 
+
         if not self.gasspy_modeldir.endswith("/"):
             self.gasspy_modeldir = self.gasspy_modeldir + "/"
-        
-        if os.path.exists(self.gasspy_modeldir + self.database_name):
-            mpi_print("Appending to database %s"%(self.gasspy_modeldir + self.database_name))
+        self.database_path = self.gasspy_modeldir+self.database_name
+
+
+        if os.path.exists(self.database_path):
+            mpi_print("Appending to database %s"%(self.database_path))
             self.append = True
             self.load_database()
 
         else:
-            mpi_print("Creating new database %s"%(self.gasspy_modeldir + self.database_name))
+            mpi_print("Creating new database %s"%(self.database_path))
             self.append = False
             self.open_database()
             self.model_data = None
@@ -89,37 +91,42 @@ class DatabaseGenerator(object):
         self.__dict__.update(kwargs)
     
     def load_database(self):
-        self.h5database = hp.File(self.gasspy_modeldir + self.database_name, "r+")
+        h5database = hp.File(self.gasspy_modeldir + self.database_name, "r+")
         # Load gasspy ids and models
-        self.model_data = self.h5database["model_data"][:,:]
+        self.model_data = h5database["model_data"][:,:]
 
         # If we need neighbor data, make sure that its there. conversly if we do not but the previous database does, 
         # something has been missconfigured
-        if "neighbor_ids" in self.h5database.keys():
+        if "neighbor_ids" in h5database.keys():
             if not self.need_neighbors:
                 sys.exit("ERROR: Old database is configured to use neighbor data, but new config does not. Check config options")
-            self.neighbor_ids = self.h5database["neighbor_ids"][:,:]
-            self.is_neighbor = self.h5database["is_neighbor"][:]
+            self.neighbor_ids = h5database["neighbor_ids"][:,:]
+            self.is_neighbor = h5database["is_neighbor"][:]
         else:
             if self.need_neighbors:
                 sys.exit("ERROR: Old database is not configured to use neighbor data, but new config does. Check config options")
 
-        self.N_unique = self.h5database["model_data"].shape[0]
+        self.N_unique = h5database["model_data"].shape[0]
         self.original_N_unique = self.N_unique
     
     def open_database(self):
-        self.h5database = hp.File(self.gasspy_modeldir + self.database_name, "w")
-        self.h5database.create_dataset("model_data", (1, len(self.database_fields)), maxshape=(None,len(self.database_fields)), dtype = float)
+        # Open database
+        h5database = hp.File(self.gasspy_modeldir + self.database_name, "w")
+        # Create all the neccesary datasets
+        h5database.create_dataset("model_data", (1, len(self.database_fields)), maxshape=(None,len(self.database_fields)), dtype = float)
         if self.need_neighbors:
-            self.h5database.create_dataset("neighbor_ids", (1, 3**len(self.interpolate_fields)), maxshape=(None,3**len(self.interpolate_fields)), dtype = int)
-            self.h5database.create_dataset("is_neighbor", (1, ), maxshape=(None,), dtype = int)
-        save_gasspy_config_hdf5(self.gasspy_config, self.h5database)
-        self.h5database["database_fields"] = self.database_fields
-
+            h5database.create_dataset("neighbor_ids", (1, 3**len(self.interpolate_fields)), maxshape=(None,3**len(self.interpolate_fields)), dtype = int)
+            h5database.create_dataset("is_neighbor", (1, ), maxshape=(None,), dtype = int)
+        save_gasspy_config_hdf5(self.gasspy_config, h5database)
+        h5database["database_fields"] = self.database_fields
+        #close the database
+        h5database.close()
     def save_database(self):
         """
             save the database
         """
+        # Open database
+        h5database =  hp.File(self.gasspy_modeldir + self.database_name, "r+")
         # If no new models, dont bother
         if self.N_unique == self.N_saved:
             return
@@ -129,12 +136,14 @@ class DatabaseGenerator(object):
             keys = ["model_data"]
         # Loop over all required fields ands save
         for key in keys:
-            self.h5database[key].resize((self.N_unique), axis=0)
-            self.h5database[key][self.N_saved:] = self.__dict__[key][self.N_saved:]
+            h5database[key].resize((self.N_unique), axis=0)
+            h5database[key][self.N_saved:] = self.__dict__[key][self.N_saved:]
         
         # Update number of saved fields
         self.N_saved = self.N_unique
 
+        # close the database
+        h5database.close()
 
     def get_compressed_sim_data(self, sim_reader):
         """
@@ -145,7 +154,6 @@ class DatabaseGenerator(object):
         for ifield, field in enumerate(self.database_fields):
             # Load and compress the field (ensure double precision)
             compressed_field_data = compress.array(np.log10(sim_reader.get_field(field).astype(np.float64)), self.compression_ratio[field])
-
             # If field has lower or upper limits, set these
             if field in self.log10_field_limits:
                 if "max" in self.log10_field_limits[field]:
@@ -211,7 +219,7 @@ class DatabaseGenerator(object):
         self.__shift_recursive__(0,0, sim_neighbors, non_neighbor_ids)
 
         # Ensure they are all compressed
-        for ifield, field in enumerate(self.compression_ratio):
+        for ifield, field in enumerate(self.database_fields):
             sim_neighbors[:, ifield] = compress.array(sim_neighbors[:, ifield], self.compression_ratio[field])
               
         # Determine all unique entries (neighbors contains the original)
@@ -325,14 +333,10 @@ class DatabaseGenerator(object):
         # Make snapshot remember its models
         sim_reader.save_new_field("cell_gasspy_ids", sim_unique_ids, dtype = int)
         
-    def finalize(self, close_hdf5 = True):
+    def finalize(self):
 
         # Save database
-        self.save_database()
-
-        # Close unless not wanted
-        if close_hdf5:
-            self.h5database.close()        
+        self.save_database()    
 
         # Print dataset information
         mpi_print("Dataset has %d unique models:"%(self.N_unique))

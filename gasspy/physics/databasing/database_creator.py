@@ -96,10 +96,6 @@ class DatabaseCreator(object):
             except :
                 print(traceback.format_exc())
                 mpi_comm.Abort(1)
-            # get pointer to h5database
-            self.h5database = self.database_generator.h5database
-        else:
-            self.h5database = None
 
         # Initialize the populator on all ranks
         self.database_populator = DatabasePopulator(self.gasspy_config, self.model_runner,
@@ -107,8 +103,7 @@ class DatabaseCreator(object):
                                                     est_model_time      = self.est_model_time,
                                                     max_walltime        = self.max_walltime,
                                                     gasspy_modeldir     = self.gasspy_modeldir,
-                                                    database_name       = self.database_name,
-                                                    h5database          = self.h5database
+                                                    database_name       = self.database_name
                                                     )
         
         return
@@ -141,7 +136,13 @@ class DatabaseCreator(object):
         self.database_populator.run_models()
     
     def set_max_walltime(self, max_walltime):
+        """
+            Set the maximum walltime allowed for running models.
+            input:
+                float/int: max_walltime (Maximum walltime in seconds)
+        """
         self.database_populator.set_max_walltime(max_walltime)
+        
     def finalize(self):
         """ 
             Ensures that everything has been saved properly and closes the hdf5 database file
@@ -149,21 +150,10 @@ class DatabaseCreator(object):
         if mpi_rank == 0 :
             # Catch exceptions here to nicely exit the mpi environment
             try:
-                self.database_generator.finalize(close_hdf5 = False)
+                self.database_generator.finalize()
             except:
                 mpi_print(traceback.format_exc())
                 mpi_comm.Abort(1)                 
         
-        self.database_populator.finalize(close_hdf5 = True)
+        self.database_populator.finalize()
         
-        if mpi_rank == 0:
-            # Catch exceptions here to nicely exit the mpi environment
-            try:
-                self.h5database.close()
-            except:
-                mpi_print(traceback.format_exc())
-                mpi_comm.Abort(1)     
-
-
-
-   

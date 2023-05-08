@@ -20,6 +20,7 @@ import traceback
 
 from gasspy.io.gasspy_io import check_parameter_in_config, read_yaml
 from gasspy.shared_utils.mpi_utils.mpi_print import mpi_print, mpi_all_print
+from gasspy.shared_utils.mpi_utils.mpi_sync import mpi_any_sync
 
 mpi_comm = MPI.COMM_WORLD
 mpi_rank = mpi_comm.rank
@@ -34,7 +35,6 @@ class DatabasePopulator(object):
                  max_walltime = None,
                  gasspy_modeldir = None,
                  database_name = None,
-                 h5database = None,
                  lines_only = None
                  ) -> None:
 
@@ -56,9 +56,10 @@ class DatabasePopulator(object):
         if not self.gasspy_modeldir.endswith("/"):
             self.gasspy_modeldir = self.gasspy_modeldir + "/"
         
+        self.database_path = self.gasspy_modeldir+self.database_name
         # an h5database can be passed such that it can be active here and for other purposes
         try:
-            self.load_database(h5database = h5database)
+            self.load_database()
         except:
             mpi_all_print(traceback.format_exc())
             mpi_comm.Abort(1)  
@@ -91,26 +92,27 @@ class DatabasePopulator(object):
         return
 
         
-    def load_database(self, h5database = None):
+    def load_database(self):
         """
             Method to load database of models to populate
             input:
                 h5file: h5database (optional, an active instance of an h5database)
         """
         if mpi_rank == 0: # For now only use single threaded hdf5. Should change in the future
-            if h5database is None:
-                if not os.path.exists(self.gasspy_modeldir + self.database_name):
-                    sys.exit("ERROR: cannot find database %s"%self.gasspy_modeldir + self.database_name)
-                self.h5database = hp.File(self.gasspy_modeldir + self.database_name, "r+")
-            else:
-                self.h5database = h5database
+            if not os.path.exists(self.database_path):
+                sys.exit("ERROR: cannot find database %s"%self.gasspy_modeldir + self.database_name)
+            h5database = hp.File(self.database_path, "r+")
+
 
         
             # Load contained fields
-            fields = self.h5database["database_fields"][:]
+            fields = h5database["database_fields"][:]
             self.database_fields = []
             for field in fields:
                 self.database_fields.append(field.decode())
+            
+            #close
+            h5database.close()
         else:
             self.database_fields = None
         
@@ -120,47 +122,58 @@ class DatabasePopulator(object):
         return
 
     def check_database(self):
+        """
+            Ensure that the database contains all required datasets, and extends the datasets if required
+        """
         if mpi_rank != 0:
             return
+
+        h5database =  hp.File(self.database_path, "r+")
         # Load models
-        self.model_data = self.h5database["model_data"][:,:]
+        self.model_data = h5database["model_data"][:,:]
         self.N_unique = self.model_data.shape[0]
 
         # If we have populated this database before, check if we have added new models since 
-        spectra_in_database = "intensity" in self.h5database
-        lines_in_database = "line_intensity" in self.h5database
-
-        if spectra_in_database or lines_in_database:
-            # Make sure that the database has been populated with spectra/lines if required 
-            if not self.save_spectra and spectra_in_database:
-                mpi_print("ERROR: Database contains spectral data, but config specifies lines_only")
-                mpi_comm.Abort(1)
-            if not self.save_lines and lines_in_database:
-                mpi_print("ERROR: Database contains emission line data, but config specifies no lines")
-                mpi_comm.Abort(1)
-            
-            # How big is the current database, do we need to extend it? 
-            n_allocated = self.h5database["model_successful"].shape[0]
-            if n_allocated != self.N_unique:
-                # List of all fields that need to be extended
-                keys = ["model_completed", "model_successful"]
-                if self.save_spectra:
-                    keys.append("intensity")
-                    keys.append("opacity")
-                if self.save_lines:
-                    keys.append("line_intensity")
-                    keys.append("line_opacity")
-
-                for key in keys:
-                    self.h5database[key].resize((self.N_unique), axis=0)
-                    self.h5database[key][n_allocated:] = 0
-
+        spectra_in_database = "intensity" in h5database
+        lines_in_database = "line_intensity" in h5database
 
                
         # If we havent populated this dataset before, create room for model completion and success flags
-        if not "model_completed" in self.h5database:
-            self.h5database.create_dataset("model_completed" , shape = (self.model_data.shape[0],), maxshape=(None,), dtype = int)
-            self.h5database.create_dataset("model_successful", shape = (self.model_data.shape[0],), maxshape=(None,), dtype = int)
+        if not "model_completed" in h5database:
+            h5database.create_dataset("model_completed" , shape = (self.N_unique,), maxshape=(None,), dtype = int)
+            h5database.create_dataset("model_successful", shape = (self.N_unique,), maxshape=(None,), dtype = int)
+            h5database["model_completed"] [:] = 0
+            h5database["model_successful"][:] = 0
+
+            # nothing more to do here
+            return
+
+        # If we have already started to populate this database, determine how big is the current database is, and if we need to extend it. 
+        N_allocated = h5database["model_successful"].shape[0]
+        if N_allocated != self.N_unique:
+            # List of all fields that need to be extended
+            keys = ["model_completed", "model_successful"]
+            # Check if we should extend the spectra/line datasets
+            if spectra_in_database or lines_in_database:
+                # Make sure that if we are gonna save lines/spectra if the dataset already contains them
+                if not self.save_spectra and spectra_in_database:
+                    mpi_print("ERROR: Database contains spectral data, but config specifies lines_only")
+                    mpi_comm.Abort(1)
+                if not self.save_lines and lines_in_database:
+                    mpi_print("ERROR: Database contains emission line data, but config specifies no lines")
+                    mpi_comm.Abort(1)
+
+                if self.save_spectra and spectra_in_database:
+                    keys.append("intensity")
+                    keys.append("opacity")
+                if self.save_lines and lines_in_database:
+                    keys.append("line_intensity")
+                    keys.append("line_opacity")
+
+            for key in keys:
+                h5database[key].resize((self.N_unique), axis=0)
+                h5database[key][N_allocated:] = 0
+        h5database.close()
 
     def save_models(self,model_successful, gasspy_ids, intensity = None, opacity = None , line_intensity = None, line_opacity = None):
         """
@@ -170,20 +183,22 @@ class DatabasePopulator(object):
         if mpi_rank != 0:
             return
         
+        # Open database
+        h5database =  hp.File(self.database_path, "r+")
 
         # If this is the first time we save, we must create the dataset (since we now know the shape)
-        if self.save_spectra and not "intensity" in self.h5database:
-            self.h5database.create_dataset("intensity", shape = (self.N_unique, self.N_spectral_bins),maxshape=(None,self.N_spectral_bins))
-            self.h5database.create_dataset("opacity"  , shape = (self.N_unique, self.N_spectral_bins),maxshape=(None,self.N_spectral_bins))
+        if self.save_spectra and not "intensity" in h5database:
+            h5database.create_dataset("intensity", shape = (self.N_unique, self.N_spectral_bins),maxshape=(None,self.N_spectral_bins))
+            h5database.create_dataset("opacity"  , shape = (self.N_unique, self.N_spectral_bins),maxshape=(None,self.N_spectral_bins))
             # Also save energy bin information here
-            self.h5database["energy"] = self.model_runner.get_energy_bins()
-            self.h5database["delta_energy"] = self.model_runner.get_delta_energy_bins()     
-        if self.save_lines and not "line_intensity" in self.h5database:
-            self.h5database.create_dataset("line_intensity", shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
-            self.h5database.create_dataset("line_opacity"  , shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
+            h5database["energy"] = self.model_runner.get_energy_bins()
+            h5database["delta_energy"] = self.model_runner.get_delta_energy_bins()     
+        if self.save_lines and not "line_intensity" in h5database:
+            h5database.create_dataset("line_intensity", shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
+            h5database.create_dataset("line_opacity"  , shape = (self.N_unique, self.N_lines),maxshape=(None,self.N_lines))
             # Also save line information here
-            self.h5database["line_labels"] = self.model_runner.get_line_labels()
-            self.h5database["line_energies"] = self.model_runner.get_line_energies()
+            h5database["line_labels"] = self.model_runner.get_line_labels()
+            h5database["line_energies"] = self.model_runner.get_line_energies()
 
         # Start by sorting since h5py is picky
         sorter = gasspy_ids.argsort()
@@ -195,16 +210,19 @@ class DatabasePopulator(object):
         if self.save_spectra:
             intensity  = intensity[sorter,:]
             opacity    = opacity[sorter,:]
-            self.h5database["intensity"][gasspy_ids,:] = intensity
-            self.h5database["opacity"][gasspy_ids,:] = opacity
+            h5database["intensity"][gasspy_ids,:] = intensity
+            h5database["opacity"][gasspy_ids,:] = opacity
         if self.save_lines:
             line_intensity  = line_intensity[sorter,:]
             line_opacity    = line_opacity[sorter,:]            
-            self.h5database["line_intensity"][gasspy_ids,:] = line_intensity
-            self.h5database["line_opacity"][gasspy_ids,:] = line_opacity    
+            h5database["line_intensity"][gasspy_ids,:] = line_intensity
+            h5database["line_opacity"][gasspy_ids,:] = line_opacity    
 
-        self.h5database["model_successful"][gasspy_ids] = model_successful
-        self.h5database["model_completed"][gasspy_ids] = 1
+        h5database["model_successful"][gasspy_ids] = model_successful
+        h5database["model_completed"][gasspy_ids] = 1
+        
+        # Cloase database
+        h5database.close()
 
     def distribute_models(self):
         """
@@ -212,8 +230,10 @@ class DatabasePopulator(object):
         """
         self.check_database()
         if mpi_rank == 0:
+            # Open database
+            h5database =  hp.File(self.database_path, "r+")
             # Determine all unique models that still need to be run
-            unfinished_models = np.where(self.h5database["model_completed"][:] == 0)[0]
+            unfinished_models = np.where(h5database["model_completed"][:] == 0)[0]
             
             # How many should each rank have?
             N_unfinished = len(unfinished_models)
@@ -239,6 +259,9 @@ class DatabasePopulator(object):
             self.models_to_run = self.model_data[self.gasspy_ids,:]
 
             mpi_print("\t%d models remaining"%N_unfinished)
+            
+            # Close database
+            h5database.close()
         else:
             # Recieve models and gasspy_ids from rank 0
             n_models_to_recieve = mpi_comm.recv(source= 0, tag = 0)
@@ -358,6 +381,9 @@ class DatabasePopulator(object):
 
 
     def __run_model__(self):
+        """
+            Runs the current model and saves its intensity/opacity
+        """
         if self.local_n_complete >= len(self.models_to_run):
             # If there is nothing to run locally, do nothing
             return
@@ -417,29 +443,24 @@ class DatabasePopulator(object):
 
         self.local_n_complete = 0
         while np.any(all_ranks_complete == 0): # Run as long as any rank has something to do
-            mpi_print(self.local_n_complete)
             # Run the next local model
             self.__run_model__()
 
             # Check if we need to dump or exit the loop
             current_time = time.time()
-            # Check if ranks thinks wwe are done running models
-            if current_time - start_runtime >= self.max_walltime or self.local_n_complete == len(self.models_to_run):
-                all_ranks_complete[:] = mpi_comm.allgather(1)
-            else:
-                all_ranks_complete[:] = mpi_comm.allgather(0)
 
             rank_to_dump = (current_time - start_runtime >= self.max_walltime or # max wall time reached
                             current_time - time_since_last_dump > self.populator_dump_time or # max dump intervall time reached
                             self.local_n_complete == self.n_buffered_models or # Buffer size reached or all finished
-                            (self.local_n_complete == len(self.models_to_run) and len(self.models_to_run) != 0) or # We have no more to run
-                            np.all(all_ranks_complete == 1)) # All ranks are done 
+                            (self.local_n_complete == len(self.models_to_run) and len(self.models_to_run) != 0))# We have no more to run
 
             # Check if any rank wants to dump
             if rank_to_dump:
-                all_ranks_to_dump[:] = mpi_comm.allgather(1)
+                mpi_all_print("rank %d wants to dump"%mpi_rank)
+                all_ranks_to_dump[:] = mpi_any_sync(1)
+                mpi_all_print("rank %d synced"%mpi_rank)
             else:
-                all_ranks_to_dump[:] = mpi_comm.allgather(0)
+                all_ranks_to_dump[:] = mpi_any_sync(0)
 
             # If any rank feels the need to dump, dump
             if np.any(all_ranks_to_dump == 1):
@@ -473,28 +494,32 @@ class DatabasePopulator(object):
     def set_max_walltime(self, max_walltime):
         self.max_walltime = max_walltime
 
-    def __finalize__(self, close_hdf5 = True):
+    def __finalize__(self):
         """
             Method to safely finalize 
         """
+        self.check_database()
         # only needed for rank 0
         if mpi_rank != 0:
             return
-
-        model_completed = self.h5database["model_completed"][:]
-        model_successful = self.h5database["model_successful"][:]
+        # Open database
+        h5database =  hp.File(self.database_path, "r+")
+        model_completed = h5database["model_completed"][:]
+        model_successful = h5database["model_successful"][:]
         print("Database contains %d models, %d have been populated with spectra, %d still need to be run"%(len(model_completed), np.sum(model_completed==1), np.sum(model_completed==0)))
         
         N_failed = np.sum(model_successful[model_completed==1]==0)
         if N_failed > 0:
             print("%d models failed. Please figure out why and if you care"%np.sum(model_successful[model_completed==1]==0))
         # Close the database
-        if close_hdf5:
-            self.h5database.close()
+        h5database.close()
 
-    def finalize(self, close_hdf5 = True):
+    def finalize(self):
+        """
+            Ensure that everything safely finalizes cleanly
+        """
         try: 
-            self.__finalize__(close_hdf5=close_hdf5)
+            self.__finalize__()
         except:
             mpi_all_print(traceback.format_exc())
             mpi_comm.Abort(1)
