@@ -59,7 +59,10 @@ class CloudyModelRunner():
         self.IF_ionfrac = check_parameter_in_config(self.gasspy_config, "IF_ionfrac", IF_ionfrac, 0.01)
 
         # Set flux definition dictionary and parse units
-        self.fluxdef = read_fluxdef(fluxdef_file)
+        if isinstance(fluxdef_file, str):
+            self.fluxdef = read_fluxdef(fluxdef_file)
+        else:
+            self.fluxdef = fluxdef_file
         self.unify_flux_defs()
         self.make_user_seds()
 
