@@ -1,8 +1,6 @@
 from mpi4py import MPI
 import numpy as np
 
-from gasspy.shared_utils.mpi_utils.mpi_print import mpi_all_print
-
 mpi_comm = MPI.COMM_WORLD
 mpi_rank = mpi_comm.rank
 mpi_size = mpi_comm.Get_size()
@@ -36,7 +34,6 @@ def mpi_any_sync(to_sync, tag = 99):
                 
     # If any rank had status == 1, gather to make sure we know of all of them
     if np.any(all_sync == 1):
-        mpi_all_print("rank %d syncing"%mpi_rank)
         all_sync[:] = mpi_comm.allgather(to_sync)
         # Catch any lingering messages as we sould be synced and reset at this point
         for irank in range(mpi_size):

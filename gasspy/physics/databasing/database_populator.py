@@ -456,9 +456,7 @@ class DatabasePopulator(object):
 
             # Check if any rank wants to dump
             if rank_to_dump:
-                mpi_all_print("rank %d wants to dump"%mpi_rank)
                 all_ranks_to_dump[:] = mpi_any_sync(1)
-                mpi_all_print("rank %d synced"%mpi_rank)
             else:
                 all_ranks_to_dump[:] = mpi_any_sync(0)
 
