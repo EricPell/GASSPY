@@ -1,19 +1,19 @@
+
+from mpi4py import MPI
+import os
+import h5py as hp
+import numpy as np 
+import argparse
+import importlib
+import time
+import traceback
+
 import gasspy
 from gasspy.physics.sourcefunction_database.cloudy.cloudy_model_runner import CloudyModelRunner
 from gasspy.shared_utils.mpi_utils.mpi_print import mpi_print, mpi_all_print
 from gasspy.io.gasspy_io import read_yaml, save_dict_hdf5, check_parameter_in_config
 from gasspy.scripts.database_building.database_error_MC_check.cell_database_populator import CellDatabasePopulator
-from mpi4py import MPI
-import sys
-import os
-import h5py as hp
-import numpy as np 
-import astropy.units as apyu
-import astropy.constants as apyc
-import argparse
-import importlib
-import matplotlib.pyplot as plt
-import time
+
 ap = argparse.ArgumentParser()
 ap.add_argument("--gasspy_config", default = "./gasspy_config.yaml")
 ap.add_argument("--fluxdef", default = "./gasspy_fluxdef.yaml")
@@ -134,21 +134,25 @@ model_runner = CloudyModelRunner(gasspy_config, indir, fluxdef)
 database_creator = gasspy.DatabaseCreator(gasspy_config, model_runner)
 
 if mpi_rank == 0:
-    ## Load the simulation data class from directory
-    spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
-    reader_mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(reader_mod)
+    try :
+        ## Load the simulation data class from directory
+        spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
+        reader_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reader_mod)
 
-    # Create a list of readers for all required snapshots
-    sim_readers = []
-    for key in gasspy_config["snapshots"]:
-        snapshot = gasspy_config["snapshots"][key]
-        sim_readers.append(reader_mod.Simulation_Reader(snapshot["simdir"], snapshot["simdir"]+"/GASSPY", snapshot["sim_args"]))
+        # Create a list of readers for all required snapshots
+        sim_readers = []
+        for key in gasspy_config["snapshots"]:
+            snapshot = gasspy_config["snapshots"][key]
+            sim_readers.append(reader_mod.Simulation_Reader(gasspy_config, snapshot))
 
-    sim_reader = Unified_Simulation_Reader(gasspy_config, args.cells_outfile, sim_readers)
-    N_cells = gasspy_config["N_cells"]
-    sim_reader.append_cells(N_cells)
-    
+        sim_reader = Unified_Simulation_Reader(gasspy_config, args.cells_outfile, sim_readers)
+        N_cells = gasspy_config["N_cells"]
+        sim_reader.append_cells(N_cells)
+    except:
+        mpi_print(traceback.format_exc())
+        mpi_comm.Abort(1)   
+
 else:
     h5out = None
     sim_reader = None
