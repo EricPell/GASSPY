@@ -275,7 +275,7 @@ class CloudyModelRunner():
             data = pandas.read_csv(filename, delimiter="\t", usecols=["#depth"], na_filter=False, dtype=np.float64, low_memory=False)
 
             depth = np.asarray(data["#depth"])
-            self.total_depth = np.array([np.sum(depth),])
+            self.total_depth = np.array([np.max(depth),])
 
             self.n_zones = len(depth)
 
@@ -287,14 +287,30 @@ class CloudyModelRunner():
             return 1
 
 
-    
+    def read_zones(self, suff=".zones"):
+        if not self.success:
+            return 0
+        try:
+            filename = self.indir+"/%s"%self.model_name+suff
+            df = pandas.read_csv(filename, delimiter = "\t", comment = "#", header = None, dtype = np.float64, na_filter = False, low_memory = False) 
+            self.n_zones = int(np.max(df[0]))
+            self.delta_r = df[3].to_numpy()[-self.n_zones:]
+            self.total_depth = df[2].to_numpy()[-1] + 0.5*self.delta_r[-1]
+        except:
+            mpi_all_print(traceback.format_exc())
+            mpi_all_print("Warning could not read %s, trying %s"%(filename,self.indir+"/%s"%self.model_name+".mol"))
+            self.read_mol()
+        return
+
+
+
     def read_intensity(self, suff = ".spec_em"):
         if not self.success:
             return 0 
         filename = self.indir+"/%s"%self.model_name+suff
         #if self.isIF:
         if self.delta_r is None or self.total_depth is None:
-            self.read_mol()
+            self.read_zones()
         mydf = pandas.read_csv(
             filename,
             delimiter="\t",
@@ -322,7 +338,8 @@ class CloudyModelRunner():
             self.read_ebins()
 
         if self.delta_r is None or self.total_depth is None:
-            self.read_mol()
+            self.read_zones()
+
 
 
         tau = (mydf["Tot opac"].iloc[0:self.n_energy_bins] * float(self.delta_r[0])).to_numpy()
@@ -340,7 +357,8 @@ class CloudyModelRunner():
         if not self.read_line_data: 
             return None 
         if self.delta_r is None or self.total_depth is None:
-            self.read_mol()
+            self.read_zones()
+
         filename = self.indir+"/%s"%self.model_name+suff
 
         df = pandas.read_csv(filename, delimiter = "\t") 
@@ -357,7 +375,8 @@ class CloudyModelRunner():
         if not self.read_line_data: 
             return None 
         if self.delta_r is None or self.total_depth is None:
-            self.read_mol()
+            self.read_zones()
+
         filename = self.indir+"/%s"%self.model_name+suff
         df = pandas.read_csv(filename, delimiter = "\t") 
         if self.line_labels is None: 
@@ -381,16 +400,6 @@ class CloudyModelRunner():
                         problems.append(problem_line)
         return problems
 
-    
-
-    def read_all(self, modelname):
-        self.read_mol(modelname)
-        if self.energy_bins is None:
-            self.read_ebins(modelname)
-        self.avg_spec_em = self.read_intensity(modelname)
-        self.avg_spec_op = self.read_opacity(modelname)
-        self.avg_line_em = self.read_line_intensity(modelname)
-        self.avg_line_op = self.read_line_opacity(modelname)
 
 
     """
@@ -640,7 +649,7 @@ class CloudyModelRunner():
             arguments:
                 delete_input: boolian (Flag for deleting input file along with the outputs)
         """
-        suffixes = [".ebins", ".spec_em", ".spec_op", ".line_em", ".line_op", ".mol",".out"]
+        suffixes = [".ebins", ".spec_em", ".spec_op", ".line_em", ".line_op", ".mol",".out", ".zones"]
         for suff in suffixes:
             filename = self.indir + "/%s"%self.model_name + suff
             self.__delete_file__(filename)
