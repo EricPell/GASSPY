@@ -114,6 +114,11 @@ class Unified_Simulation_Reader:
         h5out[field][:] = data.astype(dtype)
         h5out.close()
 
+    def load_new_field(self, field):
+        h5out = hp.File(self.h5outfile, "r")
+        return h5out[field][:]
+
+
 def get_line_indexes(line_labels, spec_energy):
     line_indexes = np.zeros(len(line_labels), dtype = int)
     Ryd_Ang = 911.2266
