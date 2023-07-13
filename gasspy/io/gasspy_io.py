@@ -75,8 +75,13 @@ def read_value_to_dict(key, dict, grp):
         # If the dataset is scalar, the loading syntax is slightly different
         if grp[key].shape == ():
             val = grp[key][()]
+            # For whatever reason Strings are saved as bytes objects. Decode them
+            if isinstance(val, bytes):
+                val = val.decode("utf-8")
         else:
             val = grp[key][:]
+            if isinstance(val[0], bytes):
+                val = [va.decode("utf-8") for va in val]
 
         # For whatever reason Strings are saved as bytes objects. Decode them
         if isinstance(val, bytes):
