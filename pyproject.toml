@@ -1,0 +1,38 @@
+
+[project]
+name = "gasspy"
+version = "0.1"
+description = "GPU accelerated spectra synthesis in python"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Loke Ohlin", email = "loke.lonnblad@gmail.com"},
+    {name = "Eric Pellegrini", email = "ericpellegrini@outlook.com"}
+]
+maintainers = [
+    {name = "Loke Ohlin", email = "loke.lonnblad@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Topic :: Post processing :: ISM simulations",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: C++" 
+
+]
+
+dependencies = [
+    "pybind11",
+    "numpy",
+    "matplotlib",
+    "cupy",
+    "torch",
+    "pandas",
+    "astropy"
+]
+[project.urls]
+"Homepage" = "https://github.com/EricPell/gasspy/"
+"Bug Reports" = "https://github.com/EricPell/gasspy/issues"
+"Source" = "https://github.com/EricPell/gasspy/"
+
+[build-system]
+requires = ["setuptools>=42", "wheel", "pybind11>=2.10.0"]
