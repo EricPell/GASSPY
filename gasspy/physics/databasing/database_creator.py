@@ -16,7 +16,9 @@ import traceback
 
 from gasspy.io.gasspy_io import check_parameter_in_config, read_yaml
 from gasspy.shared_utils.mpi_utils.mpi_print import mpi_print, mpi_all_print
-from gasspy.physics.databasing.database_generator import DatabaseGenerator
+#from gasspy.physics.databasing.database_generator import DatabaseGenerator
+#from gasspy.physics.databasing.database_model_generator import DatabaseGenerator
+from gasspy.physics.databasing.database import GasspyDatabase
 from gasspy.physics.databasing.database_populator import DatabasePopulator
 
 mpi_comm = MPI.COMM_WORLD
@@ -29,8 +31,6 @@ class DatabaseCreator(object):
                  model_runner,
                  database_fields = None,
                  gasspy_modeldir = None, 
-                 compression_ratio = None, 
-                 log10_field_limits = None,
                  populator_dump_time = None,
                  est_model_time = None,
                  max_walltime = None,
@@ -63,13 +63,6 @@ class DatabaseCreator(object):
             mpi_print("Error: No database_fields specified", file = sys.stderr)
             mpi_comm.Abort(1)
         self.__default_compression_ratio__ = (1,5.0)
-        # Compression ratio
-        self.compression_ratio = check_parameter_in_config(self.gasspy_config, "compression_ratio", compression_ratio, None)
-        if self.database_fields is None:
-            mpi_print("Error: No compression_ratio specified", file = sys.stderr)
-            mpi_comm.Abort(1)
-        # Limits
-        self.log10_field_limits = check_parameter_in_config(self.gasspy_config, "log10_field_limits", log10_field_limits, {})
 
         #####
         # Parameters for the populator
@@ -86,15 +79,13 @@ class DatabaseCreator(object):
         # Initialize the generator on the main rank only
         if mpi_rank == 0:
             try:
-                self.database_generator = DatabaseGenerator(self.gasspy_config, 
+                self.database = GasspyDatabase(self.gasspy_config, 
                                                             database_name      = self.database_name,
                                                             database_fields    = self.database_fields,
                                                             gasspy_modeldir    = self.gasspy_modeldir,
-                                                            compression_ratio  = self.compression_ratio,
-                                                            log10_field_limits = self.log10_field_limits
                                                             )
             except :
-                print(traceback.format_exc())
+                mpi_print(traceback.format_exc())
                 mpi_comm.Abort(1)
 
         # Initialize the populator on all ranks
@@ -121,19 +112,34 @@ class DatabaseCreator(object):
         # Catch exceptions here to nicely exit the mpi environment
         try:
             # Give the snapshot to the generator to determine all uniques an neighbors if required
-            self.database_generator.add_snapshot(sim_reader)
+            self.database.add_snapshot(sim_reader)
 
             # Tell the generator to save its findings to the database
-            self.database_generator.save_database()
+            #self.database_generator.save_database()
         except:
             mpi_print(traceback.format_exc())
             mpi_comm.Abort(1)            
 
+    def check_convergence(self):
+        # For now database generator is not parallelized. Run on main rank and distribute results
+        if mpi_rank != 0:
+            database_converged = mpi_comm.recv(source = 0, tag = 100)
+        else:
+            database_converged = self.database.check_convergence()
+            for irank in range(1,mpi_size):
+                mpi_comm.send(database_converged, dest = irank, tag = 100)
+        return database_converged
+    
     def run_models(self):
         """
             Runs the models that have not yet been run
         """
+        # Start by making sure all models are populated properly
         self.database_populator.run_models()
+
+        # While we need to refine the database, refine and run new models
+        while not self.check_convergence():
+            self.database_populator.run_models()
     
     def set_max_walltime(self, max_walltime):
         """
@@ -150,7 +156,7 @@ class DatabaseCreator(object):
         if mpi_rank == 0 :
             # Catch exceptions here to nicely exit the mpi environment
             try:
-                self.database_generator.finalize()
+                self.database.finalize()
             except:
                 mpi_print(traceback.format_exc())
                 mpi_comm.Abort(1)                 
