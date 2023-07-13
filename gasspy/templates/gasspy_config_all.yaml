@@ -73,36 +73,53 @@ log10_field_limits:
           min : -8.0
           min_cutoff_value : -99
 
-# Compression ratios for each of the fields in the models
-compression_ratio:
-  # number density
-  number_density :
-    - 1   # Decimal precision
-    - 1.0 # compression ratio
-  
-  # temperature
-  temperature :
-    - 1
-    - 5.0
-  
-  # cellsize
-  cell_size:
-    - 3
-    - 1.0
+# Which fields do we refine on. Can only contain fields from database_fields (any or all)
+refinement_fields : 
+  - "number_density"
+  - "temperature"
+  - "FUV"
+  - "HII"
+  - "HeII"
+  - "HeIII"
 
-  # Fluxes
-  FUV:
-    - 1
-    - 1.0
-  HII:
-    - 1
-    - 1.0
-  HeII:
-    - 1
-    - 1.0
-  HeIII:
-    - 1
-    - 1.0
+# What refinement levels should we use. list for ALL field in database_fields
+# Min is used to initialize the database
+fields_lrefine:
+  cell_size : [10,11]
+  number_density : [0,7]
+  temperature : [0,7]
+  FUV   : [0,7]
+  HII   : [0,7]
+  HeII  : [0,7]
+  HeIII : [0,7]
+
+# Refinement criteria
+# Can be based of the broadband emission within an energy range, or line intensities. There are two types of criteria, relative tolerance and absolute tolerances.
+# The weakest of these criteria are obeyed: if the relative error is low, no matter the intensity we dont care. Conversely if the relative error is high, but in absolute terms
+# we would never be able to observe it we also consider the model to have converged
+# 
+# rtol : relative tolerance 
+# atol : absolute tolerance in intensity (erg/s/cm^3/steradian)
+# max_surface_brighness: Maximum surface brighness of an error (erg/s/cm^2/steradian), above which we have to refine the models
+# reference_continuuum: Find the lowest point of the continuum within a range and use that as a comparison for the line
+#          - energy range: Energy range to look at
+#          - scale_factor: ratio of the continuum above which we consider the error significant
+
+convergence_criterions :
+  spectra_ranges :
+    range_1 : 
+      energy_range : [0.00113, 0.00153]] # Dust 60-80 micron
+      rtol : 0.1 # Relative tolerance
+      max_surface_brighness : 1.60528541e-09 # Maximum surface brighness an error can have before we have to bother with it
+  lines:
+    H  1 6562.80A:
+      rtol : 0.1
+      reference_continuum : 
+        energy_range : [0.1380, 0.1396]
+        scale_factor : 0.1
+      max_surface_brighness : 4.25451702961522e-08
+
+
 
 # Fields for which we want to interpolate
 interpolate_fields: 
@@ -133,6 +150,23 @@ cloudy_ini : "/path/to/GASSPY/gasspy/physics/sourcefunction_database/cloudy/init
 
 # Path to cloudy directory
 cloudy_path : "/path/to/cloudy/"
+
+############################################################
+#
+# Raytracing and radiative transfer
+#
+############################################################
+
+# Path where gasspy will put output spectra and projection files
+# Should be specific to simulation snapshot/suite
+gasspy_subdir : /path/to/gasspy_subdir
+
+# Amount of GPU memory in GB we should maximally allocate
+GPU_memory : 8
+
+# Amount of CPU memory in GB we should maximally allocate
+CPU_memory : 32
+
 
 ##########################
 # Raytracer  parameters
@@ -188,10 +222,29 @@ external_distance : 1.0e+13
 # Radiative transfer parameters
 #########################
 
+# precision used in raidative transfer ("double"/"single"), default "double"
+radiative_transfer_precision : "double"
+
+# Light VRAM usage. Puts all long term data (intensities/opacitites/cells/rays) on CPU
+# Allowing only the data used in the current calculation on the GPU (Default True)
+radiative_transfer_liteVRAM : True
+
+# Rough number of ray segments we expect per ray. If not set will use exact average
+# Can be used to optimize radiative transfer work flow
+#target_segments_per_ray : 10 
+
+# Turn on doppler shifting (default False)
+doppler_shift : False
+
+# Approximate size ratio between neighbouring photon bins. Used to estimate memory usage when doppler shifting (default 10) 
+doppler_shift_est_bin_ratio : 10
+
+
+
 # Energy limits of the spectra
 # For full spectra RT these should only be specified if not all spectral bins are wanted
 # In band RT these specify the bands used
-#Elims : 
+#energy_limits : 
 # Ha 6562A
      #- [0.1380, 0.13835]
      #- [0.13835, 0.1387]
@@ -213,13 +266,13 @@ external_distance : 1.0e+13
 # Band RT settings
 ###
 
-# Specify what lines you´ want to fit, and the indexes of the corresponging bands inside of Elims
+# Specify what lines you´ want to fit, and the indexes of the corresponging bands inside of energy_limits
 # Format:
 #   {line_label}:
-#       start_index: starting index of bands inside of Elims
+#       start_index: starting index of bands inside of energy_limits
 #       nbands: number of bands used for the line(s)
-#       line_index: array of which bands correspond to the line(s).   Index in Elims = start_index+line_index
-#       cont_index: array of which bands correspond to the continuum. Index in Elims = start_index+cont_index
+#       line_index: array of which bands correspond to the line(s).   Index in energy_limits = start_index+line_index
+#       cont_index: array of which bands correspond to the continuum. Index in energy_limits = start_index+cont_index
 
 #line_data : 
 #    Ha_6562A :
