@@ -542,7 +542,7 @@ class NodeList {
             deleted_node = NULL;
 
             // updates the ids of the nodes that were after the deleted node in the list
-            int current_node_id = node_id;
+            current_node_id = node_id;
             current_node = current_node->next;
             while(current_node!=NULL){
                 current_node->node.node_id = current_node_id;
