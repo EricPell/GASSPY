@@ -112,7 +112,6 @@ model_runner = CloudyModelRunner(gasspy_config, args.rundir, fluxdef)
 database_creator = gasspy.DatabaseCreator(gasspy_config, model_runner)
 
 for sim_reader in sim_readers:
-    mpi_print(sim_reader.simdir)
     database_creator.add_snapshot(sim_reader)
 
 #############################
