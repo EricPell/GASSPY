@@ -121,6 +121,6 @@ for sim_reader in sim_readers:
 mpi_comm.barrier()
 new_maxtime = args.max_walltime - (time.time()- start_time)
 database_creator.set_max_walltime(new_maxtime)
-#database_creator.run_models()
+database_creator.run_models()
 
 database_creator.finalize()
