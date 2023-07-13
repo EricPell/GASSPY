@@ -130,7 +130,7 @@ class DatabasePopulator(object):
 
         h5database =  hp.File(self.database_path, "r+")
         # Load models
-        self.model_data = h5database["model_data"][:,:]
+        self.model_data = h5database["gasspy_model_data"][:,:]
         self.N_unique = self.model_data.shape[0]
 
         # If we have populated this database before, check if we have added new models since 
@@ -438,9 +438,12 @@ class DatabasePopulator(object):
         self.local_n_complete = 0
 
         # Loop over all models
-        all_ranks_complete = np.array([mpi_comm.allgather(0)])
+        rank_complete = len(self.models_to_run) == 0
+        if rank_complete :
+            all_ranks_complete = np.array([mpi_comm.allgather(1)])
+        else:
+            all_ranks_complete = np.array([mpi_comm.allgather(0)])
         all_ranks_to_dump = np.array([mpi_comm.allgather(0)])
-
         self.local_n_complete = 0
         while np.any(all_ranks_complete == 0): # Run as long as any rank has something to do
             # Run the next local model
@@ -588,10 +591,10 @@ if __name__ == "__main__":
     
         # Create a fake test_database
         h5database = hp.File("test_database/test_database.hdf5", "w")
-        h5database.create_dataset("model_data", shape = (N_models,2), maxshape = (None,2))
+        h5database.create_dataset("gasspy_model_data", shape = (N_models,2), maxshape = (None,2))
 
         models = np.array([np.arange(N_models),np.arange(N_models)]).T
-        h5database["model_data"][:,:] = models 
+        h5database["gasspy_model_data"][:,:] = models 
         h5database["database_fields"] = ["var1" , "var2"]
         h5database.close()
 
@@ -613,8 +616,8 @@ if __name__ == "__main__":
 
 
         new_models = np.array([np.arange(N_models),np.arange(N_models)]).T
-        h5database["model_data"].resize((N_models), axis = 0)
-        h5database["model_data"][:,:] = new_models
+        h5database["gasspy_model_data"].resize((N_models), axis = 0)
+        h5database["gasspy_model_data"][:,:] = new_models
     else:
         h5database = None
 
