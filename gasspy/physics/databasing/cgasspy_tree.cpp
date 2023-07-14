@@ -37,6 +37,7 @@ class ModelNode{
         int root_id;
         int16_t split_field;
         double *model_data;
+        double *node_delta;
         int16_t *node_lrefine;
         int8_t is_required;
         int8_t has_neighbors;
@@ -65,9 +66,11 @@ class ModelNode{
             this->gasspy_id = -1;
             this->model_data   = new double[n_database_fields];
             this->node_lrefine = new int16_t[n_database_fields];
+            this->node_delta   = new double[n_database_fields];
             for(int ifield = 0; ifield < n_database_fields; ifield++){
                 this->model_data[ifield] = model_data[ifield];
                 this->node_lrefine[ifield] = node_lrefine[ifield];
+                this->node_delta[ifield] = pow(2, -(double) node_lrefine[ifield]);
             }
             this->split_field = -1;
             this->is_leaf = 1;
@@ -107,16 +110,16 @@ int ModelNode::get_node_id(double* point){
     // return -1, otherwise determine if which child to ask next
     for(ifield = 0; ifield < n_database_fields; ifield++){
         point_field_value = point[ifield];
-        node_field_delta = 0.5*pow(2.,-(double)this->node_lrefine[ifield]);
+        node_field_delta = this->node_delta[ifield];
         node_field_value = this->model_data[ifield];
 
-        if (fabs(point_field_value - node_field_value) > node_field_delta){
+        if (fabs(point_field_value - node_field_value) > 0.5*node_field_delta){
             return -1;
         }
         if((this->is_leaf == 0) && (ifield == this->split_field)){
-            if( (point_field_value - node_field_value) < -0.5*node_field_delta){
+            if( (point_field_value - node_field_value) < -0.25*node_field_delta){
                 child_index = 0;
-            } else if( (point_field_value - node_field_value) > 0.5*node_field_delta){
+            } else if( (point_field_value - node_field_value) > 0.25*node_field_delta){
                 child_index = 2;
             } else {
                 child_index = 1;
@@ -152,20 +155,20 @@ int ModelNode::find_node(double* point){
     for(ifield = 0; ifield < n_database_fields; ifield++){
 
         point_field_value = point[ifield];
-        node_field_delta  = 0.5*pow(2,-(double)this->node_lrefine[ifield]);
+        node_field_delta  = this->node_delta[ifield];
         node_field_value  = this->model_data[ifield];
-        if (fabs(point_field_value - node_field_value) - 1e-7*node_field_delta > node_field_delta){
+        if (fabs(point_field_value - node_field_value) - 1e-7*node_field_delta > 0.5*node_field_delta){
             return -1;
         }
 
         if((this->is_leaf == 0) && (ifield == this->split_field)){
-            if( (point_field_value - node_field_value) - 1e-7*node_field_delta <= -0.5*node_field_delta){
+            if( (point_field_value - node_field_value) - 1e-7*node_field_delta <= -0.25*node_field_delta){
                 look_at_child[0] = 1;
             } 
-            if( fabs(point_field_value - node_field_value) - 1e-7*node_field_delta <= 0.5*node_field_delta){
+            if( fabs(point_field_value - node_field_value) - 1e-7*node_field_delta <= 0.25*node_field_delta){
                 look_at_child[1] = 1;
             }
-            if( (point_field_value - node_field_value) + 1e-7*node_field_delta >= 0.5*node_field_delta){
+            if( (point_field_value - node_field_value) + 1e-7*node_field_delta >= 0.25*node_field_delta){
                 look_at_child[2] = 1;
             } 
         }
@@ -219,23 +222,23 @@ int ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){
         }
 
         point_field_value = point[ifield];
-        point_field_delta = 0.5*pow(2,-(double)wanted_node_lrefine[ifield]);
-        node_field_delta  = 0.5*pow(2,-(double)this->node_lrefine[ifield]);
+        point_field_delta = pow(2,-(double)wanted_node_lrefine[ifield]);
+        node_field_delta  = this->node_delta[ifield];
         node_field_value  = this->model_data[ifield];
-        if (fabs(point_field_value - node_field_value)-1e-7*point_field_delta > node_field_delta){
+        if (fabs(point_field_value - node_field_value)-1e-7*point_field_delta > 0.5*node_field_delta){
             return -1;
         }
         if(this->node_lrefine[ifield]<wanted_node_lrefine[ifield]){
             look_at_children = 1;
         }
         if((this->is_leaf == 0) && (ifield == this->split_field) && (this->node_lrefine[ifield]<wanted_node_lrefine[ifield])){
-            if( (point_field_value - node_field_value) - 1e-7*point_field_delta <= -0.5*node_field_delta){
+            if( (point_field_value - node_field_value) - 1e-7*point_field_delta <= -0.25*node_field_delta){
                 look_at_child[0] = 1;
             } 
-            if( fabs(point_field_value - node_field_value) - 1e-7*point_field_delta <= 0.5*node_field_delta){
+            if( fabs(point_field_value - node_field_value) - 1e-7*point_field_delta <= 0.25*node_field_delta){
                 look_at_child[1] = 1;
             }
-            if( (point_field_value - node_field_value) + 1e-7*point_field_delta >= 0.5*node_field_delta){
+            if( (point_field_value - node_field_value) + 1e-7*point_field_delta >= 0.25*node_field_delta){
                 look_at_child[2] = 1;
             } 
         }
@@ -290,7 +293,7 @@ int ModelNode::nodes_identical(ModelNode* other_node){
             return -1;
         }
         //everything is based on powers of two, so a given number is only given to the lrefine'th decimal
-        max_delta = 1e-7*0.5*pow(2,(double)std::min(0,-std::max((int)this->node_lrefine[ifield], (int)other_node->node_lrefine[ifield])));
+        max_delta = 1e-7*fmin(this->node_delta[ifield], other_node->node_delta[ifield]);
         if(fabs(this->model_data[ifield]-other_node->model_data[ifield])>max_delta){
             return -1;
         }
@@ -307,7 +310,7 @@ int ModelNode::nodes_identical(double* wanted_model_data, int16_t* wanted_node_l
             return -1;
         }
         //everything is based on powers of two, so a given number is only given to the lrefine'th decimal
-        max_delta = 1e-7*0.5*pow(2, -(double)wanted_node_lrefine[ifield]); //.1*pow(10,std::min(0,-std::max((int)this->node_lrefine[ifield], (int)wanted_node_lrefine[ifield])));
+        max_delta = 1e-7*pow(2, -(double)wanted_node_lrefine[ifield]); //.1*pow(10,std::min(0,-std::max((int)this->node_lrefine[ifield], (int)wanted_node_lrefine[ifield])));
         if(fabs(this->model_data[ifield]-wanted_model_data[ifield])>max_delta){
             return -1;
         }
@@ -324,7 +327,7 @@ int ModelNode::nodes_same_data(ModelNode* other_node){
             return -1;
         }
         //everything is based on powers of two, so a given number is only given to the lrefine'th decimal
-        max_delta = 1e-7*0.5*pow(2, -(double)other_node->node_lrefine[ifield]); //.1*pow(10,std::min(0,-std::max((int)this->node_lrefine[ifield], (int)wanted_node_lrefine[ifield])));
+        max_delta = 1e-7*other_node->node_delta[ifield]; //.1*pow(10,std::min(0,-std::max((int)this->node_lrefine[ifield], (int)wanted_node_lrefine[ifield])));
 
         if(fabs(this->model_data[ifield]-other_node->model_data[ifield])>max_delta){
             return -1;
@@ -340,7 +343,7 @@ int ModelNode::nodes_same_data(double* wanted_model_data){
     for(ifield = 0; ifield < n_database_fields; ifield++){
 
         //everything is based on powers of two, so a given number is only given to the lrefine'th decimal
-        max_delta =  1e-10*0.5*pow(2, -(double)this->node_lrefine[ifield]);
+        max_delta =  1e-10*this->node_delta[ifield];
         if(fabs(this->model_data[ifield]-wanted_model_data[ifield])>max_delta){
             return -1;
         }
@@ -398,17 +401,17 @@ void ModelNode::debug_point(double* point){
     py::print("\tChecking fields");
     for(ifield = 0; ifield < n_database_fields; ifield++){
         point_field_value = point[ifield];
-        node_field_delta = 0.5*pow(2.,-(double)this->node_lrefine[ifield]);
+        node_field_delta = this->node_delta[ifield];
         node_field_value = this->model_data[ifield];
         py::print("\t",ifield," ",node_field_value-node_field_delta, point_field_value, node_field_value+node_field_delta);
-        if (fabs(point_field_value - node_field_value) > node_field_delta){
+        if (fabs(point_field_value - node_field_value) > 0.5*node_field_delta){
             py::print("Point failed for field ", ifield," at node ",this->node_id);
             return;
         }
         if((this->is_leaf == 0) && (ifield == this->split_field)){
-            if( (point_field_value - node_field_value) < -0.5*node_field_delta){
+            if( (point_field_value - node_field_value) < -0.25*node_field_delta){
                 child_index = 0;
-            } else if( (point_field_value - node_field_value) > 0.5*node_field_delta){
+            } else if( (point_field_value - node_field_value) > 0.25*node_field_delta){
                 child_index = 2;
             } else {
                 child_index = 1;
@@ -663,9 +666,9 @@ int GasspyTree::get_node_id(double *point){
         root_node = this->all_nodes.get_node(node_id);
         int inside = 1;
         for(int ifield = 0; ifield < n_database_fields; ifield++){
-            double delta = 0.5*pow(2,-(float)root_node->node_lrefine[ifield]);
+            double delta = root_node->node_delta[ifield];
             double value = root_node->model_data[ifield];
-            if(fabs(value - point[ifield])>delta){
+            if(fabs(value - point[ifield])>0.5*delta){
                inside = 0;
                break;
             }
@@ -1009,11 +1012,14 @@ py::array_t<int> GasspyTree::add_points(py::array_t<double> points, py::array_t<
         }
         _tmp_node_ids_ra(ipoint) = node_id;
         if(ipoint%10000 == 0){
-            py::print("ipoint ", ipoint);
-            py::print("Finding existing : ", finding_existing, "mu");
-            py::print("Creating new     : ", creating_new, "mu");
+            py::print("ipoint ", ipoint, "nroots", this->root_ids.size(), py::arg("flush") = true);
+            py::print("Finding existing : ", finding_existing, "mu", py::arg("flush")= true);
+            py::print("Creating new     : ", creating_new, "mu", py::arg("flush") = true);
         }
     }
+    py::print("nroots", this->root_ids.size());
+    py::print("Finding existing : ", finding_existing, "mu");
+    py::print("Creating new     : ", creating_new, "mu");
     return _tmp_node_ids;
 }
 
