@@ -102,7 +102,7 @@ class GasspyDatabase:
 
         old_fields_lrefine = old_gasspy_config["fields_lrefine"]
         for field in self.database_fields:
-            assert np.array_equal(old_fields_lrefine[field], self.database_fields[field]), "fields_lrefine for field %s does not match between supplied gasspy_config and database"%field 
+            assert np.array_equal(old_fields_lrefine[field], self.fields_lrefine[field]), "fields_lrefine for field %s does not match between supplied gasspy_config and database"%field 
 
 
     def load_sim_data(self, sim_reader):

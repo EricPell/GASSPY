@@ -18,7 +18,6 @@ int center_cell_neighbor_index;
 
 long long finding_existing;
 long long creating_new;
-long long get_node_ms;
 
 
 class GasspyException: public std::exception{
@@ -665,10 +664,7 @@ int GasspyTree::get_node_id(double *point){
             throw py::error_already_set();
         }
 
-        auto start = std::chrono::high_resolution_clock::now();
         root_node = this->root_nodes.at(iroot);
-        auto elapsed = std::chrono::high_resolution_clock::now() - start;
-        get_node_ms += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
         int inside = 1;
         for(int ifield = 0; ifield < n_database_fields; ifield++){
             double delta = root_node->node_delta[ifield];
@@ -803,6 +799,9 @@ void GasspyTree::set_unique_gasspy_models(){
     vector <double> current_model;
     double max_delta;
     listnode* current_node = this->all_nodes.get_head();
+    long long finding_match = 0;
+    long long inserting_new = 0;
+
     for(inode = 0; inode < (all_nodes.nnodes); inode++){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
@@ -818,11 +817,12 @@ void GasspyTree::set_unique_gasspy_models(){
             continue;
         }
         // Loop through all known gasspy_models and see if this node already has a matching one 
+        auto start = chrono::high_resolution_clock::now();
         for(imodel = 0; imodel < this->gasspy_model_data.size(); imodel++){
             current_model = this->gasspy_model_data.at(imodel);
             found = 1;
             for(ifield = 0; ifield < n_database_fields; ifield++){
-                max_delta = 1e-7*0.5*pow(2,-(double)current_node->node.node_lrefine[ifield]);
+                max_delta = 1e-7*current_node->node.node_delta[ifield];
                 if(fabs(node_model.at(ifield)-current_model.at(ifield))>max_delta){
                     found = 0;
                     break;
@@ -833,11 +833,22 @@ void GasspyTree::set_unique_gasspy_models(){
                 break;
             }
         }
+        auto elapsed = std::chrono::high_resolution_clock::now() - start;
+
+        finding_match += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+
         // If no matching model was found, add a new one
         if(found == 0){
+            auto start = chrono::high_resolution_clock::now();
             this->gasspy_model_data.push_back(node_model);
             current_node->node.gasspy_id = this->gasspy_model_data.size()-1;
-        }        
+            auto elapsed = std::chrono::high_resolution_clock::now() - start;
+            inserting_new += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+
+        }      
+        py::print("inode ", inode, "nodes", this->all_nodes.nnodes, py::arg("flush") = true);
+        py::print("Finding match : ", finding_match, "mu", py::arg("flush")= true);
+        py::print("inserting new : ", inserting_new, "mu", py::arg("flush") = true);  
         current_node = current_node->next;
 
     }
@@ -995,7 +1006,6 @@ py::array_t<int> GasspyTree::add_points(py::array_t<double> points, py::array_t<
 
     finding_existing = 0;
     creating_new = 0;
-    get_node_ms = 0;
     for(size_t ipoint = 0; ipoint < (size_t) points.shape(0); ipoint++){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
@@ -1021,16 +1031,15 @@ py::array_t<int> GasspyTree::add_points(py::array_t<double> points, py::array_t<
             node_id = this->add_point(point);
         }
         _tmp_node_ids_ra(ipoint) = node_id;
-        if(ipoint%10000 == 0){
+        if(ipoint%100000 == 0){
             py::print("ipoint ", ipoint, "nroots", this->root_nodes.size(), py::arg("flush") = true);
             py::print("Finding existing : ", finding_existing, "mu", py::arg("flush")= true);
             py::print("Creating new     : ", creating_new, "mu", py::arg("flush") = true);
-            py::print("get_node         : ", get_node_ms, "mu", py::arg("flush") = true);
         }
     }
-    py::print("nroots", this->root_nodes.size());
-    py::print("Finding existing : ", finding_existing, "mu");
-    py::print("Creating new     : ", creating_new, "mu");
+    py::print("nroots", this->root_nodes.size(), py::arg("flush") = true);
+    py::print("Finding existing : ", finding_existing, "mu", py::arg("flush") = true);
+    py::print("Creating new     : ", creating_new, "mu", py::arg("flush") = true);
     return _tmp_node_ids;
 }
 
