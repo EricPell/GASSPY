@@ -16,9 +16,8 @@ int n_refinement_fields;
 int *refinement_field_index;
 int center_cell_neighbor_index;
 
-long long find_node_mus = 0;
-long long get_node_id_mus = 0;
-long long refine_node_mus = 0;
+long long finding_existing;
+long long creating_new;
 
 
 class GasspyException: public std::exception{
@@ -727,11 +726,18 @@ int GasspyTree::add_point(double *point){
     int ifield;
 
     // See if we can match this point to the existing nodes
+    auto start =  std::chrono::high_resolution_clock::now();
     node_id = this->get_node_id(point);
     if(node_id >= 0){
         this->all_nodes.get_node(node_id)->is_required=1;
         return node_id;
     }
+    auto elapsed = std::chrono::high_resolution_clock::now() - start;
+
+    finding_existing += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+
+
+    start =  std::chrono::high_resolution_clock::now();
 
     // otherwise start a new root with this point
     double coords[n_database_fields];
@@ -756,6 +762,9 @@ int GasspyTree::add_point(double *point){
     current_model_node->is_leaf=1;
     current_model_node->is_root=1;
     current_model_node->root_id=this->root_ids.size()-1;
+    elapsed = std::chrono::high_resolution_clock::now() - start;
+
+    creating_new += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
     return node_id;
 }
 
@@ -972,6 +981,8 @@ py::array_t<int> GasspyTree::add_points(py::array_t<double> points, py::array_t<
     auto _tmp_node_ids_ra = _tmp_node_ids.mutable_unchecked();
     double point[n_database_fields];
 
+    finding_existing = 0;
+    creating_new = 0;
     for(size_t ipoint = 0; ipoint < (size_t) points.shape(0); ipoint++){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
@@ -997,6 +1008,11 @@ py::array_t<int> GasspyTree::add_points(py::array_t<double> points, py::array_t<
             node_id = this->add_point(point);
         }
         _tmp_node_ids_ra(ipoint) = node_id;
+        if(ipoint%10000 == 0){
+            py::print("ipoint ", ipoint);
+            py::print("Finding existing : ", finding_existing, "mu");
+            py::print("Creating new     : ", creating_new, "mu");
+        }
     }
     return _tmp_node_ids;
 }
@@ -1006,9 +1022,7 @@ void GasspyTree::refine_nodes(py::array_t<int> node_ids, py::array_t<int16_t> wa
     auto wanted_node_lrefines_ra = wanted_node_lrefines.mutable_unchecked();
     int node_id;
     int16_t wanted_node_lrefine[n_database_fields];
-    refine_node_mus = 0;
-    find_node_mus = 0;
-    get_node_id_mus = 0;
+
     for(size_t inode = 0; inode < (size_t) node_ids.size(); inode++){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
