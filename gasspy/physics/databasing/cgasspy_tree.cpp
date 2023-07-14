@@ -18,6 +18,7 @@ int center_cell_neighbor_index;
 
 long long finding_existing;
 long long creating_new;
+long long get_node_ms;
 
 
 class GasspyException: public std::exception{
@@ -663,7 +664,11 @@ int GasspyTree::get_node_id(double *point){
             throw py::error_already_set();
         }
         node_id = this->root_ids.at(iroot);
+
+        auto start = std::chrono::high_resolution_clock::now();
         root_node = this->all_nodes.get_node(node_id);
+        auto elapsed = std::chrono::high_resolution_clock::now() - start;
+        get_node_ms += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
         int inside = 1;
         for(int ifield = 0; ifield < n_database_fields; ifield++){
             double delta = root_node->node_delta[ifield];
@@ -986,6 +991,7 @@ py::array_t<int> GasspyTree::add_points(py::array_t<double> points, py::array_t<
 
     finding_existing = 0;
     creating_new = 0;
+    get_node_ms = 0;
     for(size_t ipoint = 0; ipoint < (size_t) points.shape(0); ipoint++){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
@@ -1015,6 +1021,7 @@ py::array_t<int> GasspyTree::add_points(py::array_t<double> points, py::array_t<
             py::print("ipoint ", ipoint, "nroots", this->root_ids.size(), py::arg("flush") = true);
             py::print("Finding existing : ", finding_existing, "mu", py::arg("flush")= true);
             py::print("Creating new     : ", creating_new, "mu", py::arg("flush") = true);
+            py::print("get_node         : ", get_node_ms, "mu", py::arg("flush") = true);
         }
     }
     py::print("nroots", this->root_ids.size());
