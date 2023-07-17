@@ -22,7 +22,8 @@ long long creating_new;
 long long finding_shift;
 long long finding_node;
 long long creating_node;
-
+long long non_matching;
+long long matching;
 
 class GasspyException: public std::exception{
     private:
@@ -712,14 +713,18 @@ ModelNode* GasspyTree::find_node(double *coords){
     // Loop through all roots and check each one
     //for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
     for(ModelNode* root_node : this->root_nodes){
+        auto start = chrono::high_resolution_clock::now();
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
         }
         //root_node = this->root_nodes.at(iroot);
         found_node = root_node->find_node(coords);
+        auto elapsed = chrono::high_resolution_clock::now() - start;
         if(found_node != NULL){
+            matching += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
             return found_node;
         }
+        non_matching += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
     }
     return NULL;
 }
@@ -801,6 +806,8 @@ void GasspyTree::set_neighbors(){
     finding_shift = 0;
     finding_node = 0;
     creating_node = 0;
+    matching = 0;
+    non_matching = 0;
     int counter = 0;
     for(inode = 0; inode < this->all_nodes.nnodes; inode++){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
@@ -812,6 +819,8 @@ void GasspyTree::set_neighbors(){
                 py::print("inode ", inode, "nnodes", this->all_nodes.nnodes, "nroots", this->root_nodes.size(), py::arg("flush") = true);
                 py::print("finding_shift", finding_shift, " mu",py::arg("flush") = true);
                 py::print("finding_node ", finding_node, " mu",py::arg("flush") = true);
+                py::print("\tnon_matching", non_matching, " mu",py::arg("flush") = true);
+                py::print("\tmatching", matching, " mu",py::arg("flush") = true);
                 py::print("creating_node", creating_node, " mu",py::arg("flush") = true);
             
             }
