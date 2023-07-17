@@ -455,7 +455,7 @@ int __shift_recursive__(int ishift, int i_refinement_field, vector<vector<double
 
     int ifield = refinement_field_index[i_refinement_field];
     // Loop over left, centre and right, determine shift and call for the next field
-    double shift = pow(2, -(float)node_lrefine[ifield]);
+    double shift = pow(2, -(double)node_lrefine[ifield]);
     for(int local_shift = -1; local_shift < 2; local_shift++){
         total_shift[ifield] = local_shift*shift;
         ishift = __shift_recursive__(ishift, i_refinement_field + 1, neighbor_model_data, node_lrefine, total_shift);
@@ -560,7 +560,6 @@ class NodeList {
 
 class GasspyTree {
     private:
-        std::vector<int> root_ids;
         std::vector<ModelNode*> root_nodes;
         std::vector<int> required_leaf_ids;
         std::vector<std::vector<double>> gasspy_model_data; 
@@ -572,7 +571,7 @@ class GasspyTree {
         void get_n_leafs();
         ModelNode* find_node(double *coords, int16_t *node_lrefine);
         ModelNode* find_node(double *coords);
-        int get_node_id(double *coords);
+        ModelNode* get_node(double *coords);
 
         int add_point(double *point);
         void refine_node(int16_t *new_node_lrefine, ModelNode* current_node);
@@ -654,7 +653,7 @@ class GasspyTree {
 };
 
 
-int GasspyTree::get_node_id(double *point){
+ModelNode* GasspyTree::get_node(double *point){
     // Finds if there's a node with the same coordinates
     int node_id;
     ModelNode* root_node;
@@ -680,14 +679,14 @@ int GasspyTree::get_node_id(double *point){
         }
         found_node = root_node->get_node(point);
 
-        if(node_id != NULL){
+        if(found_node == NULL){
             root_node->debug_point(point);
             throw GasspyException("Couldn't find matching node even when root contains point.. this is bad..");
         }
         // Found one? use it!
-        return found_node->node_id;
+        return found_node;
     }
-    return -1;
+    return NULL;
 }
 
 ModelNode* GasspyTree::find_node(double *coords){
@@ -736,10 +735,10 @@ int GasspyTree::add_point(double *point){
 
     // See if we can match this point to the existing nodes
     auto start =  std::chrono::high_resolution_clock::now();
-    node_id = this->get_node_id(point);
-    if(node_id >= 0){
-        this->all_nodes.get_node(node_id)->is_required=1;
-        return node_id;
+    ModelNode* found_node = this->get_node(point);
+    if(found_node != NULL){
+        found_node->is_required=1;
+        return found_node->node_id;
     }
     auto elapsed = std::chrono::high_resolution_clock::now() - start;
 
@@ -767,7 +766,6 @@ int GasspyTree::add_point(double *point){
 
     ModelNode *current_model_node = this->all_nodes.add_node(coords, this->fields_lrefine_min);
     node_id = current_model_node->node_id;
-    this->root_ids.push_back(node_id);
     this->root_nodes.push_back(current_model_node);
 
     current_model_node->is_required=1;
@@ -791,6 +789,9 @@ void GasspyTree::set_neighbors(){
             this->find_node_neighbors(&current_node->node);
         }
         current_node = current_node->next;
+        if(inode%10 == 0){
+            py::print("inode ", inode, "nnodes", this->all_nodes.nnodes, "nroots", this->root_nodes.size(), py::arg("flush") = true);
+        }
     }
 }
 
@@ -935,7 +936,6 @@ void GasspyTree::refine_node(int16_t* new_node_lrefine, ModelNode* current_node)
             // also make sure that this no longer registers as a root node
             if(current_node->child_nodes[ishift]->is_root == 1){
                 current_node->child_nodes[ishift]->is_root = 0;
-                this->root_ids.erase(this->root_ids.begin()+current_node->child_nodes[ishift]->root_id);
                 this->root_nodes.erase(this->root_nodes.begin()+current_node->child_nodes[ishift]->root_id);
             }
         } else {
@@ -989,7 +989,9 @@ int GasspyTree::find_node_neighbors(ModelNode* current_node){
         } else {
             // otherwise create a new node and add node to list of nodes
             current_node->neighbor_nodes[ineigh] = this->all_nodes.add_node(coords, current_node->node_lrefine);
-            current_node->neighbor_nodes[ineigh]->is_root = 0;
+            current_node->neighbor_nodes[ineigh]->is_root = 1;
+            current_node->neighbor_nodes[ineigh]->root_id = this->root_nodes.size();
+            this->root_nodes.push_back(current_node->neighbor_nodes[ineigh]);
         }
     }
     current_node->has_neighbors = 1;
@@ -1110,7 +1112,8 @@ py::array_t<int> GasspyTree::get_node_ids(py::array_t<double> points, py::array_
         }  
         if(node_id < 0){
             // If there's no prevoud node, or we couldnt match to the old node, find a node for the point by looking through the tree
-            node_id = this->get_node_id(point);
+           ModelNode* found_node = this->get_node(point);
+           node_id = found_node->node_id;
         }
 
         if(node_id < 0){
@@ -1131,6 +1134,7 @@ py::array_t<int> GasspyTree::get_gasspy_ids(py::array_t<double> points, py::arra
 
     double point[n_database_fields];
     int node_id;
+    ModelNode* found_node = NULL;
     int warn= 0;
     for(size_t ipoint = 0; ipoint < (size_t) points.shape(0); ipoint++){
         for(size_t ifield = 0; ifield < (size_t) n_database_fields; ifield++){
@@ -1142,20 +1146,23 @@ py::array_t<int> GasspyTree::get_gasspy_ids(py::array_t<double> points, py::arra
             // or one of its children
             if(node_id < this->all_nodes.nnodes){
                 ModelNode* previous_node = this->all_nodes.get_node(previous_node_ids_ra[ipoint]);
-                ModelNode* found_node = previous_node->get_node(point);
+                found_node = previous_node->get_node(point);
                 node_id = found_node->node_id;
             } else {
+                found_node = NULL;
                 node_id = -1;
             }
         } 
-        if (node_id < 0) {
+        if(found_node == NULL){
             // Otherwise find a node for the point by looking through the tree
-            node_id = this->get_node_id(point);
+            found_node = this->get_node(point);
         }
-        if(node_id < 0){
+        if(found_node == NULL){
             warn = 1;
+            _tmp_gasspy_ids_ra(ipoint) = -1;
+            continue;
         }
-        _tmp_gasspy_ids_ra(ipoint) = this->all_nodes.get_node(node_id)->gasspy_id;
+        _tmp_gasspy_ids_ra(ipoint) = found_node->gasspy_id;
     }
     if(warn){
         py::print("\nWarning: Some points could not be matched to models.\n\t If you havent added this snapshot before, please do so.\n\t If this snapshot has been added before, something has gone wrong and you should blame loke\n");
@@ -1415,7 +1422,6 @@ void GasspyTree::set_nodes_is_root(py::array_t<int8_t> is_root){
         current_node->node.is_root = is_root_ra(node_id);
         if(current_node->node.is_root == 1){
             this->root_nodes.push_back(&(current_node->node));
-            this->root_ids.push_back(node_id);
             current_node->node.root_id = this->root_nodes.size()-1;
         }
         current_node = current_node->next;
