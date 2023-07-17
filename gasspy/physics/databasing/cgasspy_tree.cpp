@@ -670,15 +670,16 @@ void GasspyTree::remove_root_node(int root_id){
 ModelNode* GasspyTree::get_node(double *point){
     // Finds if there's a node with the same coordinates
     int node_id;
-    ModelNode* root_node;
+    //ModelNode* root_node;
     ModelNode* found_node;
     // Loop through all roots and check each one
-    for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
+    //for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
+    for(ModelNode* root_node : this->root_nodes){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
         }
 
-        root_node = this->root_nodes.at(iroot);
+        //root_node = this->root_nodes.at(iroot);
         int inside = 1;
         for(int ifield = 0; ifield < n_database_fields; ifield++){
             double delta = root_node->node_delta[ifield];
@@ -705,15 +706,16 @@ ModelNode* GasspyTree::get_node(double *point){
 
 ModelNode* GasspyTree::find_node(double *coords){
     // Finds if there's a node with the same coordinates
-    ModelNode* root_node;
+    //ModelNode* root_node;
     ModelNode* found_node;
     int node_id;
     // Loop through all roots and check each one
-    for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
+    //for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
+    for(ModelNode* root_node : this->root_nodes){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
         }
-        root_node = this->root_nodes.at(iroot);
+        //root_node = this->root_nodes.at(iroot);
         found_node = root_node->find_node(coords);
         if(found_node != NULL){
             return found_node;
@@ -725,14 +727,15 @@ ModelNode* GasspyTree::find_node(double *coords){
 
 ModelNode* GasspyTree::find_node(double *coords, int16_t *node_lrefine){
     // loops through and finds a node with the same coordinates and refinement levels (eg. identical)
-    ModelNode* root_node;
+    //ModelNode* root_node;
     ModelNode* found_node;
     int node_id;
-    for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
+    //for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
+    for(ModelNode* root_node : this->root_nodes){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
         }
-        root_node = this->root_nodes.at(iroot);
+        //root_node = this->root_nodes.at(iroot);
         found_node = root_node->find_node(coords, node_lrefine);
 
         if(found_node != NULL){
