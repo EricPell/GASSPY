@@ -48,9 +48,9 @@ class ModelNode{
         ModelNode* *neighbor_nodes;
 
         // Node identification and comparisons
-        int get_node_id(double* point);
-        int find_node(double* point);
-        int find_node(double* point, int16_t *node_lrefine);
+        ModelNode* get_node(double* point);
+        ModelNode* find_node(double* point);
+        ModelNode* find_node(double* point, int16_t *node_lrefine);
         
         int nodes_identical(ModelNode* other_node);
         int nodes_identical(double *model_data, int16_t *node_lrefine);
@@ -98,7 +98,7 @@ class ModelNode{
 
 
 
-int ModelNode::get_node_id(double* point){ 
+ModelNode* ModelNode::get_node(double* point){ 
     int ifield;
     int child_index = 0;
 
@@ -114,7 +114,7 @@ int ModelNode::get_node_id(double* point){
         node_field_value = this->model_data[ifield];
 
         if (fabs(point_field_value - node_field_value) > 0.5*node_field_delta){
-            return -1;
+            return NULL;
         }
         if((this->is_leaf == 0) && (ifield == this->split_field)){
             if( (point_field_value - node_field_value) < -0.25*node_field_delta){
@@ -130,13 +130,13 @@ int ModelNode::get_node_id(double* point){
     // if we get here then the point is in this node. If we're a leaf, or the wanted child does not exist return our 
     // node_id, otherwise pass along to the corresponding child
     if((this->is_leaf == 1 ) || (this->child_nodes[child_index] == NULL)){
-        return this->node_id;
+        return this;
     } else {
-        return this->child_nodes[child_index]->get_node_id(point);
+        return this->child_nodes[child_index]->get_node(point);
     }
 }
 
-int ModelNode::find_node(double* point){ 
+ModelNode* ModelNode::find_node(double* point){ 
     int ifield;
     int look_at_child[3];
     if(this->is_leaf == 0 && this->split_field == -1){
@@ -158,7 +158,7 @@ int ModelNode::find_node(double* point){
         node_field_delta  = this->node_delta[ifield];
         node_field_value  = this->model_data[ifield];
         if (fabs(point_field_value - node_field_value) - 1e-7*node_field_delta > 0.5*node_field_delta){
-            return -1;
+            return NULL;
         }
 
         if((this->is_leaf == 0) && (ifield == this->split_field)){
@@ -177,30 +177,30 @@ int ModelNode::find_node(double* point){
 
     //Check if this node matches the data, otherwise look at children
     if(this->nodes_same_data(point)==1){
-        return this->node_id;
+        return this;
     }
 
     // if we get here then the point is in this node. If we're a leaf and lrefines match, return our 
     // node_id, otherwise pass along to the corresponding child. If the child does not exists, them return false
     if(this->is_leaf == 1){
         // this is a leaf but did not match, therefore not found
-        return -1;
+        return NULL;
     } else {
         // If the desired node is within the node boundaries, but is not this node, check children
         for(int ichild = 0; ichild < 3; ichild++){
             if((this->child_nodes[ichild] != NULL) && (look_at_child[ichild]==1)){
-                int found_node_id = this->child_nodes[ichild]->find_node(point);
-                if(found_node_id >=0){
-                    return found_node_id;
+                ModelNode* found_node = this->child_nodes[ichild]->find_node(point);
+                if(found_node != NULL){
+                    return found_node;
                 }
             }
         }
         // none of the children found something, just return false
-        return -1;
+        return NULL;
     }
 }
 
-int ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){    
+ModelNode* ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){    
     int ifield;
     int look_at_children = 0;
     int look_at_child[3];
@@ -218,7 +218,7 @@ int ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){
     for(ifield = 0; ifield < n_database_fields; ifield++){
         if (this->node_lrefine[ifield] > wanted_node_lrefine[ifield]){
             // If we have refined to much, the requested node does not exist
-            return -1;
+            return NULL;
         }
 
         point_field_value = point[ifield];
@@ -226,7 +226,7 @@ int ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){
         node_field_delta  = this->node_delta[ifield];
         node_field_value  = this->model_data[ifield];
         if (fabs(point_field_value - node_field_value)-1e-7*point_field_delta > 0.5*node_field_delta){
-            return -1;
+            return NULL;
         }
         if(this->node_lrefine[ifield]<wanted_node_lrefine[ifield]){
             look_at_children = 1;
@@ -250,36 +250,36 @@ int ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){
     if(this->is_leaf == 1){
         // We want higher lrefines, but this is a leaf, the node does not exist
         if(look_at_children == 1){
-            return -1;
+            return NULL;
         }
 
         // otherwise check if identical
         if(this->nodes_identical(point, wanted_node_lrefine)==1){
-            return this->node_id;
+            return this;
         } 
 
-        return -1;
+        return NULL;
 
     } else {
         // We are at the corrrect refinement level, check here
         if(look_at_children == 0){
             if(this->nodes_identical(point, wanted_node_lrefine)==1){
-                return this->node_id;
+                return this;
             }
-            return -1;
+            return NULL;
         }
 
         // otherwise check children
         for(int ichild = 0; ichild < 3; ichild++){
             if((this->child_nodes[ichild] != NULL) && (look_at_child[ichild]==1)){
-                int found_node_id = this->child_nodes[ichild]->find_node(point, wanted_node_lrefine);
-                if(found_node_id >=0){
-                    return found_node_id;
+                ModelNode* found_node = this->child_nodes[ichild]->find_node(point, wanted_node_lrefine);
+                if(found_node != NULL){
+                    return found_node;
                 }
             }
         }
         // none of the children found something, just return false
-        return -1;
+        return NULL;
     }
 }
 
@@ -570,8 +570,8 @@ class GasspyTree {
         NodeList all_nodes;
         void set_required_leaf_ids();
         void get_n_leafs();
-        int find_node(double *coords, int16_t *node_lrefine);
-        int find_node(double *coords);
+        ModelNode* find_node(double *coords, int16_t *node_lrefine);
+        ModelNode* find_node(double *coords);
         int get_node_id(double *coords);
 
         int add_point(double *point);
@@ -658,6 +658,7 @@ int GasspyTree::get_node_id(double *point){
     // Finds if there's a node with the same coordinates
     int node_id;
     ModelNode* root_node;
+    ModelNode* found_node;
     // Loop through all roots and check each one
     for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
@@ -677,21 +678,22 @@ int GasspyTree::get_node_id(double *point){
         if(inside == 0){
             continue;
         }
-        node_id = root_node->get_node_id(point);
+        found_node = root_node->get_node(point);
 
-        if(node_id < 0){
+        if(node_id != NULL){
             root_node->debug_point(point);
             throw GasspyException("Couldn't find matching node even when root contains point.. this is bad..");
         }
         // Found one? use it!
-        return node_id;
+        return found_node->node_id;
     }
     return -1;
 }
 
-int GasspyTree::find_node(double *coords){
+ModelNode* GasspyTree::find_node(double *coords){
     // Finds if there's a node with the same coordinates
     ModelNode* root_node;
+    ModelNode* found_node;
     int node_id;
     // Loop through all roots and check each one
     for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
@@ -699,31 +701,32 @@ int GasspyTree::find_node(double *coords){
             throw py::error_already_set();
         }
         root_node = this->root_nodes.at(iroot);
-        node_id = root_node->find_node(coords);
-        if(node_id >= 0){
-            return node_id;
+        found_node = root_node->find_node(coords);
+        if(found_node != NULL){
+            return found_node;
         }
     }
-    return -1;
+    return NULL;
 }
 
 
-int GasspyTree::find_node(double *coords, int16_t *node_lrefine){
+ModelNode* GasspyTree::find_node(double *coords, int16_t *node_lrefine){
     // loops through and finds a node with the same coordinates and refinement levels (eg. identical)
     ModelNode* root_node;
+    ModelNode* found_node;
     int node_id;
     for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
         }
         root_node = this->root_nodes.at(iroot);
-        node_id = root_node->find_node(coords, node_lrefine);
+        found_node = root_node->find_node(coords, node_lrefine);
 
-        if(node_id >= 0){
-            return node_id;
+        if(found_node != NULL){
+            return found_node;
         }
     }
-    return -1;
+    return NULL;
 }
 
 
@@ -923,12 +926,12 @@ void GasspyTree::refine_node(int16_t* new_node_lrefine, ModelNode* current_node)
         child_model_data[current_node->split_field] = model_field_data + (ishift-1)* node_field_delta ;
 
         // check if this exact node already exists in the tree
-        node_id = this->find_node(child_model_data, child_node_lrefine);
+        ModelNode* found_node = this->find_node(child_model_data, child_node_lrefine);
 
         // if no matching node was found, create one
-        if(node_id>=0){
+        if(found_node != NULL){
             // if a match was found, just set to this one
-            current_node->child_nodes[ishift] = this->all_nodes.get_node(node_id);
+            current_node->child_nodes[ishift] = found_node;
             // also make sure that this no longer registers as a root node
             if(current_node->child_nodes[ishift]->is_root == 1){
                 current_node->child_nodes[ishift]->is_root = 0;
@@ -978,11 +981,11 @@ int GasspyTree::find_node_neighbors(ModelNode* current_node){
         }
 
         // first check if we already have a node with these coordinates
-        inode = this->find_node(coords);
+        ModelNode* found_node = this->find_node(coords);
 
         // if so set to that node
-        if(inode >= 0){
-            current_node->neighbor_nodes[ineigh] = this->all_nodes.get_node(inode);
+        if(found_node != NULL){
+            current_node->neighbor_nodes[ineigh] = found_node;
         } else {
             // otherwise create a new node and add node to list of nodes
             current_node->neighbor_nodes[ineigh] = this->all_nodes.add_node(coords, current_node->node_lrefine);
@@ -1020,8 +1023,8 @@ py::array_t<int> GasspyTree::add_points(py::array_t<double> points, py::array_t<
             // or one of its children
             if(node_id < this->all_nodes.nnodes){
                 ModelNode* previous_node = this->all_nodes.get_node(previous_node_ids_ra[ipoint]);
-                node_id = previous_node->get_node_id(point); 
-                this->all_nodes.get_node(node_id)->is_required=1;
+                ModelNode* found_node = previous_node->get_node(point); 
+                found_node->is_required=1;
             } else {
                 node_id = -1;
             }
@@ -1099,7 +1102,8 @@ py::array_t<int> GasspyTree::get_node_ids(py::array_t<double> points, py::array_
             // or one of its children
             if(node_id < this->all_nodes.nnodes){
                 ModelNode* previous_node = this->all_nodes.get_node(previous_node_ids_ra[ipoint]);
-                node_id = previous_node->get_node_id(point);
+                ModelNode* found_node = previous_node->get_node(point);
+                node_id = found_node->node_id;
             } else{ 
                 node_id = -1;
             }
@@ -1138,7 +1142,8 @@ py::array_t<int> GasspyTree::get_gasspy_ids(py::array_t<double> points, py::arra
             // or one of its children
             if(node_id < this->all_nodes.nnodes){
                 ModelNode* previous_node = this->all_nodes.get_node(previous_node_ids_ra[ipoint]);
-                node_id = previous_node->get_node_id(point);
+                ModelNode* found_node = previous_node->get_node(point);
+                node_id = found_node->node_id;
             } else {
                 node_id = -1;
             }
