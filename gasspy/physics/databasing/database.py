@@ -16,6 +16,7 @@ class GasspyDatabase:
         gasspy_modeldir = None,
         database_fields = None,
         refinement_fields = None,
+        discrete_fields = None,
         fields_lrefine = None,
         fields_domain_limits = None
         ):
@@ -46,32 +47,39 @@ class GasspyDatabase:
         self.n_refinement_fields = len(self.refinement_fields)
 
         self.refinement_to_database_field_index = np.array([self.database_fields.index(field) for field in self.refinement_fields], dtype = int)
+   
         # index of center cell in neighbor array (i.e the "self" neighbor)
         self.center_cell_index = 0
         for ifield in range(self.n_refinement_fields):
             self.center_cell_index += 3**(self.n_refinement_fields - 1 - ifield)
 
-        print(self.center_cell_index)
-        # Refinement level min and max for ALL fields
+        # Refinement level min and max for all refinement fields
         default = {}
         self.fields_lrefine = check_parameter_in_config(self.gasspy_config, "fields_lrefine", fields_lrefine, default)
-        for field in self.database_fields:
-            assert field in self.fields_lrefine, "Field %s does not have its refinement levels specified. ALL fields must have their refinement levels specified, even those that are not being refined"%field
+        for field in self.refinement_fields:
+            assert field in self.fields_lrefine, "Field %s does not have its refinement levels specified. All refinement fields must have their refinement levels specified."%field
             # make into arrays
             self.fields_lrefine[field] = np.array(self.fields_lrefine[field]) 
 
         # Grab the maximum lrefine for each of the fields we intend to refine
-        self.max_lrefine = np.array([self.fields_lrefine[field][1] for field in self.database_fields])
+        self.max_lrefine = np.array([self.fields_lrefine[field][1] for field in self.refinement_fields])
 
 
-        # Domain limits for All fields
+        # Domain limits for refinement fields
         default = {}
         self.fields_domain_limits = check_parameter_in_config(self.gasspy_config, "fields_domain_limits", fields_domain_limits, default)
-        for field in self.database_fields:
-            assert field in self.fields_domain_limits, "Field %s does not have its domain limits specified"%field
+        for field in self.fields_domain_limits:
             # make into arrays
             self.fields_domain_limits[field] = np.array(self.fields_domain_limits[field])
 
+        # Make sure all refinement fields have their limits specified
+        for field in self.refinement_fields:
+            assert field in self.fields_domain_limits, "Field %s does not have its domain limits specified"%field
+
+        # Discrete fields that should not be used for refinement
+        self.discrete_fields = check_parameter_in_config(self.gasspy_config, "discrete_fields", discrete_fields, [])
+        self.n_discrete_fields = len(self.discrete_fields)
+        self.discrete_to_database_field_index = np.array([self.database_fields.index(field) for field in self.discrete_fields])
 
 
         self.h5GroupName = "Tree_structure"
@@ -97,6 +105,9 @@ class GasspyDatabase:
         # Create all the neccesary datasets
         save_gasspy_config_hdf5(self.gasspy_config, h5database)
         h5database["database_fields"] = self.database_fields
+        h5database["refinement_fields"] = self.refinement_fields
+        h5database["discrete_fields"] = self.discrete_fields
+
         #close the database
         h5database.close()
 
@@ -115,11 +126,11 @@ class GasspyDatabase:
         assert old_refinement_fields == self.refinement_fields, "refinement_fields do not match between supplied gasspy_config and database. (NOTE: order matters)" 
 
         old_fields_lrefine = old_gasspy_config["fields_lrefine"]
-        for field in self.database_fields:
+        for field in self.refinement_fields:
             assert np.array_equal(old_fields_lrefine[field], self.fields_lrefine[field]), "fields_lrefine for field %s does not match between supplied gasspy_config and database"%field 
 
         old_fields_domain_limits = old_gasspy_config["fields_domain_limits"]
-        for field in self.database_fields:
+        for field in old_fields_domain_limits:
             assert np.array_equal(old_fields_domain_limits[field], self.fields_domain_limits[field]), "fields_domain_limits for field %s does not match between supplied gasspy_config and database"%field 
 
 
@@ -133,11 +144,11 @@ class GasspyDatabase:
         for ifield, field in enumerate(database_fields):
             field_data = np.log10(sim_reader.get_field(field))
             # If field has lower or upper limits, set these
-
-            maxval = self.fields_domain_limits[field][1]
-            field_data[field_data > maxval] = maxval
-            minval = self.fields_domain_limits[field][0]
-            field_data[field_data < minval] = minval
+            if field in self.fields_domain_limits:
+                maxval = self.fields_domain_limits[field][1]
+                field_data[field_data > maxval] = maxval
+                minval = self.fields_domain_limits[field][0]
+                field_data[field_data < minval] = minval
             if ifield == 0:
                 N_cells = field_data.shape[0]
                 sim_data = np.zeros((N_cells, len(database_fields)))
@@ -150,14 +161,14 @@ class GasspyDatabase:
             del self.tree
         
         # Set lrefine and domain limits for each field using 2D arrays
-        lrefine_limits = np.zeros((self.n_database_fields,2))
-        domain_limits  = np.zeros((self.n_database_fields,2))
-        for ifield, field in enumerate(self.database_fields):
+        lrefine_limits = np.zeros((self.n_refinement_fields,2))
+        domain_limits  = np.zeros((self.n_refinement_fields,2))
+        for ifield, field in enumerate(self.refinement_fields):
             lrefine_limits[ifield] = self.fields_lrefine[field]
             domain_limits[ifield]  = self.fields_domain_limits[field]
 
         # initialize tree
-        self.tree = CGasspyTree(self.n_database_fields, self.n_refinement_fields, self.refinement_to_database_field_index, domain_limits, lrefine_limits)
+        self.tree = CGasspyTree(self.n_database_fields, self.n_refinement_fields, self.refinement_to_database_field_index, self.n_discrete_fields, self.discrete_to_database_field_index, domain_limits, lrefine_limits)
 
         pass
 
@@ -181,7 +192,9 @@ class GasspyDatabase:
         # All the setter functions required 
         setters = {
             "nodes_gasspy_ids" : self.tree.set_nodes_gasspy_ids,
-            #"nodes_is_root": self.tree.set_nodes_is_root,
+            "roots_discrete_data": self.tree.set_roots_discrete_data,
+            "nodes_root_id": self.tree.set_nodes_root_id,
+            "nodes_is_root": self.tree.set_nodes_is_root,
             "nodes_is_leaf": self.tree.set_nodes_is_leaf,
             "nodes_is_required": self.tree.set_nodes_is_required,
             "nodes_has_converged": self.tree.set_nodes_has_converged,
@@ -194,17 +207,11 @@ class GasspyDatabase:
         tree_group = h5database[self.h5GroupName]
         nodes_model_data = tree_group["nodes_model_data"][:]
         nodes_node_lrefine = tree_group["nodes_node_lrefine"][:]
-        print("initialize_nodes")
         self.tree.initialize_nodes(nodes_model_data, nodes_node_lrefine)
         for label in setters:
-            print(label)
             setters[label](tree_group[label][:])
-        
         # Load and insert the unique gasspy_model_data
-        print("set_gasspy_model_data")
-        print(h5database["gasspy_model_data"][:])
         self.tree.set_gasspy_model_data(h5database["gasspy_model_data"][:])
-        print("Done")
         h5database.close()
     
 
@@ -223,7 +230,9 @@ class GasspyDatabase:
             "nodes_model_data" : self.tree.get_nodes_model_data,
             "nodes_node_lrefine" : self.tree.get_nodes_node_lrefine,
             "nodes_gasspy_ids" : self.tree.get_nodes_gasspy_ids,
-            #"nodes_is_root": self.tree.get_nodes_is_root,
+            "roots_discrete_data": self.tree.get_roots_discrete_data,
+            "nodes_root_id" : self.tree.get_nodes_root_id,
+            "nodes_is_root": self.tree.get_nodes_is_root,
             "nodes_is_leaf": self.tree.get_nodes_is_leaf,
             "nodes_is_required": self.tree.get_nodes_is_required,
             "nodes_has_converged": self.tree.get_nodes_has_converged,
@@ -247,14 +256,13 @@ class GasspyDatabase:
             
             N_saved = tree_group[label].shape[0]
             N_total = data.shape[0]
-
             # If we have no new nodes, just break
             if N_total == N_saved:
-                break
+                continue
 
             assert N_total > N_saved, "Error, tree structure of dataset is larger than the one we are trying to save"
             tree_group[label].resize((N_total), axis = 0)
-            tree_group[label][N_saved : N_total] = data[N_saved : N_total]
+            tree_group[label][:] = data[:]
         
 
         # Save gasspy_model_data
@@ -288,7 +296,6 @@ class GasspyDatabase:
         # Set new gasspy_ids
         print("set_uniques")
         self.tree.set_unique_gasspy_models()
-        print(self.tree.get_gasspy_model_data())
         self.save_database()
         return    
     
@@ -307,7 +314,6 @@ class GasspyDatabase:
             previous_node_ids = np.full(sim_data.shape[0], -1, dtype=np.int32)
         new_node_ids = self.tree.add_points(sim_data, previous_node_ids)
         sim_reader.save_new_field("cells_node_ids", new_node_ids)
-        print("set_neighbors")
         self.tree.set_neighbors()      
 
     def get_gasspy_ids(self, sim_reader):
@@ -325,7 +331,7 @@ class GasspyDatabase:
         except:
             previous_node_ids = np.full(sim_data.shape[0], -1, dtype=np.int32)
 
-        mpi_print("Matching to nodes in the tree")
+        mpi_print("Matching to in the tree [Gasspyids]")
         gasspy_ids = self.tree.get_gasspy_ids(sim_data, previous_node_ids)
         sim_reader.save_new_field("cells_gasspy_ids", gasspy_ids)
         return gasspy_ids
@@ -361,7 +367,7 @@ class GasspyDatabase:
             input:
                 None
             output:
-                nodes_model_data : array of floats (model_data for each node)
+                nodes_model_data : array of float64 (model_data for each node)
         """
         return self.tree.get_nodes_model_data()
     
@@ -371,7 +377,7 @@ class GasspyDatabase:
             input:
                 None
             output:
-                nodes_node_lrefine : array of ints (node_lrefine for each node)
+                nodes_node_lrefine : array of int16 (node_lrefine for each node)
         """
         return self.tree.get_nodes_node_lrefine()
 
@@ -381,19 +387,29 @@ class GasspyDatabase:
             input:
                 None
             output:
-                nodes_gasspy_ids : array of ints (gasspy_ids for each node)
+                nodes_gasspy_ids : array of int32 (gasspy_ids for each node)
         """
         return self.tree.get_nodes_gasspy_ids()
     
-    #def get_nodes_is_root(self):
-    #    """
-    #        get the is_root status of the nodes
-    #        input:
-    #            None
-    #        output:
-    #            nodes_is_root : array of ints (is_root for each node)
-    #    """
-    #    return self.tree.get_nodes_is_root()
+    def get_nodes_root_id(self):
+        """
+            get the root_id of the nodes
+            input:
+                None
+            output:
+                nodes_gasspy_ids : array of int32 (root_ids for each node)
+        """
+        return self.tree.get_nodes_root_id()
+    
+    def get_nodes_is_root(self):
+        """
+            get the is_root status of the nodes
+            input:
+                None
+            output:
+                nodes_is_root : array of int8 (is_root for each node)
+        """
+        return self.tree.get_nodes_is_root()
     
     def get_nodes_is_leaf(self):
         """
@@ -401,7 +417,7 @@ class GasspyDatabase:
             input:
                 None
             output:
-                nodes_is_leaf : array of ints (is_leaf for each node)
+                nodes_is_leaf : array of int8 (is_leaf for each node)
         """
         return self.tree.get_nodes_is_leaf()
     
@@ -411,7 +427,7 @@ class GasspyDatabase:
             input:
                 None
             output:
-                nodes_is_required : array of ints (is_required for each node)
+                nodes_is_required : array of int8 (is_required for each node)
         """
         return self.tree.get_nodes_is_required()
 
@@ -421,7 +437,7 @@ class GasspyDatabase:
             input:
                 None
             output:
-                nodes_is_required : array of ints (is_required for each node)
+                nodes_is_required : array of int8 (is_required for each node)
         """
         return self.tree.get_nodes_has_converged()
     
@@ -431,7 +447,7 @@ class GasspyDatabase:
             input:
                 None
             output:
-                nodes_split_field : array of ints (split_field for each node)
+                nodes_split_field : array of int16 (split_field for each node)
         """
         return self.tree.get_nodes_split_field()
     
@@ -441,7 +457,7 @@ class GasspyDatabase:
             input:
                 None
             output:
-                nodes_child_node_ids : array of ints (child_node_ids for each node)
+                nodes_child_node_ids : array of int32 (child_node_ids for each node)
         """
         return self.tree.get_nodes_child_node_ids()
     
@@ -451,7 +467,7 @@ class GasspyDatabase:
             input:
                 None
             output:
-                nodes_neighbor_ids : array of ints (neighbor_node_ids for each node)
+                nodes_neighbor_ids : array of int32 (neighbor_node_ids for each node)
         """
         return self.tree.get_nodes_neighbor_node_ids()
 
@@ -475,7 +491,7 @@ class GasspyDatabase:
         """
             Set gasspy_ids of the nodes
             input:
-                node_gasspy_ids : array of ints (gasspy_ids of the nodes)
+                node_gasspy_ids : array of int32 (gasspy_ids of the nodes)
             output:
                 None
         """
@@ -484,23 +500,35 @@ class GasspyDatabase:
         return
 
 
-    #def set_nodes_is_root(self, is_root):
-    #    """
-    #        set is_root status of the nodes
-    #        input:
-    #            node_is_root : array of ints (is_root of the nodes)
-    #        output:
-    #            None
-    #    """
-    #    is_root = self.check_type(is_root, np.int8, "set_nodes_is_root")
-    #    self.tree.set_nodes_is_root(is_root)
-    #    return
+    def set_nodes_root_id(self, root_id):
+        """
+            set root_id status of the nodes
+            input:
+                node_root_id : array of int32 (root_id of the nodes)
+            output:
+                None
+        """
+        root_id = self.check_type(root_id, np.int32, "set_nodes_root_id")
+        self.tree.set_nodes_root_id(root_id)
+        return
+
+    def set_nodes_is_root(self, is_root):
+        """
+            set is_root status of the nodes
+            input:
+                node_is_root : array of int8 (is_root of the nodes)
+            output:
+                None
+        """
+        is_root = self.check_type(is_root, np.int8, "set_nodes_is_root")
+        self.tree.set_nodes_is_root(is_root)
+        return
     
     def set_nodes_is_leaf(self, is_leaf):
         """
             set is leaf status of the nodes
             input:
-                node_gasspy_is_leaf : array of ints (is_leaf of the nodes)
+                node_gasspy_is_leaf : array of int8 (is_leaf of the nodes)
             output:
                 None
         """
@@ -512,7 +540,7 @@ class GasspyDatabase:
         """
             set is required status of the nodes
             input:
-                node_is_required : array of ints (is_required of the nodes)
+                node_is_required : array of int8 (is_required of the nodes)
             output:
                 None
         """
@@ -524,7 +552,7 @@ class GasspyDatabase:
         """
             set convergence status of the nodes
             input:
-                node_has_converged : array of ints (has_converged of the nodes)
+                node_has_converged : array of int8 (has_converged of the nodes)
             output:
                 None
         """
@@ -536,7 +564,7 @@ class GasspyDatabase:
         """
             set split_field of the nodes
             input:
-                node_split_field : array of ints (split_field of the nodes)
+                node_split_field : array of int16 (split_field of the nodes)
             output:
                 None
         """
@@ -548,7 +576,7 @@ class GasspyDatabase:
         """
             set child_node_ids of the nodes
             input:
-                node_child_node_ids : array of ints (child_node_ids of the nodes)
+                node_child_node_ids : array of int32 (child_node_ids of the nodes)
             output:
                 None
         """
@@ -560,7 +588,7 @@ class GasspyDatabase:
         """
             set neighbor_node_ids of the nodes
             input:
-                node_neighbor_node_ids : array of ints (neighbor_node_ids of the nodes)
+                node_neighbor_node_ids : array of int32 (neighbor_node_ids of the nodes)
             output:
                 None
         """
@@ -620,7 +648,7 @@ class GasspyDatabase:
             parallel_error_max   = np.where((self.relative_error[:, ishift] > self.max_error[:, ishift])*diagonal_error_large )[0]
 
             # Set those where the parallel error is to large to not ok
-            self.current_model_converged[parallel_error_large, self.database_fields.index(self.refinement_fields[ifield_to_check])]=0
+            self.current_model_converged[parallel_error_large, ifield_to_check]=0
 
             # Set the new maximum errors and corresponding ifield
             self.max_error[parallel_error_max, ishift] = self.relative_error[parallel_error_max, ishift]
@@ -628,7 +656,7 @@ class GasspyDatabase:
 
         # Regular parallell check
         error_large = np.where((self.absolute_error[:, ishift] > atol)*(self.relative_error[:, ishift] > rtol))[0]
-        self.current_model_converged[error_large, self.database_fields.index(self.refinement_fields[ifield_to_check])] = 0
+        self.current_model_converged[error_large, ifield_to_check] = 0
 
         return ishift + 1
 
@@ -670,7 +698,7 @@ class GasspyDatabase:
         self.max_error_ifield = np.zeros(values.shape, dtype = int) - 1
 
         # Initialize arrays for model_convergence
-        self.current_model_converged = np.ones((values.shape[0],len(self.database_fields)), dtype = np.int8)
+        self.current_model_converged = np.ones((values.shape[0],len(self.refinement_fields)), dtype = np.int8)
 
         for ifield, field in enumerate(self.refinement_fields):
             # Determine the reference value used for each comparison (eg the central value for the current field)
@@ -687,7 +715,7 @@ class GasspyDatabase:
         # Set the status of the maximum error field to not converged. Will only change things if multiple variables are ok, but their covariance is too large
         for ifield, field in enumerate(self.refinement_fields):
             max_error_here = np.where(self.max_error_ifield == ifield)[0]
-            self.current_model_converged[max_error_here,  self.database_fields.index(field)] = 0
+            self.current_model_converged[max_error_here,  self.refinement_fields.index(field)] = 0
 
         return 
     
@@ -760,7 +788,6 @@ class GasspyDatabase:
 
             # Determine all unique ones
             unique_ids, local_ids = np.unique(neighbor_gasspy_ids.ravel(), return_inverse = True)
-
             # Loop over all spectra ranges and grab their 
             for irange, label in enumerate(self.gasspy_config["convergence_criterions"]["spectra_ranges"]):
 
@@ -859,10 +886,10 @@ class GasspyDatabase:
         all_neighbor_gasspy_ids = self.get_nodes_gasspy_ids()[all_neighbor_node_ids]
 
         # Take all leaf nodes, that are required by the current snaphsots, and has not already converged
-        required_models = np.where((is_required == 1)*(is_leaf == 1)*(has_converged != 1))[0]
+        required_models = np.where((is_required == 1)*(has_converged != 1))[0]
 
         # Only look at required models that have not converged
-        self.model_converged = np.zeros((len(required_models), self.n_database_fields))
+        self.model_converged = np.zeros((len(required_models), self.n_refinement_fields))
 
         # Reset all non-converged required models to converged, and let inner functions tell otherwise
         self.model_converged[:,:] = 1
@@ -880,7 +907,6 @@ class GasspyDatabase:
 
         # Determine which fields for which nodes need to be refined
         need_refinement = np.where((self.model_converged == 0)*(nodes_lrefine < self.max_lrefine[np.newaxis,:]))
-
         if len(need_refinement[0]) == 0:
             mpi_print("\tNo further refinement needed for now")
             return True
@@ -1011,11 +1037,12 @@ if __name__ == "__main__":
     def plot(gasspy_database, h5database_path, sim_readers):
         h5database =  hp.File(h5database_path, "r")
         database_fields = [ field.decode() for field in h5database["database_fields"][:]]
+        refinement_fields = [ field.decode() for field in h5database["refinement_fields"][:]]
 
         intensity1 = h5database["intensity"][:,0]
         intensity2 = h5database["line_intensity"][:,0]
         intensity3 = h5database["line_intensity"][:,1]
-
+        h5database.close()
         resolution = 500
 
         v1 = np.linspace(-0.1,1.1,resolution)
@@ -1034,14 +1061,11 @@ if __name__ == "__main__":
 
         gasspy_ids = gasspy_database.get_gasspy_ids(sim_reader)
         node_ids = gasspy_database.get_node_ids(sim_reader)
-        print(node_ids)
         node_lrefine = gasspy_database.get_nodes_node_lrefine()[node_ids]
-        print(np.unique(gasspy_ids))
-        print(gasspy_ids[gasspy_ids==-1])
 
         # lrefine cmap
-        lmin = np.min(node_lrefine[:, [database_fields.index("var1"),database_fields.index("var2")]])
-        lmax = np.max(node_lrefine[:, [database_fields.index("var1"),database_fields.index("var2")]])
+        lmin = np.min(node_lrefine[:, [refinement_fields.index("var1"),refinement_fields.index("var2")]])
+        lmax = np.max(node_lrefine[:, [refinement_fields.index("var1"),refinement_fields.index("var2")]])
 
         lrefine_cmap = plt.get_cmap("gist_heat_r", lmax-lmin)
         lrefine_norm = mcol.Normalize(vmin = lmin, vmax = lmax)
@@ -1049,11 +1073,11 @@ if __name__ == "__main__":
         one_plot = 2.0
 
         fig, axes = plt.subplots(nrows=3, ncols=3, sharex=True, sharey=True, figsize = (3*one_plot,3*(one_plot*1.2)))
-        im = axes[2,0].pcolormesh(var1, var2, node_lrefine[:, database_fields.index("var1")].reshape(resolution,resolution), cmap = lrefine_cmap, norm = lrefine_norm)
+        im = axes[2,0].pcolormesh(var1, var2, node_lrefine[:, refinement_fields.index("var1")].reshape(resolution,resolution), cmap = lrefine_cmap, norm = lrefine_norm)
         add_colorbar(fig, axes[2,0], im, "var1_lrefine")
         add_points(axes[2,0], sim_readers)
 
-        im = axes[2,1].pcolormesh(var1, var2, node_lrefine[:, database_fields.index("var2")].reshape(resolution,resolution), cmap = lrefine_cmap, norm = lrefine_norm)
+        im = axes[2,1].pcolormesh(var1, var2, node_lrefine[:, refinement_fields.index("var2")].reshape(resolution,resolution), cmap = lrefine_cmap, norm = lrefine_norm)
         add_colorbar(fig, axes[2,1], im, "var2_lrefine")
         add_points(axes[2,1], sim_readers)
 
@@ -1062,7 +1086,10 @@ if __name__ == "__main__":
         im = axes[0,0].pcolormesh(var1, var2, intensity, cmap = "viridis")
         add_colorbar(fig, axes[0,0], im, "Intensity1")
         add_points(axes[0,0], sim_readers)
-        im = axes[1,0].pcolormesh(var1, var2, intensity1[gasspy_ids].reshape(resolution,resolution), cmap = "viridis")
+        binned_intensity = intensity1[gasspy_ids]
+        binned_intensity[gasspy_ids==-1] = np.nan
+        binned_intensity = binned_intensity.reshape(resolution,resolution)
+        im = axes[1,0].pcolormesh(var1, var2, binned_intensity, cmap = "viridis")
         add_colorbar(fig, axes[1,0], im, "Binned Intensity1")
         add_points(axes[1,0], sim_readers)
 
@@ -1072,7 +1099,10 @@ if __name__ == "__main__":
         im = axes[0,1].pcolormesh(var1, var2, intensity, cmap = "viridis")
         add_colorbar(fig, axes[0,1], im, "Intensity2")
         add_points(axes[0,1], sim_readers)
-        im = axes[1,1].pcolormesh(var1, var2, intensity2[gasspy_ids].reshape(resolution,resolution), cmap = "viridis")
+        binned_intensity = intensity2[gasspy_ids]
+        binned_intensity[gasspy_ids==-1] = np.nan
+        binned_intensity = binned_intensity.reshape(resolution,resolution)
+        im = axes[1,1].pcolormesh(var1, var2, binned_intensity, cmap = "viridis")
         add_colorbar(fig, axes[1,1], im, "Binned Intensity2")
         add_points(axes[1,1], sim_readers)
 
@@ -1081,7 +1111,10 @@ if __name__ == "__main__":
         im = axes[0,2].pcolormesh(var1, var2, intensity, cmap = "viridis")
         add_colorbar(fig, axes[0,2], im, "Intensity3")
         add_points(axes[0,2], sim_readers)
-        im = axes[1,2].pcolormesh(var1, var2, intensity3[gasspy_ids].reshape(resolution,resolution), cmap = "viridis")
+        binned_intensity = intensity3[gasspy_ids]
+        binned_intensity[gasspy_ids==-1] = np.nan
+        binned_intensity = binned_intensity.reshape(resolution,resolution)
+        im = axes[1,2].pcolormesh(var1, var2, binned_intensity, cmap = "viridis")
         add_colorbar(fig, axes[1,2], im, "Binned Intensity3")
         add_points(axes[1,2], sim_readers)
 
@@ -1112,15 +1145,16 @@ if __name__ == "__main__":
               "var1",
               "var2"
         ],
+        "discrete_fields": [
+            "cell_size"
+        ],
         "fields_lrefine": {
                 "var1"  :  [2, 8],
                 "var2"  :  [2, 8],
-                "cell_size"    :  [6, 7],
         },
         "fields_domain_limits":{
                 "var1" : [0,1],
                 "var2" : [0,1],
-                "cell_size" : [0,1]
         },
         "refinement_fields": [
             "var1",
@@ -1168,7 +1202,7 @@ if __name__ == "__main__":
 
     # Second snapshot: 100 More
     # start in logspace for clarity
-
+    
     var1       = np.random.rand(N_cells)
     var2       = np.random.rand(N_cells)
     cell_size  = np.zeros(N_cells)
@@ -1180,7 +1214,7 @@ if __name__ == "__main__":
 
     if os.path.exists("test_database"):
         shutil.rmtree("test_database")
-    
+
     os.makedirs("test_database")
     
     # First two in one go
@@ -1197,9 +1231,7 @@ if __name__ == "__main__":
 
     database_creator.finalize()
     plot(database_creator, "test_database/test_database.hdf5", [snapshot1,snapshot2])
-
     del database_creator
-
     # Next try to load and append 1 more snapshot that covers most of everything
     var1       = np.random.rand(N_cells)
     var2       = np.random.rand(N_cells)
@@ -1221,6 +1253,7 @@ if __name__ == "__main__":
     snapshot3.set_field("cell_size"  , 10**cell_size)
 
     database_creator = GasspyDatabase(gasspy_config)
+
     database_creator.add_snapshot(snapshot1)
     database_creator.add_snapshot(snapshot2)
     database_creator.add_snapshot(snapshot3)
