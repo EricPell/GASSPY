@@ -8,132 +8,109 @@ import cupy
 import cupyx
 import torch
 import h5py
-from astropy.io import fits
-from astropy import constants as const
+
 from gasspy.raystructures import global_ray_class
 from gasspy.settings.defaults import ray_dtypes    
+from gasspy.io.gasspy_io import read_yaml, check_parameter_in_config
 import yaml
 
 class Trace_processor():
     def __init__(
-        self, root_dir="./",
+        self,
+        gasspy_config,
+        sim_reader,
+        traced_rays, 
         gasspy_subdir="GASSPY",
-        gasspy_spec_subdir="spec",
-        gasspy_projection_subdir="projections",
-        modeldir = "GASSPY_DATABASE",
-        sim_reader = None, 
-        traced_rays=None,
-        energy=None,
-        energy_lims=None,
-        Emask=None,
-        cell_index_to_gasspydb=None,
+        gasspy_modeldir = "GASSPY_DATABASE",
+        database_name = None,
+        energy_limits=None,
         accel="torch",
-        dtype=np.float32,
+        radiative_transfer_precision=None,
         liteVRAM=True,
-        Nraster=4,
-        config_yaml=None,
-        spec_save_name="gasspy_spec",
+        spec_save_name="gasspy_spec.hdf5",
         cuda_device=None,
-        h5database = None,
-        em_field = "avg_em",
-        op_field = "tot_opc",
-        opc_per_NH=False,
-        doppler_shift = False,
-        GPU_memory = 8,
-        CPU_memory = 8,
+        scale_opacity_by_density=None,
+        doppler_shift=None,
+        GPU_memory=None,
+        CPU_memory=None,
         target_segments_per_ray = None,
-        doppler_shift_est_bin_ratio = 10
+        doppler_shift_est_bin_ratio = None
 
     ):
-        self.cuda_device = cuda_device
-        self.dtype = dtype
+        self.sim_reader = sim_reader
+        self.gasspy_config = gasspy_config
+        if isinstance(self.gasspy_config,str):
+            self.gasspy_config = read_yaml(self.gasspy_config)
+        
+        self.sim_unit_length = self.gasspy_config["sim_unit_length"]
+
+        if cuda_device is None:
+            self.cuda_device = torch.device('cuda:0')
+        else:
+            self.cuda_device = cuda_device
+        
+        self.radiative_transfer_precision = check_parameter_in_config(self.gasspy_config, "radiative_transfer_precision", radiative_transfer_precision, "double")
+        if self.radiative_transfer_precision == "double":
+            self.dtype = np.float64
+        elif self.radiative_transfer_precision == "single":
+            self.dtype = np.float32
+        else:
+            sys.exit("Error: radiative_transfer_precision was given as %s but must be either \"double\" or \"single\""%self.radiative_transfer_precision)
+        
         self.torch_dtype = torch.as_tensor(np.array([],dtype=self.dtype)).dtype
 
+        
+        self.liteVRAM = check_parameter_in_config(self.gasspy_config, "radiative_transfer_liteVRAM", liteVRAM, True)
         if liteVRAM:
             self.numlib = np
         else:
             self.numlib = cupy
 
-        if str == type(root_dir):
-            assert Path(root_dir).is_dir(), "Provided root_dir \""+root_dir+"\"is not a directory"
-            self.root_dir = root_dir
-
-        assert type(gasspy_subdir) == str, "gasspy_subdir not a string"
-        if not gasspy_subdir.endswith("/"):
-            gasspy_subdir = gasspy_subdir + "/"
-        if not gasspy_subdir[0] == "/":
-            gasspy_subdir = "/" + gasspy_subdir
-        self.gasspy_subdir = gasspy_subdir
-        assert Path(self.root_dir+self.gasspy_subdir).is_dir() == True, "GASSPY subdir does not exist..."
-
-        assert type(gasspy_projection_subdir) == str, "gasspy_projection_subdir not a string"
-        if not gasspy_projection_subdir[0] == "/":
-            gasspy_projection_subdir = "/" + gasspy_projection_subdir
-        if not gasspy_spec_subdir.endswith("/"):
-            gasspy_projection_subdir = gasspy_projection_subdir + "/"
-        self.gasspy_projection_subdir = gasspy_projection_subdir
-        assert Path(self.root_dir+self.gasspy_subdir+self.gasspy_projection_subdir).is_dir() == True, "GASSPY projections dir does not exist..."
-
-        assert type(gasspy_spec_subdir) == str, "gasspy_spec_subdir not a string"
-        if not gasspy_spec_subdir[0] == "/":
-            gasspy_spec_subdir = "/" + gasspy_spec_subdir
-        if not gasspy_spec_subdir.endswith("/"):
-            gasspy_spec_subdir = gasspy_spec_subdir + "/"
-        self.gasspy_spec_subdir = gasspy_spec_subdir
+        # Name of the database which we are using
+        self.database_name = check_parameter_in_config(self.gasspy_config, "database_name", database_name, "gasspy_database.hdf5") 
         
-        assert type(modeldir) == str, "modeldir not a string"
-        if not modeldir.endswith("/"):
-            modeldir = modeldir+ "/"
-        self.modeldir = modeldir
+        # Path to database directory
+        self.gasspy_modeldir = check_parameter_in_config(self.gasspy_config, "gasspy_modeldir", gasspy_modeldir, "gasspy_modeldir") 
+        if not self.gasspy_modeldir.endswith("/"):
+            self.gasspy_modeldir = self.gasspy_modeldir + "/"
 
+        # Path to where we put spectra and projection files
+        self.gasspy_subdir = check_parameter_in_config(self.gasspy_config, "gasspy_subdir", gasspy_subdir, "GASSPY")
+        if not self.gasspy_subdir.endswith("/"):
+            self.gasspy_subdir = self.gasspy_subdir + "/"  
 
-        if not isinstance(traced_rays, h5py._hl.files.File):
-            assert isinstance(traced_rays, str), "provided traced rays is neither a string or open hd5 file"
-            if Path(traced_rays).is_file():
-                tmp_path = traced_rays
-            elif Path(self.root_dir+self.gasspy_subdir+self.gasspy_projection_subdir+traced_rays).is_file():
-                tmp_path = self.root_dir+self.gasspy_subdir+self.gasspy_projection_subdir+traced_rays
-            else:
-                sys.exit("Could not find the traced rays file\n"+\
-                "Provided path: %s"%traced_rays+\
-                "Try looking in \"./\" and %s\n"%(self.root_dir+self.gasspy_projection_subdir)+\
-                "Aborting...")            
+        # Path to projection files
+        self.gasspy_projection_subdir = self.gasspy_subdir + "/projections"
+        if not self.gasspy_projection_subdir.endswith("/"):
+            self.gasspy_projection_subdir = self.gasspy_projection_subdir + "/"
 
-            self.traced_rays_h5file = h5py.File(tmp_path, "r")
-        else:
-            self.traced_rays_h5file = traced_rays
+        # Path to spectra files
+        self.gasspy_spectra_subdir = self.gasspy_subdir + "/spectra"
+        if not self.gasspy_spectra_subdir.endswith("/"):
+            self.gasspy_spectra_subdir = self.gasspy_spectra_subdir + "/"
 
+        # either h5file object of path to an hdf5 database containing the traced projection
+        self.traced_rays = traced_rays
+
+        # Where to save the spectra
         self.spec_save_name = spec_save_name
 
-        self.sim_reader = sim_reader
-        self.opc_per_NH = opc_per_NH
-
-        self.Nraster = Nraster
+        # Needs to be reconsidered
+        self.scale_opacity_by_density = scale_opacity_by_density
 
         # use torch tensors?
         self.accel = accel.lower()
 
-        self.energy_lims = energy_lims
+        # energy limits to only transfer part of the spectrum
+        self.energy_limits = check_parameter_in_config(gasspy_config, "energy_limits", energy_limits, None)
         self.raydump_dict = {}
 
-        self.liteVRAM = liteVRAM
+        self.GPU_memory = check_parameter_in_config(self.gasspy_config,"GPU_memory", GPU_memory, 8)*1024**3
+        self.CPU_memory = check_parameter_in_config(self.gasspy_config,"CPU_memory", CPU_memory, 8)*1024**3
+        self.target_segments_per_ray = check_parameter_in_config(self.gasspy_config, "target_segments_per_ray", target_segments_per_ray, None)   
 
-        self.Emask = Emask
-        self.energy = energy
-
-        self.cell_index_to_gasspydb = cell_index_to_gasspydb
-        self.traced_rays = traced_rays
-        self.config_yaml = config_yaml
-
-        self.h5database = h5database
-        self.em_field = em_field
-        self.op_field = op_field
-        self.doppler_shift = doppler_shift
-
-        self.GPU_memory = GPU_memory*1024**3
-        self.CPU_memory = CPU_memory*1024**3
-        self.target_segments_per_ray = target_segments_per_ray   
-        self.doppler_shift_est_bin_ratio = doppler_shift_est_bin_ratio
+        self.doppler_shift = check_parameter_in_config(self.gasspy_config, "doppler_shift", doppler_shift, False)
+        self.doppler_shift_est_bin_ratio = check_parameter_in_config(self.gasspy_config, "doppler_shift_est_bin_ratio", doppler_shift_est_bin_ratio, 10)
 
     def process_all(self,):
         for root_i in range(0, len(self.ancenstors)):
@@ -144,15 +121,13 @@ class Trace_processor():
 
     def open_spec_save_hdf5(self, init_size=0):
         assert isinstance(self.spec_save_name, str), "hdf5 spec save name is not a string...exiting" 
-        if not self.spec_save_name.endswith(".hdf5"):
-            self.spec_save_name += ".hdf5"
 
-        if Path(self.gasspy_spec_subdir).is_dir():
-            self.spec_outpath = self.gasspy_spec_subdir+self.spec_save_name
-        else:
-            self.spec_outpath = self.root_dir+self.gasspy_subdir+self.gasspy_spec_subdir+self.spec_save_name
+        # Ensure the spectra existst
+        if not os.path.exists(self.gasspy_spectra_subdir):
+            os.makedirs(self.gasspy_spectra_subdir)
 
-        self.spechdf5_out = h5py.File(self.spec_outpath, "w")
+        self.spectra_outpath = self.gasspy_spectra_subdir + self.spec_save_name
+        spechdf5_out = h5py.File(self.spectra_outpath, "w")
         self.N_spec_written = 0
 
         if init_size >=0:
@@ -160,56 +135,51 @@ class Trace_processor():
         else:
             init_size = self.numlib.int(self.global_rays.cevid[self.global_rays.cevid == -1].shape[0])
 
-        self.spechdf5_out.create_dataset("flux", (init_size, len(self.energy)), maxshape=(None,len(self.energy)), dtype = self.dtype)
-        self.spechdf5_out.create_dataset("xp", (init_size,), maxshape=(None,), dtype = ray_dtypes["xp"])
-        self.spechdf5_out.create_dataset("yp", (init_size,), maxshape=(None,), dtype = ray_dtypes["xp"])
-        self.spechdf5_out.create_dataset("ray_lrefine", (init_size,), dtype="int8", maxshape=(None,))
+        spechdf5_out.create_dataset("flux", (init_size, len(self.energy)), maxshape=(None,len(self.energy)), dtype = self.dtype)
+        spechdf5_out.create_dataset("xp", (init_size,), maxshape=(None,), dtype = ray_dtypes["xp"])
+        spechdf5_out.create_dataset("yp", (init_size,), maxshape=(None,), dtype = ray_dtypes["xp"])
+        spechdf5_out.create_dataset("ray_lrefine", (init_size,), dtype="int8", maxshape=(None,))
         if self.accel == "torch":
-            self.spechdf5_out.create_dataset("energy", data=self.energy.cpu().numpy())
-            self.spechdf5_out.create_dataset("delta_energy", data=self.delta_energy.cpu().numpy())
+            spechdf5_out.create_dataset("energy", data=self.energy.cpu().numpy())
+            spechdf5_out.create_dataset("delta_energy", data=self.delta_energy.cpu().numpy())
         else:
-            self.spechdf5_out.create_dataset("energy", data=self.energy.get())
-            self.spechdf5_out.create_dataset("delta_energy", data=self.delta_energy.get())            
+            spechdf5_out.create_dataset("energy", data=self.energy.get())
+            spechdf5_out.create_dataset("delta_energy", data=self.delta_energy.get())            
 
+        spechdf5_out.close()
     def write_spec_save_hdf5(self, new_data, grow=True):
         n_E, n_spec = new_data['flux'].shape
+        spechdf5_out = h5py.File(self.spectra_outpath, "r+")
+
         for key in new_data.keys():
             new_data_shape = new_data[key].shape
 
             if not grow:
                 if len(new_data_shape) == 1:
-                    self.spechdf5_out[key][self.N_spec_written:self.N_spec_written+n_spec] = new_data[key][:]
+                    spechdf5_out[key][self.N_spec_written:self.N_spec_written+n_spec] = new_data[key][:]
         
                 elif len(new_data_shape) == 2:
-                    self.spechdf5_out[key][self.N_spec_written:self.N_spec_written+n_spec,:] = new_data[key].T[:]
+                    spechdf5_out[key][self.N_spec_written:self.N_spec_written+n_spec,:] = new_data[key].T[:]
 
             else:
                 if len(new_data_shape) == 1:
-                    self.spechdf5_out[key].resize((self.spechdf5_out[key].shape[0] + n_spec), axis=0)
-                    self.spechdf5_out[key][-n_spec:] = new_data[key][:]
+                    spechdf5_out[key].resize((self.spechdf5_out[key].shape[0] + n_spec), axis=0)
+                    spechdf5_out[key][-n_spec:] = new_data[key][:]
         
                 elif len(new_data_shape) == 2:
-                    self.spechdf5_out[key].resize((self.spechdf5_out[key].shape[0] + n_spec), axis=0)
-                    self.spechdf5_out[key][-n_spec:,:] = new_data[key].T[:]
+                    spechdf5_out[key].resize((self.spechdf5_out[key].shape[0] + n_spec), axis=0)
+                    spechdf5_out[key][-n_spec:,:] = new_data[key].T[:]
 
         self.N_spec_written += n_spec
-
-    def close_spec_save_hdf5(self):
-        self.spechdf5_out.close()
+        spechdf5_out.close()
 
     def load_all(self):
-        self.load_config_yaml()
         print(" - Loading cell gasspy_indexes")
         self.load_cell_index_to_gasspydb()
         # Ensure the energy bins are loaded BEFORE the em and op tables to minimize memory used
         self.load_energy_limits()
-
-
         print(" - loading hdf5 database of models")
         self.load_database()
-        #self.load_saved3d()
-        print(" - loading global rays")
-        self.load_global_rays()
         print(" - loading velocity")
         self.load_velocity_data()
         print(" - loading density")
@@ -227,46 +197,37 @@ class Trace_processor():
         self.dtype = new_dtype
         self.torch_dtype = torch.as_tensor(np.array([],dtype=self.dtype)).dtype
 
-        self.em                         = self.em.astype(new_dtype)
-        self.op                         = self.op.astype(new_dtype)
-        self.raydump_dict["pathlength"] = self.raydump_dict["pathlength"].astype(new_dtype)
-        if self.opc_per_NH:
-            self.den = self.den.astype(new_dtype)
+        self.em                          = self.em.astype(new_dtype)
+        self.op                          = self.op.astype(new_dtype)
+        self.raydump_dict["pathlength"]  = self.raydump_dict["pathlength"].astype(new_dtype)
+        self.raydump_dict["ray_area"]    = self.raydump_dict["ray_area"].astype(new_dtype)
+        self.raydump_dict["solid_angle"] = self.raydump_dict["solid_angle"].astype(new_dtype)
+
+        if self.scale_opacity_by_density:
+            self.density = self.density.astype(new_dtype)
 
     def load_density_data(self):
-        self.den = self.sim_reader.get_field("nden")
+        self.density = self.sim_reader.get_field("density")
     def load_velocity_data(self):
         if self.doppler_shift:
-            self.vx = (self.sim_reader.get_field("vx")/3e10).astype(self.dtype)
-            self.vy = (self.sim_reader.get_field("vy")/3e10).astype(self.dtype)
-            self.vz = (self.sim_reader.get_field("vz")/3e10).astype(self.dtype)
+            self.velocity_x = (self.sim_reader.get_field("velocity_x")/3e10).astype(self.dtype)
+            self.velocity_y = (self.sim_reader.get_field("velocity_y")/3e10).astype(self.dtype)
+            self.velocity_z = (self.sim_reader.get_field("velocity_z")/3e10).astype(self.dtype)
 
-    def load_config_yaml(self):
-        if isinstance(self.config_yaml, str):
-            if self.config_yaml is None:
-                assert Path(self.root_dir+self.gasspy_subdir+"gasspy_config.yaml").is_file(), "Error: gasspy_config.yaml is not given and does not exists in simulation GASSPY directory"
-                self.config_yaml = self.root_dir+self.gasspy_subdir+"gasspy_config.yaml"
-                    
-            with open(r'%s'%(self.config_yaml)) as file:
-                # The FullLoader parameter handles the conversion from YAML
-                # scalar values to Python the dictionary format
-                self.config_yaml = yaml.load(file, Loader=yaml.FullLoader)
-        
-        self.sim_unit_length = self.config_yaml["sim_unit_length"]
 
     def load_energy_limits(self):
-        if self.energy_lims is not None:
-            if type(self.energy_lims) == str:
-                self.energy_lims = np.loadtxt(self.energy_lims)           
+        if self.energy_limits is not None:
+            if type(self.energy_limits) == str:
+                self.energy_limits = np.loadtxt(self.energy_limits)           
 
 
-    def sort_and_merge_energy_lims(self):
-        if self.energy_lims is None:
+    def sort_and_merge_energy_limits(self):
+        if self.energy_limits is None:
             return
         # Sort based of upper index
-        sorted_index = np.argsort(self.energy_lims[:,1])
-        Elower = self.energy_lims[sorted_index,0]
-        Eupper = self.energy_lims[sorted_index,1]
+        sorted_index = np.argsort(self.energy_limits[:,1])
+        Elower = self.energy_limits[sorted_index,0]
+        Eupper = self.energy_limits[sorted_index,1]
 
         # We need to merge all ranges that overlap
         # This is done through iteratation
@@ -303,7 +264,7 @@ class Trace_processor():
             Elower = np.array(Elower_new)[sorted_index]
             Eupper = Eupper[sorted_index]
 
-        self.energy_lims = np.array([Elower,Eupper]).T
+        self.energy_limits = np.array([Elower,Eupper]).T
                 
     def load_database(self):
         if self.h5database is None:
@@ -312,8 +273,8 @@ class Trace_processor():
         if isinstance(self.h5database, str):
             if Path(self.h5database).is_file():
                 tmp_path = self.h5database
-            elif Path(self.modeldir + self.h5database).is_file():
-                tmp_path = self.modeldir + self.h5database
+            elif Path(self.gasspy_modeldir + self.h5database).is_file():
+                tmp_path = self.gasspy_modeldir + self.h5database
             else:
                 sys.exit("Could not find path to Database %s"%(self.h5database))
             self.h5database = h5py.File(tmp_path, "r")
@@ -341,13 +302,13 @@ class Trace_processor():
             self.delta_energy = self.energy_upper - self.energy_lower
 
         Eidx_ranges = [[0,-1]]
-        if self.energy_lims is not None:
-            self.sort_and_merge_energy_lims()
+        if self.energy_limits is not None:
+            self.sort_and_merge_energy_limits()
             #Eidxs is all of the indexes
             #Eidx_ranges are the values used for slices in each range
             Eidxs = np.array([], dtype = int)
             Eidx_ranges = []
-            for elims in self.energy_lims:
+            for elims in self.energy_limits:
                 # Find the indexes in the array
                 Eidx = np.where((self.energy >= elims[0])*(self.energy<=elims[1]))[0]
                 Eidxs = np.append(Eidxs,Eidx)
@@ -375,40 +336,43 @@ class Trace_processor():
         for Eidx_range in Eidx_ranges:
             Eidx_start = Eidx_end
             Eidx_end = Eidx_start + Eidx_range[1]-Eidx_range[0]
-            self.em[Eidx_start:Eidx_end,:] = self.h5database[self.em_field][unique_gasspy_ids, Eidx_range[0]:Eidx_range[1]].astype(self.dtype).T
-            self.op[Eidx_start:Eidx_end,:] = self.h5database[self.op_field][unique_gasspy_ids, Eidx_range[0]:Eidx_range[1]].astype(self.dtype).T
+            self.em[Eidx_start:Eidx_end,:] = self.h5database["intensity"][unique_gasspy_ids, Eidx_range[0]:Eidx_range[1]].astype(self.dtype).T
+            self.op[Eidx_start:Eidx_end,:] = self.h5database["opacity"][unique_gasspy_ids, Eidx_range[0]:Eidx_range[1]].astype(self.dtype).T
         return    
 
 
     def load_cell_index_to_gasspydb(self):
-        if str == type(self.cell_index_to_gasspydb):
-            if Path(self.cell_index_to_gasspydb).is_file():
-                tmp_path = self.cell_index_to_gasspydb
-            else:
-                sys.exit("Could not find path to cell_gasspy_index: %s"%self.cell_index_to_gasspydb)
-
-            self.cell_index_to_gasspydb = np.load(tmp_path).astype(int)
-            print(self.cell_index_to_gasspydb)
-            # save only the inverse_indexes to cell_index_to_gasspydb
-
+        self.cell_index_to_gasspydb = self.sim_reader.load_new_field("cell_gasspy_ids")
         self.NSimCells = len(self.cell_index_to_gasspydb)
 
-    def load_global_rays(self):
-        self.global_rays = global_ray_class(on_cpu=self.liteVRAM)
-        self.global_rays.load_hdf5(self.traced_rays_h5file)
+    def load_traced_rays(self):
+        if Path(self.traced_rays).is_file():
+            tmp_path = self.traced_rays
+        elif Path(self.gasspy_projection_subdir+self.traced_rays).is_file():
+            tmp_path = self.gasspy_projection_subdir+self.traced_rays
+        else:
+            sys.exit("Could not find the traced rays file\n"+\
+            "Provided path: %s"%self.traced_rays+\
+            "Tried looking in \"./\" and %s\n"%(self.gasspy_projection_subdir)+\
+            "Aborting...")            
 
-        # Select the ancestral GIDs
+        traced_rays_h5file = h5py.File(tmp_path, "r")
+
+        # Load global rays
+        self.global_rays = global_ray_class(on_cpu=self.liteVRAM)
+        self.global_rays.load_hdf5(self.traced_rays)
+        # Select the ancestral global_rayids
         self.ancenstors = self.global_rays.global_rayid[self.numlib.where(self.global_rays.pevid == -1)]
         self.cevid = self.global_rays.get_field("cevid")
 
-    def load_traced_rays(self):
-        self.raydump_dict['segment_global_rayid'] = self.traced_rays_h5file['ray_segments']['global_rayid'][:]
-        self.raydump_dict["pathlength"] = self.traced_rays_h5file["ray_segments"]["pathlength"][:,:].astype(self.dtype)*self.dtype(self.sim_unit_length)
-        self.raydump_dict["ray_area"] = self.traced_rays_h5file["ray_segments"]["ray_area"][:,:]
-        self.raydump_dict["solid_angle"] = self.traced_rays_h5file["ray_segments"]["solid_angle"][:,:]
-        self.raydump_dict["cell_index"] = self.traced_rays_h5file["ray_segments"]["cell_index"][:,:]
+        # Load up the segments
+        self.raydump_dict['segment_global_rayid'] = traced_rays_h5file['ray_segments']['global_rayid'][:]
+        self.raydump_dict["pathlength"] = traced_rays_h5file["ray_segments"]["pathlength"][:,:].astype(self.dtype)*self.dtype(self.sim_unit_length)
+        self.raydump_dict["ray_area"] = traced_rays_h5file["ray_segments"]["ray_area"][:,:]
+        self.raydump_dict["solid_angle"] = traced_rays_h5file["ray_segments"]["solid_angle"][:,:]
+        self.raydump_dict["cell_index"] = traced_rays_h5file["ray_segments"]["cell_index"][:,:]
 
-        self.raydump_dict["splitEvents"] = self.traced_rays_h5file["splitEvents"][:,:]
+        self.raydump_dict["splitEvents"] = traced_rays_h5file["splitEvents"][:,:]
  
         maxGID = self.numlib.int(self.global_rays.global_rayid.max())
 
@@ -426,10 +390,10 @@ class Trace_processor():
         self.raydump_dict["Nsegs"][unique_gid] = Nsegs.astype(np.int64)
 
         self.raydump_dict['NcellPerRaySeg'] = self.raydump_dict["pathlength"].shape[1]
-        self.family_tree = {}
         self.max_level = 0
         self.create_split_event_dict()
         self.set_ray_to_segment_memory_ratio()
+
 
     def set_ray_to_segment_memory_ratio(self):
         # Get the size of a spectra
@@ -489,8 +453,8 @@ class Trace_processor():
 
         self.raydump_dict["ray_index0"] = np.append(self.raydump_dict["ray_index0"],[-1])
 
-        if self.opc_per_NH:
-            self.den = np.append(self.den, np.array([0], dtype = self.dtype))
+        if self.scale_opacity_by_density:
+            self.density = np.append(self.density, np.array([0], dtype = self.dtype))
 
     def move_to_GPU(self):
         if not self.liteVRAM:
@@ -501,9 +465,9 @@ class Trace_processor():
             self.op = cupy.asarray(self.op, dtype=self.dtype)
             self.den = cupy.asarray(self.den, dtype=self.dtype)
             if self.doppler_shift:
-                self.vx = cupy.asarray(self.velx, dtype= self.dtype)
-                self.vy = cupy.asarray(self.vely, dtype= self.dtype)
-                self.vz = cupy.asarray(self.velz, dtype= self.dtype)
+                self.velocity_x = cupy.asarray(self.velocity_x, dtype= self.dtype)
+                self.velocity_y = cupy.asarray(self.velocity_y, dtype= self.dtype)
+                self.velocity_z = cupy.asarray(self.velocity_z, dtype= self.dtype)
 
         # Always keep indexes on GPU
         self.cell_index_to_gasspydb = cupy.asarray(self.cell_index_to_gasspydb)
@@ -881,11 +845,11 @@ class Trace_processor():
         raydir_y = self.global_rays.get_field("raydir_y", index = segment_global_rayids).astype(self.dtype)
         raydir_z = self.global_rays.get_field("raydir_z", index = segment_global_rayids).astype(self.dtype)
         
-        cell_velx = self.vx[cell_indexes]
-        cell_vely = self.vy[cell_indexes]
-        cell_velz = self.vz[cell_indexes]
+        cell_velocity_x = self.velocity_x[cell_indexes]
+        cell_velocity_y = self.velocity_y[cell_indexes]
+        cell_velocity_z = self.velocity_z[cell_indexes]
 
-        los_velocity = raydir_x[:, None]*cell_velx + raydir_y[:, None]*cell_vely + raydir_z[:, None]*cell_velz
+        los_velocity = raydir_x[:, None]*cell_velocity_x + raydir_y[:, None]*cell_velocity_y + raydir_z[:, None]*cell_velocity_z
         if self.accel == "torch":
             return self.__velocity_shift_torch__(torch.as_tensor(los_velocity, device=cuda_device), emissivity, opacity, cuda_device)
         else :
@@ -990,8 +954,8 @@ class Trace_processor():
             emissivity, opacity = self.velocity_shift(segment_global_rayids, cell_indexes, emissivity, opacity, cuda_device)
 
         # if the opacity is given as a function of number density, scale it
-        if self.opc_per_NH:
-            density = torch.as_tensor(self.den.take(cell_indexes), device=cuda_device)
+        if self.scale_opacity_by_density:
+            density = torch.as_tensor(self.density.take(cell_indexes), device=cuda_device)
             torch.mul(density, opacity, out = opacity)
 
         # Take from opacity to attenuation
