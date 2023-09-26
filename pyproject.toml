@@ -27,7 +27,10 @@ dependencies = [
     "cupy",
     "torch",
     "pandas",
-    "astropy"
+    "astropy",
+    "mpi4py",
+    "psutil",
+    "h5py"
 ]
 [project.urls]
 "Homepage" = "https://github.com/EricPell/gasspy/"
