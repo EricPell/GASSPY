@@ -7,6 +7,8 @@
             to run each model and save the resulting intensity and opacity
     USAGE:
         See test example in __name__ == "__main__"
+
+    NOTE: DEPRICATED
 """
 
 
