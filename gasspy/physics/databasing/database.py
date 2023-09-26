@@ -924,13 +924,13 @@ class GasspyDatabase:
         for sim_reader in self.sim_readers:
             self.add_cells(sim_reader)
         
-        # Set new gasspy_ids
-        mpi_print("\tDetermening new unique models")
-        self.tree.set_unique_gasspy_models()
-
         # set new neighbors
         mpi_print("\tSetting neighbors")
-        self.tree.set_neighbors()      
+        self.tree.set_neighbors()    
+
+        # Set new gasspy_ids
+        mpi_print("\tDetermening new unique models")
+        self.tree.set_unique_gasspy_models()  
 
 
         self.save_database()
@@ -1216,7 +1216,7 @@ if __name__ == "__main__":
         shutil.rmtree("test_database")
 
     os.makedirs("test_database")
-    
+    #"""
     # First two in one go
     database_creator = GasspyDatabase(gasspy_config)
     database_creator.add_snapshot(snapshot1)
@@ -1232,6 +1232,7 @@ if __name__ == "__main__":
     database_creator.finalize()
     plot(database_creator, "test_database/test_database.hdf5", [snapshot1,snapshot2])
     del database_creator
+    #"""
     # Next try to load and append 1 more snapshot that covers most of everything
     var1       = np.random.rand(N_cells)
     var2       = np.random.rand(N_cells)

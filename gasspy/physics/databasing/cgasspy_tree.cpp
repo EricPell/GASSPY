@@ -54,13 +54,13 @@ class ModelNode{
         int8_t has_neighbors;
         int8_t has_converged;
 
-        ModelNode* *child_nodes;
-        ModelNode* *neighbor_nodes;
+        int *child_node_ids;
+        int *neighbor_node_ids;
 
         // Node identification and comparisons
-        ModelNode* get_node(double* point, int converged_only);
-        ModelNode* find_node(double* point);
-        ModelNode* find_node(double* point, int16_t *node_lrefine);
+        int get_node(double* point, int converged_only);
+        int find_node(double* point);
+        int find_node(double* point, int16_t *node_lrefine);
         
         int nodes_identical(ModelNode* other_node);
         int nodes_identical(double *model_data, int16_t *node_lrefine);
@@ -88,13 +88,13 @@ class ModelNode{
             this->is_required = 0;
             this->has_converged = 0;
 
-            this->child_nodes = new ModelNode*[3];
+            this->child_node_ids = new int[3];
             for(int ichild = 0; ichild < 3; ichild++){
-                this->child_nodes[ichild] = NULL;
+                this->child_node_ids[ichild] = -1;
             }
-            this->neighbor_nodes = new ModelNode*[(int)pow(3,n_refinement_fields)];
+            this->neighbor_node_ids = new int[(int)pow(3,n_refinement_fields)];
             for(int ineigh = 0; ineigh < (int) pow(3,n_refinement_fields); ineigh++){
-                this->neighbor_nodes[ineigh] = NULL;
+                this->neighbor_node_ids[ineigh] = -1;
             }
         }
 
@@ -105,8 +105,103 @@ class ModelNode{
 };
 
 
+struct listnode{
+    ModelNode node;
+    listnode* next;
+    listnode* previous;
+    int inode;
+};
 
-ModelNode* ModelNode::get_node(double* point, int converged_only = 1){ 
+class NodeList {
+    private:
+        listnode *head, *tail;
+        int list_has_changed;
+    public:
+        int nnodes;
+        NodeList(){
+            this->head = NULL;
+            //this->tail = NULL;
+            this->nnodes = 0;
+            list_has_changed = 0;
+        }
+
+
+        listnode* get_head(){
+            return this->head;
+        }
+
+        listnode* get_tail(){
+            return this->tail;
+        }
+
+        ModelNode* add_node(double* coords, int16_t *node_lrefine){
+            listnode *new_entry = new listnode;
+            new_entry->node = ModelNode(coords, node_lrefine);
+            new_entry->next = NULL;
+            new_entry->inode = this->nnodes;
+            new_entry->node.node_id = this->nnodes;    
+            if (this->head == NULL){
+                new_entry->previous = NULL;
+                this->head = new_entry;
+                this->tail = new_entry;
+            } else {
+                new_entry->previous = this->tail;
+                this->tail->next = new_entry;
+                this->tail = this->tail->next;
+            }
+            this->nnodes += 1;
+            return &(this->tail->node);
+        }
+
+        ModelNode* get_node(int node_id){
+            int current_node_id;
+            listnode* current_node = head;
+            for(current_node_id = 0; current_node_id < node_id; current_node_id++){
+                current_node = current_node->next;
+            }
+            return &current_node->node;
+        }
+
+        void delete_node(int node_id){
+            // find the node that we want to delete
+            int current_node_id;
+            listnode* current_node = head;
+            for(current_node_id = 0; current_node_id < node_id; current_node_id++){
+                current_node = current_node->next;
+            }
+
+            // make sure heads and tails of the list are still accurate
+            if(node_id == 0){
+                this->head = current_node->next;
+            }
+            if(node_id == this->nnodes-1){
+                this->tail = current_node->previous;
+            }
+
+            // drops the reference for the node in the linked list
+            current_node->previous = current_node->next;
+            listnode* deleted_node = current_node;
+            delete deleted_node;
+            deleted_node = NULL;
+
+            // updates the ids of the nodes that were after the deleted node in the list
+            current_node_id = node_id;
+            current_node = current_node->next;
+            while(current_node!=NULL){
+                current_node->node.node_id = current_node_id;
+                current_node = current_node->next;
+                current_node_id+=1;            
+            }  
+            this->nnodes = current_node_id;
+        }
+
+
+};
+
+vector<ModelNode> all_nodes;
+
+
+int ModelNode::get_node(double* point, int converged_only = 1){ 
     int ifield;
     int child_index = 0;
 
@@ -123,7 +218,7 @@ ModelNode* ModelNode::get_node(double* point, int converged_only = 1){
 
         // sum_{n->inf}1/2^n = 1, so nodes at maximum one delta away away
         if (fabs(point_field_value - node_field_value) > node_field_delta){
-            return NULL;
+            return -1;
         }
         if((this->is_leaf == 0) && (ifield == this->split_field)){
             if( (point_field_value - node_field_value) < -0.25*node_field_delta){
@@ -138,14 +233,14 @@ ModelNode* ModelNode::get_node(double* point, int converged_only = 1){
     }
     // if we get here then the point is in this node. If we're a leaf, or the wanted child does not exist return our 
     // node_id, otherwise pass along to the corresponding child
-    if((this->is_leaf == 1 ) || ((this->has_converged == 1) && (converged_only==1)) || (this->child_nodes[child_index] == NULL)){
-        return this;
+    if((this->is_leaf == 1 ) || ((this->has_converged == 1) && (converged_only==1)) || (this->child_node_ids[child_index] == -1)){
+        return this->node_id;
     } else {
-        return this->child_nodes[child_index]->get_node(point);
+        return all_nodes.at(this->child_node_ids[child_index]).get_node(point);
     }
 }
 
-ModelNode* ModelNode::find_node(double* point){ 
+int ModelNode::find_node(double* point){ 
     int ifield;
     int look_at_child[3];
     if(this->is_leaf == 0 && this->split_field == -1){
@@ -167,10 +262,10 @@ ModelNode* ModelNode::find_node(double* point){
         node_field_delta  = this->node_delta[ifield];
         node_field_value  = this->model_data[ifield];
         if (fabs(point_field_value - node_field_value) - 1e-7*node_field_delta > node_field_delta){
-            return NULL;
+            return -1;
         }
 
-        if((this->child_nodes[0] != NULL) && (ifield == this->split_field)){
+        if((this->child_node_ids[0] != NULL) && (ifield == this->split_field)){
             if( (point_field_value - node_field_value) - 1e-7*node_field_delta <= -0.25*node_field_delta){
                 look_at_child[0] = 1;
             } 
@@ -186,30 +281,30 @@ ModelNode* ModelNode::find_node(double* point){
 
     //Check if this node matches the data, otherwise look at children
     if(this->nodes_same_data(point)==1){
-        return this;
+        return this->node_id;
     }
 
     // if we get here then the point is in this node. If we're a leaf and lrefines match, return our 
     // node_id, otherwise pass along to the corresponding child. If the child does not exists, them return false
-    if(this->child_nodes[0]==NULL){
+    if(this->child_node_ids[0]==-1){
         // this is a leaf but did not match, therefore not found
-        return NULL;
+        return -1;
     } else {
         // If the desired node is within the node boundaries, but is not this node, check children
         for(int ichild = 0; ichild < 3; ichild++){
-            if((this->child_nodes[ichild] != NULL) && (look_at_child[ichild]==1)){
-                ModelNode* found_node = this->child_nodes[ichild]->find_node(point);
-                if(found_node != NULL){
+            if((this->child_node_ids[ichild] != -1) && (look_at_child[ichild]==1)){
+                int found_node = all_nodes.at(this->child_node_ids[ichild]).find_node(point);
+                if(found_node != -1){
                     return found_node;
                 }
             }
         }
         // none of the children found something, just return false
-        return NULL;
+        return -1;
     }
 }
 
-ModelNode* ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){    
+int ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){    
     int ifield;
     int look_at_children = 0;
     int look_at_child[3];
@@ -227,7 +322,7 @@ ModelNode* ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){
     for(ifield = 0; ifield < n_refinement_fields; ifield++){
         if (this->node_lrefine[ifield] > wanted_node_lrefine[ifield]){
             // If we have refined to much, the requested node does not exist
-            return NULL;
+            return -1;
         }
 
         point_field_value = point[ifield];
@@ -235,12 +330,12 @@ ModelNode* ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){
         node_field_delta  = this->node_delta[ifield];
         node_field_value  = this->model_data[ifield];
         if (fabs(point_field_value - node_field_value)-1e-7*point_field_delta > 0.5*node_field_delta){
-            return NULL;
+            return -1;
         }
         if(this->node_lrefine[ifield]<wanted_node_lrefine[ifield]){
             look_at_children = 1;
         }
-        if((this->child_nodes[0] != NULL) && (ifield == this->split_field) && (this->node_lrefine[ifield]<wanted_node_lrefine[ifield])){
+        if((this->child_node_ids[0] != NULL) && (ifield == this->split_field) && (this->node_lrefine[ifield]<wanted_node_lrefine[ifield])){
             if( (point_field_value - node_field_value) - 1e-7*point_field_delta <= -0.25*node_field_delta){
                 look_at_child[0] = 1;
             } 
@@ -256,39 +351,39 @@ ModelNode* ModelNode::find_node(double* point, int16_t *wanted_node_lrefine){
    
     // if we get here then the point is in this node. If we're a leaf and lrefines match, return our 
     // node_id, otherwise pass along to the corresponding child. If the child does not exists, them return false
-    if(this->child_nodes[0] == NULL){
+    if(this->child_node_ids[0] == -1){
         // We want higher lrefines, but this is a leaf, the node does not exist
         if(look_at_children == 1){
-            return NULL;
+            return -1;
         }
 
         // otherwise check if identical
         if(this->nodes_identical(point, wanted_node_lrefine)==1){
-            return this;
+            return this->node_id;
         } 
 
-        return NULL;
+        return -1;
 
     } else {
         // We are at the corrrect refinement level, check here
         if(look_at_children == 0){
             if(this->nodes_identical(point, wanted_node_lrefine)==1){
-                return this;
+                return this->node_id;
             }
-            return NULL;
+            return -1;
         }
 
         // otherwise check children
         for(int ichild = 0; ichild < 3; ichild++){
-            if((this->child_nodes[ichild] != NULL) && (look_at_child[ichild]==1)){
-                ModelNode* found_node = this->child_nodes[ichild]->find_node(point, wanted_node_lrefine);
-                if(found_node != NULL){
+            if((this->child_node_ids[ichild] >= 0) && (look_at_child[ichild]==1)){
+                int found_node = all_nodes.at(this->child_node_ids[ichild]).find_node(point, wanted_node_lrefine);
+                if(found_node >= 0 ){
                     return found_node;
                 }
             }
         }
         // none of the children found something, just return false
-        return NULL;
+        return -1;
     }
 }
 
@@ -375,20 +470,12 @@ void ModelNode::debug_node(){
 
     py::print("Child node ids:");
     for(int ichild = 0; ichild<3; ichild++){
-        if(this->child_nodes[ichild]!=NULL){
-            py::print("\t",this->child_nodes[ichild]->node_id);
-        } else {
-            py::print("\t",-1);
-        }
+        py::print("\t",this->child_node_ids[ichild]);
     }
 
     py::print("Neighbor node ids:");
     for(int ineigh = 0; ineigh < pow(3,n_refinement_fields); ineigh++){
-        if(this->neighbor_nodes[ineigh]!=NULL){
-            py::print("\t",this->neighbor_nodes[ineigh]->node_id);
-        } else {
-            py::print("\t",-1);
-        }
+        py::print("\t",this->neighbor_node_ids[ineigh]);
     }
     py::print("---------------------------");
 }
@@ -428,7 +515,7 @@ void ModelNode::debug_point(double* point){
     }
     // if we get here then the point is in this node. If we're a leaf, or the wanted child does not exist return our 
     // node_id, otherwise pass along to the corresponding child
-    if((this->is_leaf == 1 ) || (this->child_nodes[child_index] == NULL)){
+    if((this->is_leaf == 1 ) || (this->child_node_ids[child_index] == -1)){
         py::print("Point successful for node ", this->node_id);
     } else {
         if(child_index==-1){
@@ -436,8 +523,8 @@ void ModelNode::debug_point(double* point){
             py::print("?????????????");
             return;
         }
-        py::print("\tEntering child ", child_index, " corresponding to node ", this->child_nodes[child_index]->node_id);
-        this->child_nodes[child_index]->debug_point(point);
+        py::print("\tEntering child ", child_index, " corresponding to node ", this->child_node_ids[child_index]);
+        all_nodes.at(child_node_ids[child_index]).debug_point(point);
     }
 }
 
@@ -470,110 +557,16 @@ int __shift_recursive__(int ishift, int i_refinement_field, vector<vector<double
 }
 
 
-struct listnode{
-    ModelNode node;
-    listnode* next;
-    listnode* previous;
-    int inode;
-};
-
-class NodeList {
-    private:
-        listnode *head, *tail;
-        int list_has_changed;
-    public:
-        int nnodes;
-        NodeList(){
-            this->head = NULL;
-            this->tail = NULL;
-            this->nnodes = 0;
-            list_has_changed = 0;
-        }
-
-
-        listnode* get_head(){
-            return this->head;
-        }
-
-        listnode* get_tail(){
-            return this->tail;
-        }
-
-        ModelNode* add_node(double* coords, int16_t *node_lrefine){
-            listnode *new_entry = new listnode;
-            new_entry->node = ModelNode(coords, node_lrefine);
-            new_entry->next = NULL;
-            new_entry->inode = this->nnodes;
-            new_entry->node.node_id = this->nnodes;    
-            if (this->head == NULL){
-                new_entry->previous = NULL;
-                this->head = new_entry;
-                this->tail = new_entry;
-            } else {
-                new_entry->previous = this->tail;
-                this->tail->next = new_entry;
-                this->tail = this->tail->next;
-            }
-            this->nnodes += 1;
-            return &(this->tail->node);
-        }
-
-        ModelNode* get_node(int node_id){
-            int current_node_id;
-            listnode* current_node = head;
-            for(current_node_id = 0; current_node_id < node_id; current_node_id++){
-                current_node = current_node->next;
-            }
-            return &current_node->node;
-        }
-
-        void delete_node(int node_id){
-            // find the node that we want to delete
-            int current_node_id;
-            listnode* current_node = head;
-            for(current_node_id = 0; current_node_id < node_id; current_node_id++){
-                current_node = current_node->next;
-            }
-
-            // make sure heads and tails of the list are still accurate
-            if(node_id == 0){
-                this->head = current_node->next;
-            }
-            if(node_id == this->nnodes-1){
-                this->tail = current_node->previous;
-            }
-
-            // drops the reference for the node in the linked list
-            current_node->previous = current_node->next;
-            listnode* deleted_node = current_node;
-            delete deleted_node;
-            deleted_node = NULL;
-
-            // updates the ids of the nodes that were after the deleted node in the list
-            current_node_id = node_id;
-            current_node = current_node->next;
-            while(current_node!=NULL){
-                current_node->node.node_id = current_node_id;
-                current_node = current_node->next;
-                current_node_id+=1;            
-            }  
-            this->nnodes = current_node_id;
-        }
-
-
-};
-
 
 class GasspyTree {
     private:
-        std::vector<ModelNode*> root_nodes;
+        std::vector<int> root_node_ids;
         std::vector<std::vector<double>> root_nodes_discrete_data;
         std::vector<std::vector<double>> gasspy_model_data; 
         int16_t *fields_lrefine_min;
         int16_t *fields_lrefine_max;
         double *fields_domain_limits;
     public:
-        NodeList all_nodes;
         ModelNode* find_node(double *coords, int16_t *node_lrefine, int root_id);
         ModelNode* find_node(double *coords, int root_id);
         ModelNode* get_node(double *coords, int root_id);
@@ -587,7 +580,6 @@ class GasspyTree {
         void set_unique_gasspy_model(ModelNode* current_node, vector<double> discrete_data);
 
         GasspyTree(int _n_database_fields, int _n_refinement_fields, int *_refinement_field_index, int _n_discrete_fields, int *_discrete_field_index, double *_fields_domain_limits, int16_t *_lrefine_limits){
-            this->all_nodes = NodeList();
             n_database_fields = _n_database_fields;
             n_refinement_fields = _n_refinement_fields;
             n_discrete_fields = _n_discrete_fields;
@@ -616,7 +608,6 @@ class GasspyTree {
             }       
         }
         GasspyTree(int _n_database_fields, int _n_refinement_fields, py::array_t<int> _refinement_field_index, int _n_discrete_fields, py::array_t<int> _discrete_field_index, py::array_t<double> _fields_domain_limits, py::array_t<int16_t> _lrefine_limits){
-            this->all_nodes = NodeList();
             n_database_fields = _n_database_fields;
             n_refinement_fields = _n_refinement_fields;
             n_discrete_fields = _n_discrete_fields;
@@ -717,11 +708,13 @@ int GasspyTree::find_root_node(double *discrete_data){
         node_lrefine[ifield] = 0;
         model_data[ifield] = 0.5;
     }
-    ModelNode* root_node = this->all_nodes.add_node(model_data, node_lrefine);
+
+    all_nodes.push_back(ModelNode(model_data, node_lrefine));
+    ModelNode* root_node = &all_nodes.back();
+    root_node->node_id = all_nodes.size() - 1;
     root_node->is_root = 1;
-    root_node->root_id = this->root_nodes.size();
-    
-    this->root_nodes.push_back(root_node);
+    root_node->root_id = this->root_node_ids.size();
+    this->root_node_ids.push_back(root_node->node_id);
     std::vector<double> root_discrete_data;
     std::copy(&discrete_data[0], &discrete_data[sizeof(discrete_data)], std::back_inserter(root_discrete_data));
     this->root_nodes_discrete_data.push_back(root_discrete_data);
@@ -730,8 +723,11 @@ int GasspyTree::find_root_node(double *discrete_data){
 
 ModelNode* GasspyTree::get_node(double *point, int root_id){
     // find initial node in the tree
-    ModelNode* found_node = this->root_nodes[root_id]->get_node(point);
-
+    int found_node_id = all_nodes.at(this->root_node_ids.at(root_id)).get_node(point);
+    if(found_node_id < 0){
+        throw GasspyException("ERROR: [GasspyTree::get_node] Could not find node containing point");
+    }
+    ModelNode* found_node = &all_nodes.at(found_node_id);
     // Make sure that the node is at a higher refinement level than minimum
     int16_t* node_lrefine = new int16_t[n_refinement_fields];
     int16_t* next_node_lrefine = new int16_t[n_refinement_fields];
@@ -745,8 +741,9 @@ ModelNode* GasspyTree::get_node(double *point, int root_id){
     }
     // otherwise refine until the found node is at a minimum
     while(refine == 1){
+        int previous_node_id = found_node->node_id;
         this->refine_node(next_node_lrefine, found_node);
-        found_node = found_node->get_node(point);
+        found_node = &all_nodes.at(all_nodes.at(previous_node_id).get_node(point));
         refine = 0;
         for(int ifield = 0; ifield < n_refinement_fields; ifield++){
             node_lrefine[ifield] = found_node->node_lrefine[ifield];
@@ -761,22 +758,28 @@ ModelNode* GasspyTree::get_node(double *point, int root_id){
 
 
 ModelNode* GasspyTree::find_node(double *coords, int root_id){
-    ModelNode* found_node = this->root_nodes[root_id]->find_node(coords);
-    return found_node;
+    int node_id = all_nodes.at(this->root_node_ids[root_id]).find_node(coords);
+    if(node_id >= 0){
+        return &all_nodes.at(node_id);
+    }
+    return NULL;
 }
 
 ModelNode* GasspyTree::find_node(double *coords, int16_t *node_lrefine, int root_id){
-    ModelNode* found_node = this->root_nodes[root_id]->find_node(coords, node_lrefine);
-    return found_node;
+    int node_id = all_nodes.at(this->root_node_ids[root_id]).find_node(coords, node_lrefine);
+    if(node_id >= 0){
+        return &all_nodes.at(node_id);
+    }
+    return NULL;
 }
 
 ModelNode* GasspyTree::add_node(double *coords, int16_t *wanted_node_lrefine, int root_id, int is_neighbor = 0){
-    ModelNode* found_node = this->root_nodes[root_id]->get_node(coords);
+    ModelNode* found_node = &all_nodes.at(all_nodes.at(this->root_node_ids[root_id]).get_node(coords));
     if(found_node==NULL){
         throw GasspyException("ERROR: [GasspyTree::add_node] found node was NULL (not found)");
     }
     ModelNode* parent_node = found_node;
-    ModelNode* original_node = found_node;
+    int original_node_id = found_node->node_id;
     // Make sure that the node is at a higher refinement level than minimum
     int16_t* node_lrefine = new int16_t[n_refinement_fields];
     int16_t* next_node_lrefine = new int16_t[n_refinement_fields];
@@ -802,13 +805,15 @@ ModelNode* GasspyTree::add_node(double *coords, int16_t *wanted_node_lrefine, in
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
         }
-
+        int parent_node_id = found_node->node_id;
         this->refine_node(next_node_lrefine, found_node);
-        parent_node = found_node;
-        found_node = parent_node->get_node(coords,0);
-        if(found_node==NULL){
-            throw GasspyException("ERROR: [GasspyTree::add_node] found node was NULL (not found) after refining");
+        parent_node = &all_nodes.at(parent_node_id);
+        int found_node_id = parent_node->get_node(coords,0);
+        if(found_node_id==-1){
+            throw GasspyException("ERROR: [GasspyTree::add_node] Could not find node after refining");
         }
+        found_node = &all_nodes.at(found_node_id);
+
         refine = 0;
         for(int ifield = 0; ifield < n_refinement_fields; ifield++){
             node_lrefine[ifield] = found_node->node_lrefine[ifield];
@@ -824,7 +829,7 @@ ModelNode* GasspyTree::add_node(double *coords, int16_t *wanted_node_lrefine, in
         }
     }
     if(is_neighbor==1){
-        original_node->is_leaf = 1;
+        all_nodes.at(original_node_id).is_leaf = 1;
     }
     if(found_node->nodes_identical(coords, wanted_node_lrefine) == 0){
         throw GasspyException("Error: add_node did not add an identical node to the one specified");
@@ -843,43 +848,25 @@ int GasspyTree::add_point(double *point, int root_id){
 }
 
 void GasspyTree::set_neighbors(){ 
-    int inode;
-    listnode* current_node = this->all_nodes.get_head();
+    int node_id;
+    ModelNode* current_node;
     finding_shift = 0;
     finding_node = 0;
     creating_node = 0;
     matching = 0;
     non_matching = 0;
     int counter = 0;
-    for(inode = 0; inode < this->all_nodes.nnodes; inode++){
+    for(node_id = 0; node_id < all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
         if(PyErr_CheckSignals()!=0){ // make ctrl-c able. This checks if error signals has been passed to python and exits if so
             throw py::error_already_set();
         }
-        if((current_node->node.is_required==1)&&(current_node->node.has_neighbors!=1)){
-            this->find_node_neighbors(&current_node->node);
-            /*
-            if(counter%10 == 0){
-                py::print("inode ", inode, "nnodes", this->all_nodes.nnodes, py::arg("flush") = true);
-                py::print("finding_shift", finding_shift, " mu",py::arg("flush") = true);
-                py::print("finding_node ", finding_node, " mu",py::arg("flush") = true);
-                py::print("\tnon_matching", non_matching, " mu",py::arg("flush") = true);
-                py::print("\tmatching", matching, " mu",py::arg("flush") = true);
-                py::print("creating_node", creating_node, " mu",py::arg("flush") = true);
-            
-            }
-            */
+        if((current_node->is_required==1)&&(current_node->has_neighbors!=1)){
+            this->find_node_neighbors(current_node);
             counter += 1;
 
         }
-        current_node = current_node->next;
-
     }
-    /*
-    py::print("nnodes", this->all_nodes.nnodes, py::arg("flush") = true);
-    py::print("finding_shift", finding_shift, " mu",py::arg("flush") = true);
-    py::print("finding_node ", finding_node, " mu",py::arg("flush") = true);
-    py::print("creating_node", creating_node, " mu",py::arg("flush") = true);
-    */
 }
 
 
@@ -912,6 +899,7 @@ int GasspyTree::find_gasspy_model(vector<double> current_model){
 
 
 void GasspyTree::set_unique_gasspy_model(ModelNode *current_node, vector<double> discrete_data){
+    ModelNode* neighbor_node;
     // If this node is required, find gasspy models for all its neighbors (includes itself) unless they already have one
     if((current_node->is_required == 1)){
         vector<double> current_model(n_database_fields,0);
@@ -923,26 +911,26 @@ void GasspyTree::set_unique_gasspy_model(ModelNode *current_node, vector<double>
         }
 
         for(int ineigh = 0; ineigh < pow(3,n_refinement_fields); ineigh++){
-            if(current_node->neighbor_nodes[ineigh] == NULL){
+            if(current_node->neighbor_node_ids[ineigh] == -1){
                 std::ostringstream estr;
                 estr << "Error: Neighbor node" << ineigh << "of required node" << current_node->node_id << "not set";
                 std::string emsg = estr.str();
                 throw GasspyException(emsg.c_str());
             }
             // If we already have a model, no need to check
-            if(current_node->neighbor_nodes[ineigh]->gasspy_id >=0){
-                gasspy_id = current_node->neighbor_nodes[ineigh]->gasspy_id;
+            neighbor_node = &all_nodes.at(current_node->neighbor_node_ids[ineigh]);
+            if(neighbor_node->gasspy_id>=0){
+                gasspy_id = neighbor_node->gasspy_id;
                 goto model_found;
             }
 
             // set refinement fields
             for(int ifield = 0; ifield < n_refinement_fields; ifield++){
-                current_model[refinement_field_index[ifield]] = current_node->neighbor_nodes[ineigh]->model_data[ifield];
+                current_model[refinement_field_index[ifield]] = neighbor_node->model_data[ifield];
             }
 
             // check if we already have a model matching the current
             gasspy_id = this->find_gasspy_model(current_model);
-
             // otherwise create one
             if(gasspy_id < 0){
                 gasspy_id = this->gasspy_model_data.size();
@@ -956,28 +944,28 @@ void GasspyTree::set_unique_gasspy_model(ModelNode *current_node, vector<double>
             }
 
             // set gasspy_id of node
-            current_node->neighbor_nodes[ineigh]->gasspy_id = gasspy_id;
+            neighbor_node->gasspy_id = gasspy_id;
 
             // by construction, center child will have the same model, so might as well set it
-            if(current_node->child_nodes[1]!=NULL){
-                current_node->child_nodes[1]->gasspy_id=gasspy_id;
+            if(current_node->child_node_ids[1]>=0){
+                all_nodes.at(current_node->child_node_ids[1]).gasspy_id=gasspy_id;
             }
         }
     }
     // Check its children next
     int all_null = 0;
     for(int ichild = 0; ichild < 3; ichild++){
-        if(current_node->child_nodes[ichild] != NULL){
+        if(current_node->child_node_ids[ichild] >= 0){
             all_null = 1;
-            this->set_unique_gasspy_model(current_node->child_nodes[ichild], discrete_data);
+            this->set_unique_gasspy_model(&all_nodes.at(current_node->child_node_ids[ichild]), discrete_data);
         }
     }
 }
 
 void GasspyTree::set_unique_gasspy_models(){
-    for(size_t iroot = 0; iroot < this->root_nodes.size(); iroot++){
+    for(size_t iroot = 0; iroot < this->root_node_ids.size(); iroot++){
 
-        this->set_unique_gasspy_model(this->root_nodes[iroot],this->root_nodes_discrete_data[iroot]);
+        this->set_unique_gasspy_model(&all_nodes.at(this->root_node_ids[iroot]),this->root_nodes_discrete_data[iroot]);
     }
     return;
 }
@@ -990,15 +978,22 @@ void GasspyTree::refine_node(int16_t* new_node_lrefine, ModelNode* current_node)
     int16_t *child_node_lrefine;
     double node_field_delta;
     double model_field_data;
-    if(current_node->child_nodes[0] != NULL){
+    
+    // Save id
+    int current_node_id = current_node->node_id;
+    if(current_node->child_node_ids[0] != -1){
         current_node->is_leaf = 0;
         current_node->is_required = 0;
         // if this node has already split, just call for its children
         for(ishift = 0; ishift < 3; ishift ++){
-            this->refine_node(new_node_lrefine, current_node->child_nodes[ishift]);
+            this->refine_node(new_node_lrefine, &all_nodes.at(current_node->child_node_ids[ishift]));
+
+            // Since the vector may have been resized, we need to find the current node again
+            current_node = &all_nodes.at(current_node_id);
         }
         return;
     }
+
     current_node->split_field = -1;
     // Determine which refinement level we need to split. If multiple start with first
     for(ifield = 0; ifield < n_refinement_fields; ifield++){
@@ -1032,6 +1027,7 @@ void GasspyTree::refine_node(int16_t* new_node_lrefine, ModelNode* current_node)
     // Shift the coordinate and split into three new nodes
     model_field_data = current_node->model_data[current_node->split_field];
     node_field_delta = 0.5*pow(2,-(double)current_node->node_lrefine[current_node->split_field]);
+
     for(ishift = 0; ishift < 3; ishift++){
         // Set shifted value of child data
         child_model_data[current_node->split_field] = model_field_data + (ishift-1)* node_field_delta ;
@@ -1042,16 +1038,29 @@ void GasspyTree::refine_node(int16_t* new_node_lrefine, ModelNode* current_node)
         // if no matching node was found, create one
         if(found_node != NULL){
             // if a match was found, just set to this one
-            current_node->child_nodes[ishift] = found_node;
+            current_node->child_node_ids[ishift] = found_node->node_id;
         } else {
             // add node to list of nodes
-            current_node->child_nodes[ishift]=this->all_nodes.add_node(child_model_data, child_node_lrefine);
+            all_nodes.push_back(ModelNode(child_model_data, child_node_lrefine));    
+            found_node = &all_nodes.back();
+            found_node->node_id = all_nodes.size() - 1;
+
+            // Since the vector may have been resized, we need to find the current node again
+            current_node = &all_nodes.at(current_node_id);
+
+            current_node->child_node_ids[ishift]=found_node->node_id;
             // advance refinement level of selected field
-            current_node->child_nodes[ishift]->is_leaf = 1;
-            current_node->child_nodes[ishift]->root_id = current_node->root_id;
+            found_node->is_leaf = 1;
+            found_node->root_id = current_node->root_id;
+            if(found_node->root_id>=this->root_node_ids.size()){
+                throw GasspyException("WTF is this root_id");
+            }
         }
         // recursive call to this new node
-        this->refine_node(new_node_lrefine, current_node->child_nodes[ishift]);
+        this->refine_node(new_node_lrefine, found_node);
+        
+        // Since the vector may have been resized, we need to find the current node again
+        current_node = &all_nodes.at(current_node_id);
     }
     return;
 }
@@ -1080,7 +1089,7 @@ int GasspyTree::find_node_neighbors(ModelNode* current_node){
     for(ineigh=0; ineigh<pow(3,n_refinement_fields); ineigh++){
         // if this is the center cell, just set to self
         if(ineigh == center_cell_neighbor_index){
-            current_node->neighbor_nodes[ineigh] = current_node;
+            current_node->neighbor_node_ids[ineigh] = current_node->node_id;
             continue;
         }
 
@@ -1095,12 +1104,16 @@ int GasspyTree::find_node_neighbors(ModelNode* current_node){
 
         // if so set to that node
         if(found_node != NULL){
-            current_node->neighbor_nodes[ineigh] = found_node;
+            current_node->neighbor_node_ids[ineigh] = found_node->node_id;
         } else {
             // otherwise create a new node and add node to list of nodes
             start = std::chrono::high_resolution_clock::now();
             //current_node->neighbor_nodes[ineigh] = this->all_nodes.add_node(coords, current_node->node_lrefine); 
-            current_node->neighbor_nodes[ineigh] = this->add_node(coords, current_node->node_lrefine, current_node->root_id, 1);
+            int current_node_id = current_node->node_id;
+            int neighbor_node_id = this->add_node(coords, current_node->node_lrefine, current_node->root_id, 1)->node_id;
+            // Since vector might have been resized we need to refind current node
+            current_node = &all_nodes.at(current_node_id);
+            current_node->neighbor_node_ids[ineigh] = neighbor_node_id; 
         }
     }
     current_node->has_neighbors = 1;
@@ -1143,9 +1156,9 @@ py::array_t<int> GasspyTree::add_points(py::array_t<double> points, py::array_t<
         if(node_id >= 0){
             // if this point already had a node associated to it, the point should either belong to the node 
             // or one of its children
-            if(node_id < this->all_nodes.nnodes){
-                ModelNode* previous_node = this->all_nodes.get_node(previous_node_ids_ra[ipoint]);
-                ModelNode* found_node = previous_node->get_node(coord); 
+            if(node_id < all_nodes.size()){
+                ModelNode* previous_node = &all_nodes.at(previous_node_ids_ra[ipoint]);
+                ModelNode* found_node = &all_nodes.at(previous_node->get_node(coord)); 
                 found_node->is_required=1;
                 node_id = found_node->node_id;
             } else {
@@ -1160,14 +1173,14 @@ py::array_t<int> GasspyTree::add_points(py::array_t<double> points, py::array_t<
         _tmp_node_ids_ra(ipoint) = node_id;
         /*
         if(ipoint%100000 == 0){
-            py::print("ipoint ", ipoint, "nnodes", this->all_nodes.nnodes, py::arg("flush") = true);
+            py::print("ipoint ", ipoint, "nnodes", all_nodes.size(), py::arg("flush") = true);
             py::print("Finding existing : ", finding_existing, "mu", py::arg("flush")= true);
             py::print("Creating new     : ", creating_new, "mu", py::arg("flush") = true);
         }
         */
     }
     /*
-    py::print("nnodes", this->all_nodes.nnodes, py::arg("flush") = true);
+    py::print("nnodes", all_nodes.size(), py::arg("flush") = true);
     py::print("Finding existing : ", finding_existing, "mu", py::arg("flush") = true);
     py::print("Creating new     : ", creating_new, "mu", py::arg("flush") = true);
     */
@@ -1188,7 +1201,7 @@ void GasspyTree::refine_nodes(py::array_t<int> node_ids, py::array_t<int16_t> wa
         for(size_t ifield = 0; ifield < (size_t) n_refinement_fields; ifield++){
             wanted_node_lrefine[ifield] = wanted_node_lrefines_ra(inode, ifield);
         }
-        this->refine_node(wanted_node_lrefine, this->all_nodes.get_node(node_id));
+        this->refine_node(wanted_node_lrefine, &all_nodes.at(node_id));
     }
 }
 
@@ -1201,7 +1214,7 @@ void GasspyTree::set_has_converged(py::array_t<int> node_ids){
         }
         node_id = node_ids_ra(inode);
 
-        this->all_nodes.get_node(node_id)->has_converged = 1;
+        all_nodes.at(node_id).has_converged = 1;
     }   
 }
 
@@ -1241,9 +1254,9 @@ py::array_t<int> GasspyTree::get_node_ids(py::array_t<double> points, py::array_
         if(node_id >= 0){
             // if this point already had a node associated to it, the point should either belong to the node 
             // or one of its children
-            if(node_id < this->all_nodes.nnodes){
-                ModelNode* previous_node = this->all_nodes.get_node(previous_node_ids_ra[ipoint]);
-                ModelNode* found_node = previous_node->get_node(coord);
+            if(node_id < all_nodes.size()){
+                ModelNode* previous_node = &all_nodes.at(previous_node_ids_ra[ipoint]);
+                ModelNode* found_node = &all_nodes.at(previous_node->get_node(coord));
                 node_id = found_node->node_id;
             } else{ 
                 node_id = -1;
@@ -1294,9 +1307,9 @@ py::array_t<int> GasspyTree::get_gasspy_ids(py::array_t<double> points, py::arra
         if(node_id >= 0){
             // if this point already had a node associated to it, the point should either belong to the node 
             // or one of its children
-            if(node_id < this->all_nodes.nnodes){
-                ModelNode* previous_node = this->all_nodes.get_node(previous_node_ids_ra[ipoint]);
-                found_node = previous_node->get_node(coord);
+            if(node_id < all_nodes.size()){
+                ModelNode* previous_node = &all_nodes.at(previous_node_ids_ra[ipoint]);
+                found_node = &all_nodes.at(previous_node->get_node(coord));
                 if(found_node == NULL) {
                     node_id = -1;
                 }else{
@@ -1345,59 +1358,59 @@ py::array_t<double> GasspyTree::get_gasspy_model_data(){
 
 py::array_t<int> GasspyTree::get_leaf_and_neighbor_gasspy_ids(){
     // TODO
-    py::array_t<int> _tmp_nodes_model_data( {(size_t)this->all_nodes.nnodes, (size_t)n_database_fields} );
+    py::array_t<int> _tmp_nodes_model_data( {(size_t)all_nodes.size(), (size_t)n_database_fields} );
     return _tmp_nodes_model_data;
 }
 
 
 py::array_t<double> GasspyTree::get_nodes_model_data(){
     // Allocate an python array
-    py::array_t<double> _tmp_nodes_model_data( {(size_t)this->all_nodes.nnodes, (size_t)n_refinement_fields} );
+    py::array_t<double> _tmp_nodes_model_data( {(size_t)all_nodes.size(), (size_t)n_refinement_fields} );
     
     // required to view?
     auto ra = _tmp_nodes_model_data.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
         for(size_t ifield = 0; ifield < (size_t) n_refinement_fields; ifield++){
-            ra(node_id, ifield) = current_node->node.model_data[ifield];
+            ra(node_id, ifield) = current_node->model_data[ifield];
         }
-        current_node = current_node->next;
     }
     return _tmp_nodes_model_data;
 }
 
 py::array_t<int16_t> GasspyTree::get_nodes_node_lrefine(){
     // Allocate an python array
-    py::array_t<int16_t> _tmp_nodes_node_lrefine( {(size_t)this->all_nodes.nnodes, (size_t)n_refinement_fields} );
+    py::array_t<int16_t> _tmp_nodes_node_lrefine( {(size_t)all_nodes.size(), (size_t)n_refinement_fields} );
     
     // required to view?
     auto ra = _tmp_nodes_node_lrefine.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
         for(size_t ifield = 0; ifield < (size_t) n_refinement_fields; ifield++){
-            ra(node_id, ifield) = current_node->node.node_lrefine[ifield];
+            ra(node_id, ifield) = current_node->node_lrefine[ifield];
         }
-        current_node = current_node->next;
     }
     return _tmp_nodes_node_lrefine;
 }
 
 py::array_t<int> GasspyTree::get_nodes_gasspy_ids(){
     // Allocate an python array
-    py::array_t<int> _tmp_nodes_gasspy_ids((size_t)this->all_nodes.nnodes);
+    py::array_t<int> _tmp_nodes_gasspy_ids((size_t)all_nodes.size());
     
     // required to view?
     auto ra = _tmp_nodes_gasspy_ids.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
-        ra(node_id) = current_node->node.gasspy_id;
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        ra(node_id) = current_node->gasspy_id;
     }
     return _tmp_nodes_gasspy_ids;
 }
@@ -1420,141 +1433,139 @@ py::array_t<double> GasspyTree::get_roots_discrete_data(){
 
 py::array_t<int> GasspyTree::get_nodes_root_id(){
     // Allocate an python array
-    py::array_t<int> _tmp_nodes_root_id((size_t)this->all_nodes.nnodes);
+    py::array_t<int> _tmp_nodes_root_id((size_t)all_nodes.size());
     
     // required to view?
     auto ra = _tmp_nodes_root_id.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
-        ra(node_id) = current_node->node.root_id;
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        ra(node_id) = current_node->root_id;
     }
     return _tmp_nodes_root_id;
 }
 
 py::array_t<int8_t> GasspyTree::get_nodes_is_root(){
     // Allocate an python array
-    py::array_t<int8_t> _tmp_nodes_is_root((size_t)this->all_nodes.nnodes);
+    py::array_t<int8_t> _tmp_nodes_is_root((size_t)all_nodes.size());
     
     // required to view?
     auto ra = _tmp_nodes_is_root.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
-        ra(node_id) = current_node->node.is_root;
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        ra(node_id) = current_node->is_root;
     }
     return _tmp_nodes_is_root;
 }
 
 py::array_t<int8_t> GasspyTree::get_nodes_is_leaf(){
     // Allocate an python array
-    py::array_t<int8_t> _tmp_nodes_is_leaf((size_t)this->all_nodes.nnodes);
+    py::array_t<int8_t> _tmp_nodes_is_leaf((size_t)all_nodes.size());
     
     // required to view?
     auto ra = _tmp_nodes_is_leaf.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
-        ra(node_id) = current_node->node.is_leaf;
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        ra(node_id) = current_node->is_leaf;
     }
     return _tmp_nodes_is_leaf;
 }
 py::array_t<int8_t> GasspyTree::get_nodes_is_required(){
     // Allocate an python array
-    py::array_t<int8_t> _tmp_nodes_is_required((size_t)this->all_nodes.nnodes);
+    py::array_t<int8_t> _tmp_nodes_is_required((size_t)all_nodes.size());
     
     // required to view?
     auto ra = _tmp_nodes_is_required.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
-        ra(node_id) = current_node->node.is_required;
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        ra(node_id) = current_node->is_required;
     }
     return _tmp_nodes_is_required;
 }
 
 py::array_t<int8_t> GasspyTree::get_nodes_has_converged(){
     // Allocate an python array
-    py::array_t<int8_t> _tmp_nodes_has_converged((size_t)this->all_nodes.nnodes);
+    py::array_t<int8_t> _tmp_nodes_has_converged((size_t)all_nodes.size());
     
     // required to view?
     auto ra = _tmp_nodes_has_converged.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
-        ra(node_id) = current_node->node.has_converged;
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        ra(node_id) = current_node->has_converged;
     }
     return _tmp_nodes_has_converged;
 }
 
 py::array_t<int16_t> GasspyTree::get_nodes_split_field(){
     // Allocate an python array
-    py::array_t<int16_t> _tmp_nodes_split_field((size_t)this->all_nodes.nnodes);
+    py::array_t<int16_t> _tmp_nodes_split_field((size_t)all_nodes.size());
     
     // required to view?
     auto ra = _tmp_nodes_split_field.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
-        ra(node_id) = current_node->node.split_field;
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        ra(node_id) = current_node->split_field;
     }
     return _tmp_nodes_split_field;
 }
 
 py::array_t<int> GasspyTree::get_nodes_child_node_ids(){
     // Allocate an python array
-    py::array_t<int> _tmp_nodes_child_node_ids( {(size_t)this->all_nodes.nnodes, (size_t)3} );
+    py::array_t<int> _tmp_nodes_child_node_ids( {(size_t)all_nodes.size(), (size_t)3} );
     
     // required to view?
     auto ra = _tmp_nodes_child_node_ids.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
-
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
         for(size_t ichild = 0; ichild < 3; ichild++){
-            if(current_node->node.child_nodes[ichild]!=NULL){
-                ra(node_id, ichild) = current_node->node.child_nodes[ichild]->node_id;
+            if(current_node->child_node_ids[ichild]!=-1){
+                ra(node_id, ichild) = current_node->child_node_ids[ichild];
             } else {
                 ra(node_id, ichild) = -1;
             }
-
         }
-        current_node = current_node->next;
     }
     return _tmp_nodes_child_node_ids;
 
 }
 py::array_t<int> GasspyTree::get_nodes_neighbor_node_ids(){
     // Allocate an python array
-    py::array_t<int> _tmp_nodes_neighbor_node_ids( {(size_t)this->all_nodes.nnodes, (size_t)pow(3,n_refinement_fields)} );
+    py::array_t<int> _tmp_nodes_neighbor_node_ids( {(size_t)all_nodes.size(), (size_t)pow(3,n_refinement_fields)} );
     
     // required to view?
     auto ra = _tmp_nodes_neighbor_node_ids.mutable_unchecked();
 
     // copy over data
-    listnode *current_node = this->all_nodes.get_head();
-    for(size_t node_id = 0; node_id < (size_t) this->all_nodes.nnodes; node_id++){
+    ModelNode* current_node;
+    for(size_t node_id = 0; node_id < (size_t) all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
         for(size_t ineigh = 0; ineigh < (size_t) pow(3,n_refinement_fields); ineigh++){
-            if(current_node->node.has_neighbors == 1){
-                ra(node_id, ineigh) = current_node->node.neighbor_nodes[ineigh]->node_id;
+            if(current_node->has_neighbors == 1){
+                ra(node_id, ineigh) = current_node->neighbor_node_ids[ineigh];
             } else {
                 ra(node_id, ineigh) = -1;
             }
         }
-        current_node = current_node->next;
     }
     return _tmp_nodes_neighbor_node_ids;
 }
@@ -1580,6 +1591,12 @@ void GasspyTree::set_gasspy_model_data(py::array_t<double> new_gasspy_model_data
 }
 
 void GasspyTree::initialize_nodes(py::array_t<double> new_model_data, py::array_t<int16_t> new_node_lrefine){
+    // Delete old nodes if here
+    all_nodes.clear();
+    this->root_node_ids.clear();
+    this->root_nodes_discrete_data.clear();
+    this->gasspy_model_data.clear();
+
     double current_model_data[n_refinement_fields];
     int16_t current_node_lrefine[n_refinement_fields];
 
@@ -1590,7 +1607,8 @@ void GasspyTree::initialize_nodes(py::array_t<double> new_model_data, py::array_
             current_model_data[ifield] = new_model_data_ra(node_id, ifield);
             current_node_lrefine[ifield] = new_node_lrefine_ra(node_id, ifield);
         }
-        this->all_nodes.add_node(current_model_data, current_node_lrefine);
+        all_nodes.push_back(ModelNode(current_model_data, current_node_lrefine));
+        all_nodes.back().node_id = all_nodes.size() - 1;
     }
 
     return;
@@ -1598,10 +1616,10 @@ void GasspyTree::initialize_nodes(py::array_t<double> new_model_data, py::array_
 
 void GasspyTree::set_nodes_gasspy_ids(py::array_t<int> gasspy_ids){ 
     auto gasspy_ids_ra = gasspy_ids.mutable_unchecked();
-    listnode *current_node = all_nodes.get_head();
-    for(int node_id = 0; node_id < this->all_nodes.nnodes; node_id++){
-        current_node->node.gasspy_id = gasspy_ids_ra(node_id);
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(int node_id = 0; node_id < all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        current_node->gasspy_id = gasspy_ids_ra(node_id);
     }
     return;
 }
@@ -1620,24 +1638,24 @@ void GasspyTree::set_roots_discrete_data(py::array_t<double> root_discrete_data)
 
 void GasspyTree::set_nodes_root_id(py::array_t<int> root_id){ 
     auto root_id_ra = root_id.mutable_unchecked();
-    listnode *current_node = all_nodes.get_head();
-    for(int node_id = 0; node_id < this->all_nodes.nnodes; node_id++){
-        current_node->node.root_id = root_id_ra(node_id);
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(int node_id = 0; node_id < all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        current_node->root_id = root_id_ra(node_id);
     }
     return;
 }
 
 void GasspyTree::set_nodes_is_root(py::array_t<int8_t> is_root){
     auto is_root_ra = is_root.mutable_unchecked();
-    listnode *current_node = all_nodes.get_head();
-    for(int node_id = 0; node_id < this->all_nodes.nnodes; node_id++){
-        current_node->node.is_root = is_root_ra(node_id);
-        if(current_node->node.is_root == 1){
-            this->root_nodes.push_back(&(current_node->node));
-            current_node->node.root_id = this->root_nodes.size()-1;
+    ModelNode* current_node;
+    for(int node_id = 0; node_id < all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        current_node->is_root = is_root_ra(node_id);
+        if(current_node->is_root == 1){
+            this->root_node_ids.push_back(node_id);
+            current_node->root_id = this->root_node_ids.size()-1;
         }
-        current_node = current_node->next;
     }
     return;
 }
@@ -1645,72 +1663,70 @@ void GasspyTree::set_nodes_is_root(py::array_t<int8_t> is_root){
 
 void GasspyTree::set_nodes_is_leaf(py::array_t<int8_t> is_leaf){
     auto is_leaf_ra = is_leaf.mutable_unchecked();
-    listnode *current_node = all_nodes.get_head();
-    for(int node_id = 0; node_id < this->all_nodes.nnodes; node_id++){
-        current_node->node.is_leaf = is_leaf_ra(node_id);
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(int node_id = 0; node_id < all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        current_node->is_leaf = is_leaf_ra(node_id);
     }
     return;
 }
 void GasspyTree::set_nodes_is_required(py::array_t<int8_t> is_required){
     auto is_required_ra = is_required.mutable_unchecked();
-    listnode *current_node = all_nodes.get_head();
-    for(int node_id = 0; node_id < this->all_nodes.nnodes; node_id++){
-        current_node->node.is_required = is_required_ra(node_id);
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(int node_id = 0; node_id < all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        current_node->is_required = is_required_ra(node_id);
     }
     return;
 }
 
 void GasspyTree::set_nodes_has_converged(py::array_t<int8_t> has_converged){
     auto has_converged_ra = has_converged.mutable_unchecked();
-    listnode *current_node = all_nodes.get_head();
-    for(int node_id = 0; node_id < this->all_nodes.nnodes; node_id++){
-        current_node->node.has_converged = has_converged_ra(node_id);
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(int node_id = 0; node_id < all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        current_node->has_converged = has_converged_ra(node_id);
     }
     return;
 }
 
 void GasspyTree::set_nodes_split_field(py::array_t<int16_t> split_field){
     auto split_field_ra = split_field.mutable_unchecked();
-    listnode *current_node = all_nodes.get_head();
-    for(int node_id = 0; node_id < this->all_nodes.nnodes; node_id++){
-        current_node->node.split_field = split_field_ra(node_id);
-        current_node = current_node->next;
+    ModelNode* current_node;
+    for(int node_id = 0; node_id < all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
+        current_node->split_field = split_field_ra(node_id);
     }
     return;
 }
 void GasspyTree::set_nodes_child_node_ids(py::array_t<int> child_node_ids){
     auto child_node_ids_ra = child_node_ids.mutable_unchecked();
-    listnode *current_node = all_nodes.get_head();
-    py::print(this->all_nodes.nnodes);
-    for(int node_id = 0; node_id < this->all_nodes.nnodes; node_id++){
+    ModelNode* current_node;
+    for(int node_id = 0; node_id < all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
         for(int ichild = 0; ichild < 3; ichild++){
             if(child_node_ids_ra(node_id,ichild)>=0){
-                current_node->node.child_nodes[ichild] = all_nodes.get_node(child_node_ids_ra(node_id, ichild));
+                current_node->child_node_ids[ichild] = child_node_ids_ra(node_id, ichild);
             }
         }
-        
-        current_node = current_node->next;
     }
     return;
 }
 void GasspyTree::set_nodes_neighbor_node_ids(py::array_t<int> neighbor_node_ids){
     auto neighbor_node_ids_ra = neighbor_node_ids.mutable_unchecked();
-    listnode *current_node = all_nodes.get_head();
-    for(int node_id = 0; node_id < this->all_nodes.nnodes; node_id++){
+    ModelNode* current_node;
+    for(int node_id = 0; node_id < all_nodes.size(); node_id++){
+        current_node = &all_nodes.at(node_id);
 
         if(neighbor_node_ids_ra(node_id,0)==-1){
-            current_node->node.has_neighbors = 0;
+            current_node->has_neighbors = 0;
             
         } else {
             for(int ineigh = 0; ineigh < pow(3,n_refinement_fields); ineigh++){
-                current_node->node.neighbor_nodes[ineigh] = all_nodes.get_node(neighbor_node_ids_ra(node_id, ineigh));
+                current_node->neighbor_node_ids[ineigh] = neighbor_node_ids_ra(node_id, ineigh);
             }
-            current_node->node.has_neighbors = 1;
+            current_node->has_neighbors = 1;
         }
-        current_node = current_node->next;
     }
     return;
 }
@@ -1722,7 +1738,7 @@ void GasspyTree::debug_nodes(py::array_t<int> node_ids){
     int node_id;
     for(size_t inode = 0; inode < (size_t) node_ids.size(); inode++){
         node_id = node_ids_ra(inode);
-        this->all_nodes.get_node(node_id)->debug_node();
+        all_nodes.at(node_id).debug_node();
     }   
 }
 
