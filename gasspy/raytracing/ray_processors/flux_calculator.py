@@ -44,10 +44,12 @@ class Flux_calculator(Ray_processor_base):
         self.raytracer.shared_column_keys.append("Nphotons")
         self.NcellBuff = self.raytracer.NcellBuff
         self.NrayBuff  = self.raytracer.NrayBuff
-        self.NraySegs  = self.raytracer.NraySegs
 
         self.clght = apyc.c.cgs.value    
         self.sim_unit_length = self.gasspy_config["sim_unit_length"] 
+
+
+    
 
     def process_buff(self, active_rays_indexes_todump, full = False, null_only = False):
         if null_only:
@@ -126,3 +128,4 @@ class Flux_calculator(Ray_processor_base):
 
     def get_fluxes(self):
         return self.cell_fluxes
+    

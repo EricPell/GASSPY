@@ -26,61 +26,44 @@ from gasspy.io import gasspy_io
 
 ap = argparse.ArgumentParser()
 #-------------DIRECTORIES AND FILES---------------#
-ap.add_argument("--simdir", default="./", help="Directory of the simulation and also default work directory")
-ap.add_argument("--workdir", default= None, help="work directory. If not specified its the same as simdir")
-ap.add_argument("--gasspydir", default="GASSPY", help="directory inside of simdir to put the GASSPY files")
-ap.add_argument("--simulation_reader_dir", default="./", help="directory to the simulation_reader class that describes how to load the simulation")
-ap.add_argument("--sim_prefix", default = None, help="prefix to put before all snapshot specific files")
-#-------------Run parameters-----------#
-ap.add_argument("--liteVRAM", action="store_true", help = "Force rerun of raytrace even if the trace file already exists")
-ap.add_argument("--fieldname", default = "Fuv")
+ap.add_argument("gasspy_config")
+
 #############################################
 # I) Initialization of the script
 #############################################
 ## parse the commandline argument
 args = ap.parse_args()
 
-## move to workdir
-if args.workdir is not None:
-    workdir = args.workdir
-else:
-    workdir = args.simdir
-os.chdir(workdir)
-
-## create GASSPY dir where all files specific to this snapshot is kept
-if not os.path.exists(args.gasspydir):
-    os.makedirs(args.gasspydir)
-
-## set prefix to snapshot specific files
-if args.sim_prefix is not None:
-    ## add an underscore
-    sim_prefix = args.sim_prefix + "_"
-else:
-    sim_prefix = ""
-
-##############################
-# II) Load config files and simulation reader 
-##############################
 
 ## Load the gasspy_config yaml
-gasspy_config = gasspy_io.read_fluxdef("./gasspy_config.yaml")
+gasspy_config = gasspy_io.read_yaml(args.gasspy_config)
+
+field_name = gasspy_io.check_parameter_in_config(gasspy_config, "field_name", None, None)
+assert field_name is not None, "Error: parameter \"field_name\" must be specified when generating a new radiation field"
+
+##############################
+# II) Load simulation reader 
+##############################
+
+## create gasspy_subdir where all files specific to this snapshot is kept
+snapshots = gasspy_config["snapshots"]
+assert len(snapshots.keys()) == 1, "Can only specify one snapshot at a time for radiative transfer"
+snaphot = snapshots[list(snapshots.keys())[0]]
+gasspy_subdir = snaphot["gasspy_subdir"]
+if not os.path.exists(gasspy_subdir):
+    sys.exit("ERROR : cant find snapshot specific gasspy sub directory %s."%gasspy_subdir)
+
+
+
+## Simulation reader directory
+simulation_readerdir = gasspy_io.check_parameter_in_config(gasspy_config, "simulation_reader_dir", None, "./")
 
 ## Load the simulation data class from directory
-spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
+spec = importlib.util.spec_from_file_location("simulation_reader", simulation_readerdir + "/simulation_reader.py")
 reader_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reader_mod)
-sim_reader = reader_mod.Simulation_Reader(args.simdir, args.gasspydir, gasspy_config["sim_reader_args"])
+sim_reader = reader_mod.Simulation_Reader(gasspy_config, snaphot)
 
-## Determine maximum memory usage
-if "max_mem_GPU" in gasspy_config.keys():
-    max_mem_GPU = gasspy_config["max_mem_GPU"]
-else:
-    max_mem_GPU = 6
-
-if "max_mem_CPU" in gasspy_config.keys():
-    max_mem_CPU = gasspy_config["max_mem_CPU"]
-else:
-    max_mem_CPU = 14
 
 
 ###########################
@@ -91,9 +74,9 @@ temp_stream = cupy.cuda.stream.Stream(non_blocking=True)
 def dust_uv_opacity(cell_index, field_dict):
     cell_index_cpu = cell_index.get()
     with temp_stream:
-        cell_temperature_fact = cupy.exp(-cupy.asarray(field_dict["temp"][cell_index_cpu])/1e5)
+        cell_temperature_fact = cupy.exp(-cupy.asarray(field_dict["temperature"][cell_index_cpu])/1e5)
     with dens_stream:
-        cell_number_density = cupy.asarray(field_dict["nden"][cell_index_cpu]) * 1.615096e-21
+        cell_number_density = cupy.asarray(field_dict["number_density"][cell_index_cpu]) * 1.615096e-21
     dens_stream.synchronize()
     temp_stream.synchronize()
     return cell_number_density*cell_temperature_fact 
@@ -127,8 +110,8 @@ for isource in range(len(sourcetable)):
         observer = observer_healpix_class(gasspy_config, observer_center = source_pos, pov_center = np.random.rand(3))
         #observer = observer_plane_class(gasspy_config, observer_center = np.array([0.25,0.25,0.5]))
 
-        raytracer = Raytracer_AMR_neighbor(sim_reader, gasspy_config, bufferSizeCPU_GB = max_mem_CPU, bufferSizeGPU_GB = max_mem_GPU, no_ray_splitting=False, liteVRAM = args.liteVRAM)
-        ray_processor = Flux_calculator(raytracer, sim_reader, source_Nphoton/nrots_per_source, dust_uv_opacity, ["nden", "temp"])
+        raytracer = Raytracer_AMR_neighbor(gasspy_config, sim_reader)
+        ray_processor = Flux_calculator(gasspy_config, raytracer, sim_reader, source_Nphoton/nrots_per_source, dust_uv_opacity, ["number_density", "temperature"])
         raytracer.set_ray_processor(ray_processor)
         #"""
         ## set observer
@@ -154,8 +137,8 @@ if profiling:
     stats = pstats.Stats(profiler).sort_stats('ncalls')
     stats.dump_stats("raytrace_precise_neighbor.prof")
 
-sim_reader.save_new_field(args.fieldname, cell_fluxes)
-'''
+sim_reader.save_new_field(field_name, cell_fluxes)
+
 dxs   = sim_reader.get_field("dx") 
 lrefs = sim_reader.get_field("amr_lrefine") 
 xs    = sim_reader.get_field("x") 
@@ -227,4 +210,3 @@ if not isinstance(ax, list):
 ax[0].imshow(ionSlice.T, cmap = "viridis", origin = "lower", extent = [0,boxsize, 0, boxsize], norm = mcol.LogNorm(vmin = limS[0], vmax = limS[1])) 
 
 plt.show()
-'''
