@@ -1,80 +1,54 @@
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
-import cupy
 import sys
 import h5py as hp
 import importlib.util
 import os 
 
-from gasspy.radtransfer import FamilyTree
+from gasspy.radtransfer import Trace_processor
+from gasspy.raystructures import global_ray_class
 from gasspy.shared_utils.argument_parsers.FamilyTree_args import add_Family_tree_arguments
 from gasspy.shared_utils.spectra_functions import integrated_line
-from gasspy.io import gasspy_io
+from gasspy.io.gasspy_io import read_yaml
 
 simdir = "/mnt/data/research/cinn3d/inputs/ramses/old/SEED1_35MSUN_CDMASK_WINDUV2"
 min_lref = 6
 max_lref = 11
 
-class ray_debugger(FamilyTree):
-    def __init__(self, 
-        root_dir="./",
-        gasspy_subdir="GASSPY",
-        gasspy_spec_subdir="spec",
-        gasspy_projection_subdir="projections",
-        traced_rays=None,
-        energy=None,
-        energy_lims=None,
-        Emask=None,
-        h5database = None,
-        opc_per_NH=False,
-        cell_index_to_gasspydb=None,
-        vel=None,
-        den=None,
-        massden=True,
-        mu=1.1,
-        accel="torch",
-        dtype=np.float32,
-        liteVRAM=True,
-        Nraster=4,
-        useGasspyEnergyWindows=True,
-        make_spec_subdirs=True,
-        config_yaml=None,
-        spec_save_type="hdf5",
-        spec_save_name="gasspy_spec",
-        cuda_device=None,
-        doppler_shift = False):
-        super().__init__(
-            root_dir=root_dir,
-            gasspy_subdir=gasspy_subdir,
-            gasspy_spec_subdir=gasspy_spec_subdir,
-            gasspy_projection_subdir=gasspy_projection_subdir,
-            traced_rays=traced_rays,
-            energy=energy,
-            energy_lims=energy_lims,
-            Emask=Emask,
-            h5database = h5database,
-            opc_per_NH=opc_per_NH,
-            cell_index_to_gasspydb=cell_index_to_gasspydb,
-            vel=vel,
-            den=den,
-            massden=massden,
-            mu=mu,
-            accel=accel,
-            dtype=dtype,
-            liteVRAM=liteVRAM,
-            Nraster=Nraster,
-            useGasspyEnergyWindows=useGasspyEnergyWindows,
-            make_spec_subdirs=make_spec_subdirs,
-            config_yaml=config_yaml,
-            spec_save_type=spec_save_type,
-            spec_save_name=spec_save_name,
-            cuda_device=cuda_device,
-        )
-        self.rayid = -1
+class ray_debugger(Trace_processor):
+    def __init__(self,
+        gasspy_config,
+        sim_reader,
+        traced_rays,
+        em_field = "intensity",
+        op_field = "opacity"
+        ):
+        if isinstance(gasspy_config, str):
+            self.gasspy_config = read_yaml(gasspy_config)
+        else:
+            self.gasspy_config = gasspy_config
 
-    def load_new_global_rays(self):
-        super().load_new_global_rays()
+
+        super(self).init(
+            gasspy_config = gasspy_config,
+            traced_rays = traced_rays,
+            sim_reader = sim_reader,
+            em_field = em_field,
+            op_field = op_field,
+        )
+
+        self.gasspy_database = gasspy_database
+        self.sim_reader = sim_reader
+        self.traced_rays = traced_rays
+        self.numlib = np
+
+    def load_global_rays(self):
+        self.global_rays = global_ray_class(on_cpu = True)
+        self.global_rays.load_hdf5(self.traced_rays)   
+        # Select the ancestral GIDs
+        self.ancenstors = self.global_rays.global_rayid[self.numlib.where(self.global_rays.pevid == -1)]
+        self.cevid = self.global_rays.get_field("cevid")
         # Get leaf rays
         ileafs = self.numlib.where(self.new_global_rays.get_field("cevid") == -1)[0]
         self.leaf_rays = self.new_global_rays.get_subset(ileafs)
@@ -85,8 +59,28 @@ class ray_debugger(FamilyTree):
             self.index_in_leaf_arrays[self.leaf_rays["global_rayid"].get()] = self.numlib.arange(int(len(ileafs)))
 
     def load_traced_rays(self):
-        super().load_traced_rays()
-        self.NcellPerSeg = self.raydump_dict["pathlength"].shape[1]
+        if isinstance(self.traced_rays, str):
+            self.traced_rays = hp.File(self.traced_rays, "r")
+        
+        keys = ["segment_global_rayid", "pathlength", "ray_area", "solid_angle", "cell_index"]
+        
+        self.ray_segments = {}
+        for key in keys:
+            self.ray_segments[key] = self.traced_rays["ray_segments"][key][:]
+        self.ray_segments["pathlength"] = (self.ray_segments["pathlength"]*self.gasspy_config["sim_unit_length"]).astype(float)
+
+        self.load_global_rays()
+        max_global_ray_id = self.numlib.int(self.global_rays.global_rayid.max())
+
+        unique_gid, i0, Nsegs = np.unique(self.ray_segments['segment_global_rayid'], return_counts=True, return_index=True)
+        self.ray_segments["ray_index0"] = i0.astype(np.int64)
+        self.ray_segments["Nsegs"] = Nsegs.astype(np.int64)
+        self.ray_segments["NcellPerRaySeg"] = self.ray_segments["pathlength"].shape[1]
+        
+        splitEvents = self.traced_rays_h5file["splitEvents"][:,:]
+        self.split_by_gid_tree = dict(zip(splitEvents[:, 0].astype(np.int32), zip(*splitEvents[:, 1:].astype(np.int32).T)))
+
+
     
     def set_complete_path_leaf(self):
 
@@ -95,14 +89,12 @@ class ray_debugger(FamilyTree):
         Nintersects = 0
         while next_rayid >= 0:
             current_rayid = next_rayid
-            Nsegs = int(self.raydump_dict["Nsegs"][current_rayid])
-            Nintersects += Nsegs * self.NcellPerSeg
-            if self.liteVRAM:
-                pevid = self.new_global_rays.pevid[current_rayid]
-            else:
-                pevid = self.new_global_rays.pevid[current_rayid].get()
+            Nsegs = int(self.ray_segments["Nsegs"][current_rayid])
+            Nintersects += Nsegs * self.ray_segments["NcellPerSeg"]
+            pevid = self.global_rays.pevid[current_rayid]
+
             if pevid >= 0 :
-                next_rayid = int(self.raydump_dict["splitEvents"][pevid, 0])
+                next_rayid = int(self.ray_segments["splitEvents"][pevid, 0])
             else:
                 next_rayid = -1    
 
@@ -113,41 +105,42 @@ class ray_debugger(FamilyTree):
         # Current cell and pathlength of intersection
         self.path_cell_index  = self.numlib.zeros((Nintersects,), dtype = int)
         self.path_pathlength  = self.numlib.zeros((Nintersects,), dtype = float)
+        self.path_ray_area    = self.numlib.zeros((Nintersects,), dtype = float)
+        self.path_solid_angle = self.numlib.zeros((Nintersects,), dtype = float)
         
         next_rayid = self.rayid
 
         iinter = 0
         while next_rayid >= 0:
             current_rayid = next_rayid
-            iseg_start = self.raydump_dict["ray_index0"][current_rayid]
-            Nsegs = self.raydump_dict["Nsegs"][current_rayid]
+            iseg_start = self.ray_segments["ray_index0"][current_rayid]
+            Nsegs = self.ray_segments["Nsegs"][current_rayid]
 
-            pathlength_c  = self.raydump_dict["pathlength"][iseg_start: iseg_start + Nsegs,:].ravel()
-            cell_index_c  = self.raydump_dict["cell_index"][iseg_start: iseg_start + Nsegs,:].ravel()
+            pathlength_c  = self.ray_segments["pathlength"][iseg_start: iseg_start + Nsegs,:].ravel()
+            cell_index_c  = self.ray_segments["cell_index"][iseg_start: iseg_start + Nsegs,:].ravel()            pathlength_c  = self.ray_segments["pathlength"][iseg_start: iseg_start + Nsegs,:].ravel()
+            ray_area_c  = self.ray_segments["cell_index"][iseg_start: iseg_start + Nsegs,:].ravel()            pathlength_c  = self.ray_segments["pathlength"][iseg_start: iseg_start + Nsegs,:].ravel()
+            solid_angle_c  = self.ray_segments["cell_index"][iseg_start: iseg_start + Nsegs,:].ravel()
             
             iinter_start = iinter 
-            iinter_end   = iinter + Nsegs*self.NcellPerSeg
+            iinter_end   = iinter + Nsegs * self.ray_segments["NcellPerSeg"]
 
             self.path_ray_lrefine[iinter_start: iinter_end] = self.new_global_rays.ray_lrefine[current_rayid]
             self.path_ray_rayid[iinter_start: iinter_end]   = current_rayid
             self.path_cell_index[iinter_start: iinter_end]  = self.numlib.flip(cell_index_c)
             self.path_pathlength[iinter_start: iinter_end]  = self.numlib.flip(pathlength_c)
+            self.path_ray_area[iinter_start: iinter_end]  = self.numlib.flip(ray_area_c)
+            self.path_solid_angle[iinter_start: iinter_end]  = self.numlib.flip(solid_angle_c)
 
             if self.liteVRAM:
-                pevid = self.new_global_rays.pevid[current_rayid]
+                pevid = self.global_rays.pevid[current_rayid]
             else:
-                pevid = self.new_global_rays.pevid[current_rayid].get()
+                pevid = self.global_rays.pevid[current_rayid].get()
             if pevid >= 0 :
-                next_rayid = int(self.raydump_dict["splitEvents"][pevid, 0])
+                next_rayid = int(self.ray_segments["splitEvents"][pevid, 0])
             else:
                 next_rayid = -1          
             iinter = iinter + Nsegs*self.NcellPerSeg
-
-        #self.path_ray_lrefine = self.numlib.flip(self.path_ray_lrefine)
-        #self.path_ray_rayid   = self.numlib.flip(self.path_ray_rayid)
-        #self.path_cell_index  = self.numlib.flip(self.path_cell_index)
-        #self.path_pathlength  = self.numlib.flip(self.path_pathlength)
-
+            
         self.path_ray_gasspy_id = self.cell_index_to_gasspydb[self.path_cell_index]
 
         self.path_totpath = self.numlib.cumsum(self.path_pathlength)
@@ -168,13 +161,19 @@ class ray_debugger(FamilyTree):
             self.set_complete_path_leaf()
             
 
-    def set_ray_spectra(self, Elims, cuda_device, lines = False):
+    def set_ray_spectra(self, energy_limits, cuda_device, lines = False, h5database = None):
+        if h5database is None:
+            if not self.h5database is None:
+                self.h5database = gasspy_config["gasspy_modeldir"] + "/" + gasspy_config["database_name"]
+        else:
+            self.h5database = h5database
+
         if self.accel == "torch":
             energy_np = self.energy.cpu().numpy()
         else: 
             energy_np = self.energy.get()
-        if Elims is not None:
-            Eidxs = np.where( (energy_np >= Elims[0]) * (energy_np < Elims[1]))[0]
+        if energy_limits is not None:
+            Eidxs = np.where( (energy_np >= energy_limits[0]) * (energy_np < energy_limits[1]))[0]
         else:
             Eidxs = np.arange(0,len(energy_np))
         if self.accel == "torch":
@@ -250,10 +249,10 @@ class ray_debugger(FamilyTree):
                 self.outFlux = outFlux.get()
         
 
-    def debug_ray(self, Elims, cuda_device, figaxes = None, h5out = None, lines = False):
+    def debug_ray(self, energy_limits, cuda_device, figaxes = None, h5out = None, lines = False):
 
 
-        self.set_ray_spectra(Elims, cuda_device, lines)
+        self.set_ray_spectra(energy_limits, cuda_device, lines)
 
         if self.liteVRAM:
             totpath    = self.path_totpath
@@ -356,14 +355,14 @@ if __name__ == "__main__":
         dtype = np.float64
     cuda_device = torch.device('cuda:0')
     if args.Emax is not None:
-        Elims = np.array([args.Emin, args.Emax])
+        energy_limits = np.array([args.Emin, args.Emax])
     else:
-        Elims = None
+        energy_limits = None
     ray_debug = ray_debugger(
         root_dir=args.root_dir,
         gasspy_subdir=args.gasspydir,
         traced_rays=trace_file,
-        energy_lims=np.atleast_2d(Elims),
+        energy_lims=np.atleast_2d(energy_limits),
         h5database=args.modeldir + "/gasspy_database.hdf5",
         vel=None, #sim_reader.get_field("velocity"),
         den=sim_reader.get_number_density(),
@@ -376,7 +375,7 @@ if __name__ == "__main__":
         spec_save_name=args.spec_save_name,
         dtype=dtype,
         spec_save_type=args.spec_save_type,
-        config_yaml=args.config_yaml,
+        gasspy_config=args.gasspy_config,
         cell_index_to_gasspydb = args.gasspydir + "/cell_data/" + sim_prefix+"cell_gasspy_index.npy",
         cuda_device=cuda_device,
         doppler_shift=False
@@ -407,13 +406,13 @@ if __name__ == "__main__":
         for ipair in range(len(args.xp)):
             print(args.xp[ipair], args.yp[ipair])
             ray_debug.set_leaf_ray(xp = args.xp[ipair], yp = args.yp[ipair])
-            ray_debug.debug_ray(Elims, cuda_device, axes, h5out, lines =args.lines)
+            ray_debug.debug_ray(energy_limits, cuda_device, axes, h5out, lines =args.lines)
 
 
     if args.global_rayid[0] != None:
         for irayid in range(len(args.global_rayid)):
             ray_debug.set_leaf_ray(rayid = args.global_rayid[irayid])
-            ray_debug.debug_ray(Elims, cuda_device, axes, h5out, lines = args.lines)
+            ray_debug.debug_ray(energy_limits, cuda_device, axes, h5out, lines = args.lines)
 
     axemis.set_yscale("log")
     axemis.set_ylabel("Emissivity")

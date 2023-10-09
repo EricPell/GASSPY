@@ -16,6 +16,7 @@ import numpy as np
 import cupy
 import torch
 import gc
+
 import argparse
 import importlib.util
 
@@ -23,22 +24,16 @@ import importlib.util
 from gasspy.raytracing.raytracers import Raytracer_AMR_neighbor
 from gasspy.raytracing.ray_processors import Raytrace_saver
 from gasspy.raytracing.observers import observer_plane_class, observer_healpix_class
-from gasspy.radtransfer.__rt_branch__ import FamilyTree
+from gasspy.radtransfer.rt_trace import Trace_processor
 from gasspy.io import gasspy_io
+from gasspy.shared_utils.gpu_util.gpu_memory import free_memory
 
 ap = argparse.ArgumentParser()
 #-------------DIRECTORIES AND FILES---------------#
+ap.add_argument("gasspy_config")
 ap.add_argument("--simdir", default="./", help="Directory of the simulation and also default work directory")
-ap.add_argument("--workdir", default= None, help="work directory. If not specified its the same as simdir")
-ap.add_argument("--gasspydir", default="GASSPY", help="directory inside of simdir to put the GASSPY files")
-ap.add_argument("--modeldir" , default="GASSPY", help = "directory inside of workdir where to read, put and run the cloudy models")
-ap.add_argument("--simulation_reader_dir", default="./", help="directory to the simulation_reader class that describes how to load the simulation")
-ap.add_argument("--sim_prefix", default = None, help="prefix to put before all snapshot specific files")
-ap.add_argument("--trace_file", default = None, help="name of trace file. If it does not exist we need to recreate it")
-ap.add_argument("--spec_save_name", default = None,  help = "Path to file where to save the spectra. Default to sim_prefix+\"_spec.hdf5\"")
 #-------------Run parameters-----------#
 ap.add_argument("--rerun_raytrace", action="store_true", help = "Force rerun of raytrace even if the trace file already exists")
-ap.add_argument("--liteVRAM", action="store_true", help = "Force rerun of raytrace even if the trace file already exists")
 
 #############################################
 # I) Initialization of the script
@@ -46,77 +41,61 @@ ap.add_argument("--liteVRAM", action="store_true", help = "Force rerun of raytra
 ## parse the commandline argument
 args = ap.parse_args()
 
-## move to workdir
-if args.workdir is not None:
-    workdir = args.workdir
-else:
-    workdir = args.simdir
-os.chdir(workdir)
-
-## create GASSPY dir where all files specific to this snapshot is kept
-if not os.path.exists(args.gasspydir):
-    sys.exit("ERROR : cant find directory %s"%args.gasspydir)
-
-if not os.path.exists(args.gasspydir+"/projections/"):
-    os.makedirs(args.gasspydir+"/projections/")
-
-if not os.path.exists(args.modeldir):
-    sys.exit("ERROR : cant find directory %s"%args.modeldir)
-
-## set prefix to snapshot specific files
-if args.sim_prefix is not None:
-    ## add an underscore
-    sim_prefix = args.sim_prefix + "_"
-else:
-    sim_prefix = ""
-
-##############################
-# II) Load config files and simulation reader 
-##############################
-
-## Load the fluxdef yaml file
-fluxdef = gasspy_io.read_fluxdef("./gasspy_fluxdef.yaml")
-
 ## Load the gasspy_config yaml
-gasspy_config = gasspy_io.read_fluxdef("./gasspy_config.yaml")
+gasspy_config = gasspy_io.read_gasspy_config(args.gasspy_config)
+
+## create gasspy_subdir where all files specific to this snapshot is kept
+snapshots = gasspy_config["snapshots"]
+assert len(snapshots.keys()) == 1, "Can only specify one snapshot at a time for radiative transfer"
+snaphot = snapshots[list(snapshots.keys())[0]]
+gasspy_subdir = snaphot["gasspy_subdir"]
+if not os.path.exists(gasspy_subdir):
+    sys.exit("ERROR : cant find directory %s. This needs to be here before doing RT to know the cell-gasspymodel mapping"%gasspy_subdir)
+
+if not os.path.exists(gasspy_subdir+"/projections/"):
+    os.makedirs(gasspy_subdir+"/projections/")
+
+
+##############################
+# II) Load simulation reader 
+##############################
+
+## Simulation reader directory
+simulation_readerdir = gasspy_io.check_parameter_in_config(gasspy_config, "simulation_reader_dir", None, "./")
 
 ## Load the simulation data class from directory
-spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
+spec = importlib.util.spec_from_file_location("simulation_reader", simulation_readerdir + "/simulation_reader.py")
 reader_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reader_mod)
-sim_reader = reader_mod.Simulation_Reader(args.simdir, args.gasspydir, gasspy_config["sim_reader_args"])
+sim_reader = reader_mod.Simulation_Reader(gasspy_config, snaphot)
 
-## Determine maximum memory usage
-if "max_mem_GPU" in gasspy_config.keys():
-    max_mem_GPU = gasspy_config["max_mem_GPU"]
-else:
-    max_mem_GPU = 4
-
-if "max_mem_CPU" in gasspy_config.keys():
-    max_mem_CPU = gasspy_config["max_mem_CPU"]
-else:
-    max_mem_CPU = 14
 
 ###########################
 # III) Calculate the raytrace
 ###########################
-if args.trace_file is not None:
-    trace_file = args.gasspydir+"/projections/"+args.trace_file
-else:
-    trace_file = args.gasspydir+"/projections/"+sim_prefix+"trace.hdf5"
+# Get prefix (if any) and observer type
+trace_prefix = gasspy_io.check_parameter_in_config(gasspy_config, "trace_prefix", None, "")
+if trace_prefix != "" and not trace_prefix.endswith("_"):
+    trace_prefix += "_"
+observer_type = gasspy_io.check_parameter_in_config(gasspy_config, "observer_type", None, "plane")
+assert observer_type in ["plane", "healpix"], "Error: invalid observer_type provided. Current options are \"healpix\" and \"plane\" (Default)"
+
+# Name of the trace file
+trace_file = gasspy_subdir+"/projections/%s%s_trace.hdf5"%(trace_prefix, observer_type)
+
 if not os.path.exists(trace_file) or args.rerun_raytrace:
     print("Raytracing")
     ## Define the observer class   
-    if "observer_type" in gasspy_config.keys() and gasspy_config["observer_type"] == "healpix":
+    if observer_type == "healpix":
         observer = observer_healpix_class(gasspy_config)
     else:
         observer = observer_plane_class(gasspy_config)
 
     ## Initialize the raytracer and ray_processer
     print(" - initializing raytracer")
-    raytracer = Raytracer_AMR_neighbor(sim_reader, gasspy_config, bufferSizeCPU_GB = max_mem_CPU, bufferSizeGPU_GB = max_mem_GPU, no_ray_splitting=False, liteVRAM = args.liteVRAM)
+    raytracer = Raytracer_AMR_neighbor(gasspy_config, sim_reader)
     print(" - initializing ray_processor")
-    ray_processor = Raytrace_saver(raytracer)
+    ray_processor = Raytrace_saver(gasspy_config, raytracer)
     raytracer.set_ray_processor(ray_processor)
     ## set observer
     raytracer.update_observer(observer = observer)
@@ -134,7 +113,9 @@ if not os.path.exists(trace_file) or args.rerun_raytrace:
     del observer
     ray_processor.clean()
     del ray_processor
-gc.collect()
+    free_memory()
+    gc.collect()
+
 ##########################
 # IV) Radiative transfer
 ##########################
@@ -145,38 +126,21 @@ mempool = cupy.get_default_memory_pool()
 pinned_mempool = cupy.get_default_pinned_memory_pool()
 
 cuda_device = torch.device('cuda:0')
-Elims = None
-if "Elims" in gasspy_config.keys():
-    Elims = np.array(gasspy_config["Elims"]).astype(float)
 
-if args.spec_save_name is None:
-    spec_save_name = sim_prefix + "spec.hdf5"
-else:
-    spec_save_name = args.spec_save_name
+spec_prefix = gasspy_io.check_parameter_in_config(gasspy_config, "spec_prefix", None, "")
+if spec_prefix != "" and not spec_prefix :
+    spec_prefix += "_"
+spec_file = "%s_%s_%s_spec.hdf5"%(spec_prefix, trace_prefix, observer_type)
 print("Radiative transfer")
-mytree = FamilyTree(
-    root_dir="./",
-    modeldir = args.modeldir,
-    gasspy_subdir=args.gasspydir,
-    config_yaml=gasspy_config,
+mytree = Trace_processor(
+    gasspy_config,
     traced_rays=trace_file,
-    energy_lims=Elims,
-    h5database=args.modeldir + "/gasspy_database.hdf5",
-    cell_index_to_gasspydb = args.gasspydir + "/cell_data/" + sim_prefix+"cell_gasspy_index.npy",
-    vel=None,#sim_reader.get_field("velocity"),
-    den=None,#sim_reader.get_number_density(),
-    massden = False,
-    opc_per_NH=False,
-    mu=1.1,
+    sim_reader = sim_reader, 
     accel="torch",
-    liteVRAM=args.liteVRAM,
-    Nraster=4,
-    spec_save_name=spec_save_name,
-    dtype=np.float32,
-    spec_save_type='hdf5',
-    cuda_device=cuda_device
+    spec_save_name=spec_file,
+    cuda_device=cuda_device,
 )
 print(" - Loading files")
 mytree.load_all()
 print(" - Processing rays")
-mytree.process_all()
+mytree.process_trace()

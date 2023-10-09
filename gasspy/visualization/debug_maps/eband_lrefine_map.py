@@ -63,16 +63,14 @@ if args.colormaps is not None:
         cmaps[i] = args.colormaps[i]
 
 nfields = 1
-logscale = [True, False, False]
+logscale = [True, False]
 fscale = 5
 for i in range(len(args.Emin)):
     map = reader.create_map(energy_limits=np.array([args.Emin[i], args.Emax[i]]), window_method = window_method, outmap_nfields= nfields, 
-                                            outmap_nx = args.nx, outmap_ny = args.ny, xlims = args.xlims, ylims = args.ylims)
-    
+                                            outmap_nx = args.nx, outmap_ny = args.ny, xlims = args.xlims, ylims = args.ylims, get_lrefine_map=True)
 
-    fig, axes = plt.subplots(figsize=(fscale*nfields,fscale), nrows = 1, ncols = nfields, sharex = True, sharey =True)
-    if nfields == 1:
-        axes = [axes,]
+    fig, axes = plt.subplots(figsize=(fscale*nfields,fscale), nrows = 1, ncols = nfields+1, sharex = True, sharey =True)
+
     for iax, ax in enumerate(axes):
         if logscale[iax]:
             field = map[:,:,iax].T

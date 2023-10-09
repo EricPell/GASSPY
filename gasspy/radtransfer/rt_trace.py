@@ -11,7 +11,7 @@ import h5py
 
 from gasspy.raystructures import global_ray_class
 from gasspy.settings.defaults import ray_dtypes    
-from gasspy.io.gasspy_io import read_yaml, check_parameter_in_config
+from gasspy.io.gasspy_io import read_yaml, check_parameter_in_config, save_gasspy_config_hdf5
 import yaml
 
 class Trace_processor():
@@ -31,8 +31,8 @@ class Trace_processor():
         cuda_device=None,
         scale_opacity_by_density=None,
         doppler_shift=None,
-        GPU_memory=None,
-        CPU_memory=None,
+        maxMemoryGPU_GB=None,
+        maxMemoryCPU_GB=None,
         target_segments_per_ray = None,
         doppler_shift_est_bin_ratio = None
 
@@ -60,7 +60,7 @@ class Trace_processor():
         self.torch_dtype = torch.as_tensor(np.array([],dtype=self.dtype)).dtype
 
         
-        self.liteVRAM = check_parameter_in_config(self.gasspy_config, "radiative_transfer_liteVRAM", liteVRAM, True)
+        self.liteVRAM = check_parameter_in_config(self.gasspy_config, "liteVRAM", liteVRAM, True)
         if liteVRAM:
             self.numlib = np
         else:
@@ -73,9 +73,9 @@ class Trace_processor():
         self.gasspy_modeldir = check_parameter_in_config(self.gasspy_config, "gasspy_modeldir", gasspy_modeldir, "gasspy_modeldir") 
         if not self.gasspy_modeldir.endswith("/"):
             self.gasspy_modeldir = self.gasspy_modeldir + "/"
-
+        self.h5database = self.gasspy_modeldir+self.database_name
         # Path to where we put spectra and projection files
-        self.gasspy_subdir = check_parameter_in_config(self.gasspy_config, "gasspy_subdir", gasspy_subdir, "GASSPY")
+        self.gasspy_subdir = sim_reader.gasspy_subdir
         if not self.gasspy_subdir.endswith("/"):
             self.gasspy_subdir = self.gasspy_subdir + "/"  
 
@@ -90,13 +90,13 @@ class Trace_processor():
             self.gasspy_spectra_subdir = self.gasspy_spectra_subdir + "/"
 
         # either h5file object of path to an hdf5 database containing the traced projection
-        self.traced_rays = traced_rays
+        self.traced_rays = check_parameter_in_config(self.gasspy_config, "traced_rays_file", traced_rays, "traced_rays.hdf5")
 
         # Where to save the spectra
-        self.spec_save_name = spec_save_name
+        self.spec_save_name = check_parameter_in_config(self.gasspy_config, "spec_save_name", spec_save_name, "spec.hdf5")
 
         # Needs to be reconsidered
-        self.scale_opacity_by_density = scale_opacity_by_density
+        self.scale_opacity_by_density = check_parameter_in_config(self.gasspy_config, "scale_opacity_by_density", scale_opacity_by_density, False)
 
         # use torch tensors?
         self.accel = accel.lower()
@@ -105,8 +105,8 @@ class Trace_processor():
         self.energy_limits = check_parameter_in_config(gasspy_config, "energy_limits", energy_limits, None)
         self.raydump_dict = {}
 
-        self.GPU_memory = check_parameter_in_config(self.gasspy_config,"GPU_memory", GPU_memory, 8)*1024**3
-        self.CPU_memory = check_parameter_in_config(self.gasspy_config,"CPU_memory", CPU_memory, 8)*1024**3
+        self.maxMemoryGPU_GB = check_parameter_in_config(self.gasspy_config,"maxMemoryGPU_GB", maxMemoryGPU_GB, 8)*1024**3
+        self.maxMemoryCPU_GB = check_parameter_in_config(self.gasspy_config,"maxMemoryCPU_GB", maxMemoryCPU_GB, 8)*1024**3
         self.target_segments_per_ray = check_parameter_in_config(self.gasspy_config, "target_segments_per_ray", target_segments_per_ray, None)   
 
         self.doppler_shift = check_parameter_in_config(self.gasspy_config, "doppler_shift", doppler_shift, False)
@@ -128,8 +128,10 @@ class Trace_processor():
 
         self.spectra_outpath = self.gasspy_spectra_subdir + self.spec_save_name
         spechdf5_out = h5py.File(self.spectra_outpath, "w")
-        self.N_spec_written = 0
 
+        save_gasspy_config_hdf5(self.gasspy_config, spechdf5_out)
+
+        self.N_spec_written = 0
         if init_size >=0:
             init_size=int(init_size)
         else:
@@ -220,6 +222,7 @@ class Trace_processor():
             if type(self.energy_limits) == str:
                 self.energy_limits = np.loadtxt(self.energy_limits)           
 
+        self.energy_limits = np.array(self.energy_limits)
 
     def sort_and_merge_energy_limits(self):
         if self.energy_limits is None:
@@ -360,7 +363,7 @@ class Trace_processor():
 
         # Load global rays
         self.global_rays = global_ray_class(on_cpu=self.liteVRAM)
-        self.global_rays.load_hdf5(self.traced_rays)
+        self.global_rays.load_hdf5(traced_rays_h5file)
         # Select the ancestral global_rayids
         self.ancenstors = self.global_rays.global_rayid[self.numlib.where(self.global_rays.pevid == -1)]
         self.cevid = self.global_rays.get_field("cevid")
@@ -410,9 +413,9 @@ class Trace_processor():
         ray_ratio = ray_size/(ray_size + self.target_segments_per_ray*self.raydump_dict["NcellPerRaySeg"]*cell_size)
 
         # Get a maxium number of leaf rays to work on concurrently
-        self.max_number_of_leafs = int(ray_ratio*self.GPU_memory/ray_size)
+        self.max_number_of_leafs = int(ray_ratio*self.maxMemoryGPU_GB/ray_size)
         # Get a maximum number of segment dumps to work on concurrently
-        self.max_number_of_segments = int((1-ray_ratio)*self.GPU_memory/(self.raydump_dict["NcellPerRaySeg"]*cell_size))
+        self.max_number_of_segments = int((1-ray_ratio)*self.maxMemoryGPU_GB/(self.raydump_dict["NcellPerRaySeg"]*cell_size))
         self.allocate_leaf_ray_storage()
 
     def allocate_leaf_ray_storage(self):
@@ -424,6 +427,7 @@ class Trace_processor():
         #    self.rt_flux        = torch.zeros((self.max_number_of_leafs,spectra_size), dtype=self.torch_dtype, device = self.cuda_device)
         #else:
         self.rt_flux        = cupy.zeros((self.max_number_of_leafs,spectra_size), dtype=self.dtype)            
+
         return
 
     def reset_leaf_ray_storage(self):
@@ -496,7 +500,12 @@ class Trace_processor():
 
   
     def get_branch(self, root_i):
-        """ Get the branch of root i"""
+        """
+            For a given branch (eg, a root ray and all of its children, their children etc.)
+            get all global_rayids and corresponding leaf_rays to add to
+
+            TODO: This function is messy and probably inefficient. Should be redesigned
+        """
         self.max_level = 0
         level = 0
         # This initalizes the trace down from parent
@@ -511,6 +520,9 @@ class Trace_processor():
         nrays = 1
         eol = -1
 
+        # First get the global_rayid such that for each level of this branch we have a 4^(lrefine-lrefine_min) array
+        # Non existent rays get listed as -1
+    
         while eol < 4**(level-1):
             level += 1
             eol = 0
@@ -549,6 +561,8 @@ class Trace_processor():
         # The raveled index of the rays
         branch_iray = {}
 
+
+        # Next set the index of these rays for this branch (eg. if we would put these rays in one list). Lower the level, lower the index
         iray = 0
         for level in range(max_level+1):
             branch_iray[level] = np.full(4**(level), -1, dtype = np.int64)
@@ -595,9 +609,11 @@ class Trace_processor():
         # global_rayid of ray
         global_rayid = branch["branch_global_rayid"][level][level_iray]
         if global_rayid == -1:
-            return
+            sys.exit("Error [rt_trace.py:determine_leafs]: child ray has no global_rayid")
+        
         # Index of ray in branch
         iray = branch["branch_iray"][level][level_iray]
+
         # If its a leaf, we are done and just return
         if self.cevid[global_rayid] == -1:
             rays_leafs_istart[iray] = nleafs
@@ -612,10 +628,14 @@ class Trace_processor():
             iray_child = branch["branch_iray"][level + 1][level_iray*4 + ichild]
             if ichild == 0:
                 rays_leafs_istart[iray] = rays_leafs_istart[iray_child]
-            rays_nleafs[iray]+= rays_nleafs[iray_child]
+            rays_nleafs[iray] += rays_nleafs[iray_child]
         return nleafs
 
     def merge_branches(self, branches):
+        """
+            Merges branches into a set of 1D arrays containing all rays within the branches.
+            Rays from a given branch are sequential as before, but now the branches share a set of corresponding leaf rays
+        """
         nleafs_total = 0
         nrays_total  = 0
         # Figure out total number of rays
@@ -757,7 +777,7 @@ class Trace_processor():
         if self.accel == "torch":
             segment_global_rayids = global_rayids[segment_iray.cpu().numpy()]
         else:
-            segment_global_rayids = global_rayids[segment_iray.get]
+            segment_global_rayids = global_rayids[segment_iray.get()]
 
         if not self.liteVRAM:
             segment_global_rayids = cupy.asarray(segment_global_rayids)
@@ -772,6 +792,7 @@ class Trace_processor():
                 "rays_segment_istart": ray_segment_istart,
                 "rays_segment_nsegs": ray_segment_nsegs,
                 "rays_leafs_istart" : rays_leafs_istart,
+                "rays_global_rayids" : global_rayids,
                 "rays_nleafs" : rays_nleafs
         }
         return segments
@@ -794,7 +815,7 @@ class Trace_processor():
                 self.process_segments(segments, cuda_device)
                 iray_end = iray + 1
                 nsegs = 0
-            # If one single ray exceeds the number of allowed segments we need to deal with it in a special way
+            # If one single ray exceeds the number of allowed segments we need to deal with it in a special way TODO
             if nsegs_for_ray > self.max_number_of_segments:
                 self.process_single_ray(iray)
                 iray_end -= 1
@@ -1016,6 +1037,9 @@ class Trace_processor():
         ray_flux        = torch.zeros((seg_flux.shape[0], len(ray_nleafs)), device = cuda_device, dtype = self.torch_dtype)
         ray_attenuation = torch.zeros((seg_flux.shape[0], len(ray_nleafs)), device = cuda_device, dtype = self.torch_dtype)
 
+        # Get the fractional size of the rays
+        ray_global_rayids = segments["rays_global_rayids"]
+        ray_fractional_area = cupy.array(self.global_rays.get_field("ray_fractional_area", index = ray_global_rayids))
 
         # The flux is already attenuated properly for this segment, just sum up the total flux contribution
         ray_flux.index_add_(dim = 1, index = segments["segment_iray"], source = seg_flux)
@@ -1031,8 +1055,9 @@ class Trace_processor():
         ray_attenuation = cupy.asarray(ray_attenuation.T)
 
         # maximum number of leafs to be filled by a ray
-        # Number of leafs is equivalent to ray refinement level
-        # Rays with fewer nleafs are further away and should therefore be dealt with first
+        # Number of leafs is (inversely) equivalent to ray refinement level. Leaf rays will have nleafs of 1, lrefine_max - 1 will have 4, lrefine_max -2 will have 16
+        # Rays with fewer nleafs (more higher refinement level) are further away and should therefore be dealt with first
+        # in order for cells closer to the observer to attenuate emission from further away
         # Rays with the same nleafs never share a leaf ray so we can also ensure zero collisions
         # by looping over nleafs
         unique_nleafs= cupy.unique(ray_nleafs).get()
@@ -1045,7 +1070,7 @@ class Trace_processor():
             self.rt_flux[ileafs,:] *= cupy.repeat(ray_attenuation[rays_now,:], axis = 0, repeats = nleaf)
 
             # Add the flux of the ray. Assume that the photons split evenly into the leafs 
-            cupyx.scatter_add(self.rt_flux, ileafs, cupy.repeat(ray_flux[rays_now,:]/nleaf, axis = 0, repeats = nleaf))
+            cupyx.scatter_add(self.rt_flux, ileafs, cupy.repeat(ray_flux[rays_now,:]/ray_fractional_area[rays_now,None], axis = 0, repeats = nleaf))
             #self.rt_flux[ileafs,:] += cupy.repeat(ray_flux[rays_now,:],axis = 0, repeats = nleaf)
         torch.cuda.empty_cache()
         return
@@ -1066,12 +1091,14 @@ class Trace_processor():
         nleafs_total = ray_dictionary["nleafs_total"]
 
         if self.liteVRAM:
-            save_data = {'flux':self.rt_flux[:nleafs_total,:].get()/self.global_rays.ray_fractional_area[leaf_global_rayids][:,None]}
+            #save_data = {'flux':self.rt_flux[:nleafs_total,:].get()*self.global_rays.ray_fractional_area[leaf_global_rayids][:,None]}
+            save_data = {'flux':self.rt_flux[:nleafs_total,:].get()}
             save_data.update({'xp':self.global_rays.xp[leaf_global_rayids],
                               'yp':self.global_rays.yp[leaf_global_rayids],
                               'ray_lrefine':self.global_rays.ray_lrefine[leaf_global_rayids]})
         else:
-            save_data = {'flux':self.rt_flux[:nleafs_total,:].get()/self.global_rays.ray_fractional_area[leaf_global_rayids].get()[:,None]}
+            #save_data = {'flux':self.rt_flux[:nleafs_total,:].get()*self.global_rays.ray_fractional_area[leaf_global_rayids].get()[:,None]}
+            save_data = {'flux':self.rt_flux[:nleafs_total,:].get()[:,None]}
             save_data.update({'xp':self.global_rays.xp[leaf_global_rayids].get(),
                               'yp':self.global_rays.yp[leaf_global_rayids].get(),
                               'ray_lrefine':self.global_rays.ray_lrefine[leaf_global_rayids].get()})
@@ -1081,22 +1108,24 @@ class Trace_processor():
 
     def write_spec_save_hdf5(self, new_data, grow=True):
         n_spec, n_e = new_data['flux'].shape
+        spechdf5_out = h5py.File(self.spectra_outpath, "r+")
+
         for key in new_data.keys():
             new_data_shape = new_data[key].shape
             if not grow:
                 if len(new_data_shape) == 1:
-                    self.spechdf5_out[key][self.N_spec_written:self.N_spec_written+n_spec] = new_data[key][:]
+                    spechdf5_out[key][self.N_spec_written:self.N_spec_written+n_spec] = new_data[key][:]
         
                 elif len(new_data_shape) == 2:
-                    self.spechdf5_out[key][self.N_spec_written:self.N_spec_written+n_spec,:] = new_data[key][:]
+                    spechdf5_out[key][self.N_spec_written:self.N_spec_written+n_spec,:] = new_data[key][:]
 
             else:
                 if len(new_data_shape) == 1:
-                    self.spechdf5_out[key].resize((self.spechdf5_out[key].shape[0] + n_spec), axis=0)
-                    self.spechdf5_out[key][-n_spec:] = new_data[key][:]
+                    spechdf5_out[key].resize((spechdf5_out[key].shape[0] + n_spec), axis=0)
+                    spechdf5_out[key][-n_spec:] = new_data[key][:]
         
                 elif len(new_data_shape) == 2:
-                    self.spechdf5_out[key].resize((self.spechdf5_out[key].shape[0] + n_spec), axis=0)
-                    self.spechdf5_out[key][-n_spec:,:] = new_data[key][:]
+                    spechdf5_out[key].resize((spechdf5_out[key].shape[0] + n_spec), axis=0)
+                    spechdf5_out[key][-n_spec:,:] = new_data[key][:]
 
         self.N_spec_written += n_spec

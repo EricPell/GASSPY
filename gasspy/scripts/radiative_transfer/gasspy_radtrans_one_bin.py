@@ -24,18 +24,9 @@ from gasspy.io import gasspy_io
 
 ap = argparse.ArgumentParser()
 #-------------DIRECTORIES AND FILES---------------#
-ap.add_argument("--simdir", default="./", help="Directory of the simulation and also default work directory")
-ap.add_argument("--config_yaml", default="./gasspy_config.yaml")
-ap.add_argument("--workdir", default= None, help="work directory. If not specified its the same as simdir")
-ap.add_argument("--gasspydir", default="GASSPY", help="directory inside of simdir to put the GASSPY files")
-ap.add_argument("--modeldir" , default="GASSPY", help = "directory inside of workdir where to read, put and run the cloudy models")
-ap.add_argument("--simulation_reader_dir", default="./", help="directory to the simulation_reader class that describes how to load the simulation")
-ap.add_argument("--sim_prefix", default = None, help="prefix to put before all snapshot specific files")
-ap.add_argument("--outfile", default = None, help="name of trace file. If it does not exist we need to recreate it")
-#-------------Run parameters-----------#
-ap.add_argument("--rerun_raytrace", action="store_true", help = "Force rerun of raytrace even if the trace file already exists")
-ap.add_argument("--liteVRAM", action="store_true", help = "All arrays except for those associated with the rays in system memory")
-ap.add_argument("--save_opacity", action="store_true", help = "Save opacity of each band along with flux")
+ap.add_argument("gasspy_config", default="./gasspy_config.yaml")
+ap.add_argument("outfile", default = None, help="name of trace file. If it does not exist we need to recreate it")
+ap.add_argument("--save_opacity", action = "store_true", help = "Save total opacity along with flux")
 
 #############################################
 # I) Initialization of the script
@@ -43,70 +34,37 @@ ap.add_argument("--save_opacity", action="store_true", help = "Save opacity of e
 ## parse the commandline argument
 args = ap.parse_args()
 
-## move to workdir
-if args.workdir is not None:
-    workdir = args.workdir
-else:
-    workdir = args.simdir
-os.chdir(workdir)
 
-## create GASSPY dir where all files specific to this snapshot is kept
-if not os.path.exists(args.gasspydir):
-    sys.exit("ERROR : cant find directory %s"%args.gasspydir)
-if not os.path.exists(args.modeldir):
-    sys.exit("ERROR : cant find directory %s"%args.modeldir)
+## Load the gasspy_config yaml
+gasspy_config = gasspy_io.read_gasspy_config(args.gasspy_config)
 
+## create gasspy_subdir where all files specific to this snapshot is kept
+snapshots = gasspy_config["snapshots"]
+assert len(snapshots.keys()) == 1, "Can only specify one snapshot at a time for radiative transfer"
+snaphot = snapshots[list(snapshots.keys())[0]]
+gasspy_subdir = snaphot["gasspy_subdir"]
+if not os.path.exists(gasspy_subdir):
+    sys.exit("ERROR : cant find snapshot specific gasspy sub directory %s."%gasspy_subdir)
 
-## set prefix to snapshot specific files
-if args.sim_prefix is not None:
-    ## add an underscore
-    sim_prefix = args.sim_prefix + "_"
-else:
-    sim_prefix = ""
+if not os.path.exists(gasspy_subdir+"/single_bands/"):
+    os.makedirs(gasspy_subdir+"/single_bands/")
 
-if args.outfile is None:
-    if not os.path.exists(args.gasspydir+"/single_bands/"):
-        os.makedirs(args.gasspydir+"/single_bands/")
-    outfile = args.gasspydir + "/single_bands/%ssingle_bands.hdf5"%sim_prefix
-else:
-    outfile = args.outfile
+outfile = gasspy_subdir+"/single_bands/" + args.outfile 
 ##############################
 # II) Load config files and simulation reader 
 ##############################
 
-## Load the fluxdef yaml file
-fluxdef = gasspy_io.read_fluxdef("./gasspy_fluxdef.yaml")
-
-## Load the gasspy_config yaml
-gasspy_config = gasspy_io.read_fluxdef(args.config_yaml)
+## Simulation reader directory
+simulation_readerdir = gasspy_io.check_parameter_in_config(gasspy_config, "simulation_reader_dir", None, "./")
 
 ## Load the simulation data class from directory
-print("Initializing simulation reader")
-spec = importlib.util.spec_from_file_location("simulation_reader", args.simulation_reader_dir + "/simulation_reader.py")
+spec = importlib.util.spec_from_file_location("simulation_reader", simulation_readerdir + "/simulation_reader.py")
 reader_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reader_mod)
-sim_reader = reader_mod.Simulation_Reader(args.simdir, args.gasspydir, gasspy_config["sim_reader_args"])
-
-## Determine maximum memory usage
-if "max_mem_GPU" in gasspy_config.keys():
-    max_mem_GPU = gasspy_config["max_mem_GPU"]
-else:
-    max_mem_GPU = 8
-
-if "max_mem_CPU" in gasspy_config.keys():
-    max_mem_CPU = gasspy_config["max_mem_CPU"]
-else:
-    max_mem_CPU = 14
+sim_reader = reader_mod.Simulation_Reader(gasspy_config, snaphot)
 
 ###########################
-# III) Database information
-###########################
-gasspy_database   = hp.File(args.modeldir + "/gasspy_database.hdf5", "r")
-cell_gasspy_index = np.load(args.gasspydir + "/cell_data/" + sim_prefix+"cell_gasspy_index.npy") 
-
-
-###########################
-# IV) figure out observers and energy bins
+# III) figure out observers and energy bins
 ###########################
 if not "observer_center" in gasspy_config.keys():
     observer_center = np.array([[0.5,0,5,1]])
@@ -138,8 +96,7 @@ elif len(pov_center) > 1:
     observer_center = np.repeat(observer_center, len(pov_center), axis = 0)
 
 # Load the limits of the energy bands
-energy_limits = np.atleast_2d(gasspy_config["Elims"])
-huh = gasspy_config["Elims"]
+energy_limits = np.atleast_2d(gasspy_config["energy_limits"])
 
 # Load the data for the lines (if any)
 line_data = None
@@ -152,7 +109,7 @@ if "bband_data" in gasspy_config.keys():
     bband_data = gasspy_config["bband_data"]
 
 ###########################
-# V) Initialize hdf5 file with output rays
+# IV) Initialize hdf5 file with output rays
 ###########################
 h5File = hp.File(outfile, "w")
 h5File.create_dataset("energy_limits", data = energy_limits)
@@ -169,9 +126,9 @@ if bband_data is not None:
 ##########################
 maxflux = np.zeros(len(energy_limits))
 ## Initialize the raytracer and ray_processer
-raytracer = Raytracer_AMR_neighbor(sim_reader, gasspy_config, bufferSizeCPU_GB = max_mem_CPU, bufferSizeGPU_GB = max_mem_GPU, no_ray_splitting=False, liteVRAM = args.liteVRAM, NcellBuff=16)
+raytracer = Raytracer_AMR_neighbor(gasspy_config, sim_reader)
 print("Initializing ray_processor")
-ray_processor = Single_band_radiative_transfer(raytracer, gasspy_database, cell_gasspy_index, energy_limits, liteVRAM=args.liteVRAM)
+ray_processor = Single_band_radiative_transfer(gasspy_config, raytracer, sim_reader)
 print("Setting ray_processor")
 raytracer.set_ray_processor(ray_processor)
 
@@ -206,13 +163,7 @@ for idir in range(len(pov_center)):
     
     # final flux in each band
     for iband in range(len(energy_limits)):
-        # Currently we only have two observers, plane and healpix. Plane has a physical size to a pixel, so we should rescale that to get to 1/cm^2 rather than 1/sim_unit_length^2
-        # TODO: THIS HAS TO BE REDONE SO THAT OBSERVER KNOWS ITS OWN SCALING IF WE WANT MORE TYPES OF OBSERVERS
-
-        if ("observer_type" in gasspy_config.keys() and gasspy_config["observer_type"] == "healpix"):
-            flux = raytracer.global_rays.get_field("photon_count_%d"%iband, index = leaf_rays).get()
-        else:
-            flux = raytracer.global_rays.get_field("photon_count_%d"%iband, index = leaf_rays).get()/gasspy_config["sim_unit_length"]**2
+        flux = raytracer.global_rays.get_field("photon_count_%d"%iband, index = leaf_rays).get()
 
         grp.create_dataset("photon_flux_%d"%iband, data = np.log10(flux).astype(np.float16))
 

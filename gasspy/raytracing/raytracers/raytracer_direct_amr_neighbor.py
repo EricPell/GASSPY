@@ -213,10 +213,10 @@ class Raytracer_AMR_neighbor(Raytracer_AMR_Base):
 
     def __store_in_buffer__(self):
         # store in buffer        
-        self.buff_pathlength [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("pathlength")
-        self.buff_amr_lrefine[self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("amr_lrefine")
-        self.buff_ray_area   [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("ray_area")
-        self.buff_cell_index [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("cell_index")
+        self.buff_pathlength [self.active_rays.get_field("active_rays_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("pathlength")
+        self.buff_amr_lrefine[self.active_rays.get_field("active_rays_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("amr_lrefine")
+        self.buff_ray_area   [self.active_rays.get_field("active_rays_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("ray_area")
+        self.buff_cell_index [self.active_rays.get_field("active_rays_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("cell_index")
         
     def store_in_buffer(self):
         # store in buffer        

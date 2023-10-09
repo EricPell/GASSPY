@@ -7,11 +7,19 @@ import sys
 
 from gasspy.settings.defaults import ray_dtypes
 from gasspy.raytracing.ray_processors.ray_processor_base import Ray_processor_base
-
 from gasspy.io import gasspy_io
+
 class Flux_calculator(Ray_processor_base):
-    def __init__(self, raytracer, sim_reader, source_Nphoton, cell_opacity_function, opacity_function_needed_fields, liteVRAM = False):
-        self.liteVRAM = liteVRAM
+    def __init__(self, gasspy_config, raytracer, sim_reader, source_Nphoton, cell_opacity_function, opacity_function_needed_fields, liteVRAM = False):
+        
+        if isinstance(gasspy_config, str):
+            self.gasspy_config = gasspy_io.read_yaml(gasspy_config)
+        else:
+            self.gasspy_config = gasspy_config
+        
+        # Should we try to use VRAM sparingly
+        self.liteVRAM = gasspy_io.check_parameter_in_config(gasspy_config, "liteVRAM", liteVRAM, True)
+
         
         # Save opacity function reference
         self.cell_opacity_function = cell_opacity_function
@@ -39,7 +47,7 @@ class Flux_calculator(Ray_processor_base):
         self.NraySegs  = self.raytracer.NraySegs
 
         self.clght = apyc.c.cgs.value    
-        self.sim_unit_length = self.raytracer.gasspy_config["sim_unit_length"] 
+        self.sim_unit_length = self.gasspy_config["sim_unit_length"] 
 
     def process_buff(self, active_rays_indexes_todump, full = False, null_only = False):
         if null_only:
@@ -50,7 +58,7 @@ class Flux_calculator(Ray_processor_base):
         if len(active_rays_indexes_todump) == 0:
             return
         # Get get buffer indexes of finished rays into a cupy array
-        indexes_in_buffer = self.raytracer.active_rays.get_field("active_rayDF_to_buffer_map", index = active_rays_indexes_todump, full = full)
+        indexes_in_buffer = self.raytracer.active_rays.get_field("active_rays_to_buffer_map", index = active_rays_indexes_todump, full = full)
         
         # How many ray segments we have in this dump
         NraySegInDump = len(active_rays_indexes_todump)

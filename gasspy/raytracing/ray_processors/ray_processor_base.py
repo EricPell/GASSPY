@@ -2,7 +2,7 @@ class Ray_processor_base:
     """
        Informal interface for ray_processor classes, containing all empty functions that are called externally, for example by the raytracer classes
     """
-    def __init__(self):
+    def __init__(self, gasspy_config):
         return    
 
     def init_global_ray_fields(self):

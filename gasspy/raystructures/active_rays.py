@@ -33,7 +33,7 @@ class active_ray_class(base_ray_class):
             "cell_index",
             "pathlength",
             "ray_status",
-            "active_rayDF_to_buffer_map",
+            "active_rays_to_buffer_map",
             "buffer_current_step",
             "dump_number", 
             "ray_area"]

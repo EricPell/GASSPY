@@ -11,7 +11,7 @@ def add_Family_tree_arguments(ap):
     ap.add_argument("--saved3d", type = str, default = "saved3d_cloudyfields.npy", help = "name of file containing the cell index to gasspy physics index map")
     ap.add_argument("--gasspy_id", type = str, default = "saved3d_cloudyfields.npy", help = "name of file containing the cell index to gasspy physics index map")
 
-    ap.add_argument("--config_yaml", type = str, default = "./gasspy_config.yaml", help = "name of file containing the cell index to gasspy physics index map")
+    ap.add_argument("--gasspy_config", type = str, default = "./gasspy_config.yaml", help = "name of file containing the cell index to gasspy physics index map")
     
     ap.add_argument("--spec_save_type", type = str, default = 'hdf5', help ="save type to use for the spectra (currently only HDF5 supported)")
     ap.add_argument("--spec_save_name", type = str, default = "gasspy_spec", help ="Name of file to save spectra to")   

@@ -54,7 +54,7 @@ reader = spec_reader(args.f, maxmem_GB=None)
 # TODO: make this one call to load it all...
 fscale = 5
 for i in range(len(names)):
-    map = reader.create_map(Elims=np.array([emins[i], emaxs[i]]), window_method = window_method[i], outmap_nfields= 1, 
+    map = reader.create_map(energy_limits=np.array([emins[i], emaxs[i]]), window_method = window_method[i], outmap_nfields= 1, 
                                             outmap_nx = args.nx, outmap_ny = args.ny, xlims = args.xlims, ylims = args.ylims)
     
 

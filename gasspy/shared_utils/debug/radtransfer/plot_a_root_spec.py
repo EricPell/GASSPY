@@ -44,7 +44,7 @@ if args.Emax is None:
 else:
     Emax = args.Emax
 
-Elims = np.array([Emin, Emax])
+energy_limits = np.array([Emin, Emax])
 
 colors = [None for i in range(len(args.xp))]
 if args.colors is not None:
@@ -60,7 +60,7 @@ for i in range(len(args.xp)):
     else:
         xp = args.xp[i]/xsize
         yp = args.yp[i]/ysize
-    Eplot, flux, line, bband= reader.read_spec(xp, yp, Elims = Elims, return_integrated_line = True, return_broadband = True)
+    Eplot, flux, line, bband= reader.read_spec(xp, yp, energy_limits = energy_limits, return_integrated_line = True, return_broadband = True)
     np.save("spec_%f_%f.npy"%(args.xp[i], args.yp[i]),np.array([Eplot,flux]) )
     plt.plot(Eplot, flux, label = "xp = %.3e, yp=%.3e"%(xp,yp), color = colors[i], marker = args.marker)
     print("xp = %.4e, yp = %.4e: line = %.4e bband = %.4e"%(xp, yp, line, bband))

@@ -10,42 +10,23 @@ from gasspy.shared_utils.spectra_functions import broadband, integrated_line
 from gasspy.io import gasspy_io
 class spec_reader:
     def __init__(self, spec_file,
-        sim_dir="./",
-        gasspy_subdir="GASSPY",
-        gasspy_spec_subdir="spec",
         maxmem_GB = None,
     ):
         """
             Arguments:
             spec_file: string or open hdf5 file (hdf5 file containing the spectra and their position)
-            root_dir : string (root directory of simulation)
-            gasspy_subdir : string (name of the GASSPY sub-directory within root_dir)
-            gasspy_spec_subdir : string (name of the spectra subdirectory within GASSPY sub-directory)
             maxmem_GB: float (maximum amount of system memory we will try to use. NOTE: this is just and estimate so be conservative)
         """
-        self.sim_dir = sim_dir
-        self.gasspy_subdir = gasspy_subdir
-        self.gasspy_spec_subdir = gasspy_spec_subdir
         if not isinstance(spec_file, h5py._hl.files.File):
-            assert isinstance(spec_file, str), "provided spec_file is neither a string or open hd5 file"
-            if not spec_file.endswith(".hdf5"):
-                spec_file += ".hdf5"
-            if Path(spec_file).is_file():
-                tmp_path = spec_file
-            elif Path(self.sim_dir+self.gasspy_subdir+self.gasspy_spec_subdir+spec_file).is_file():
-                tmp_path = self.sim_dir+self.gasspy_subdir+self.gasspy_spec_subdir+spec_file
-            else:
-                sys.exit("Could not find the traced rays file\n"+\
-                "Provided path: %s"%spec_file+\
-                "Try looking in \"./\" and %s\n"%(self.sim_dir+self.gasspy_spec_subdir)+\
-                "Aborting...")            
+            assert isinstance(spec_file, str), "provided spec_file is neither a string or open hd5 file"       
 
-            self.spec_file = h5py.File(tmp_path, "r")
+            self.spec_file = h5py.File(spec_file, "r")
         else:
             self.spec_file = spec_file
 
         ## Load the gasspy_config yaml
-        gasspy_config = gasspy_io.read_fluxdef(self.sim_dir+"/gasspy_config.yaml")
+        gasspy_config = {}
+        gasspy_io.read_gasspy_config_hdf5(gasspy_config, self.spec_file)
 
         # Load the posional information of the rays
         self.xp = self.spec_file["xp"][:]
@@ -81,15 +62,15 @@ class spec_reader:
 
     def create_map(self, 
                 xlims = None, ylims = None, 
-                Elims = None, window_method = broadband, 
+                energy_limits = None, window_method = broadband, 
                 outmap_nfields = 1, outmap_dtype = np.float64, 
-                outmap_nx = None, outmap_ny = None):
+                outmap_nx = None, outmap_ny = None, get_lrefine_map = False):
         """
             Creates a uniform map with the desired fields based on the ray fluxes
             Arguments:
                 xlims: array of size 2 (minimum and maximum size of the map in x)
                 ylims: array of size 2 (minimum and maximum size of the map in y)
-                Elims: array of size 2 (minimum and maximum energy to use in flux)
+                energy_limits: array of size 2 (minimum and maximum energy to use in flux)
                 window_method: optional method (method used to derive the fields from the specified fluxes, default is integrated)
                 outmap_nfields: int (Number of fields of the map, same as the number of fields returned by the window_method, default is 1)
                 outmap_dtype: type (dtype of the outmap)
@@ -110,9 +91,9 @@ class spec_reader:
         idxs = np.where((self.xp >= xlims[0]) * (self.xp < xlims[1]) *
                         (self.yp >= ylims[0]) * (self.yp < ylims[1]))[0]
         # if we are reading the entire energy range, set limits to cover everything
-        if Elims is None:
-            Elims = np.array([np.min(self.Energies)-1, np.max(self.Energies) + 1])
-        Eidxs = np.where( (self.Energies >= Elims[0]) * (self.Energies < Elims[1]))[0]
+        if energy_limits is None:
+            energy_limits = np.array([np.min(self.Energies)-1, np.max(self.Energies) + 1])
+        Eidxs = np.where( (self.Energies >= energy_limits[0]) * (self.Energies < energy_limits[1]))[0]
         
         # If nx or ny are not defined we use the maximum of the providied rays
         outmap_ray_lrefine = np.max(self.ray_lrefine)
@@ -126,6 +107,8 @@ class spec_reader:
         outmap_dy = outmap_size_y/outmap_ny
 
 
+        if get_lrefine_map:
+            outmap_nfields += 1
         # Total number of cells in the outmap
         outmap_ncells = outmap_nx*outmap_ny
         # Memory load of the map
@@ -134,14 +117,16 @@ class spec_reader:
         # Male sure it fits
         if outmap_size > self.maxmem:
             sys.exit("Cant allocate map with current memory limits. map memory size : %f GB, available memory : %f GB\n try using a map on a lower ray_refine level or less pixels"%(outmap_size/1024**3, self.maxmem/1024**3))
+        
+
 
         outmap = np.zeros((outmap_nx, outmap_ny, outmap_nfields), outmap_dtype)
         free_mem = self.maxmem - outmap_size
         
         # figure out the size of a ray
         raysize = len(Eidxs) * self.spec_file["flux"].dtype.itemsize
-        print(Eidxs.shape)
-        print(len(Eidxs), self.spec_file["flux"].dtype.itemsize)
+        if get_lrefine_map:
+            raysize += self.spec_file["flux"].dtype.itemsize
         rays_at_a_time = int(free_mem/raysize)
         
         # grab used energies and deltaEnergies
@@ -173,8 +158,11 @@ class spec_reader:
                 # get the fluxes for these rays and apply the window method
                 fields = np.zeros((nrays_now, outmap_nfields))
                 flux = window_method(Energies, deltaEnergies, self.read_rays(idxs_now, Eidxs))
-                fields[:,0] = flux[:,0]
-                
+                if get_lrefine_map:
+                    fields[:,:outmap_nfields] = flux[:,:]
+                    fields[:,-1] = lref
+                else:
+                    fields[:,:] = flux[:,:]
                 # Determine where in the map the ray is
                 map_xstart = self.xp[idxs_now] - 0.5*ray_dx - xlims[0]
                 map_xend   = self.xp[idxs_now] + 0.5*ray_dx - xlims[0]
@@ -240,19 +228,19 @@ class spec_reader:
         # Go back to surface brightness
         outmap = outmap/outmap_dx/outmap_dy 
         return outmap
-    def read_spec(self, x, y, Elims = None, return_integrated_line = False, return_broadband = True):
+    def read_spec(self, x, y, energy_limits = None, return_integrated_line = False, return_broadband = True):
         """
             Finds the closest matching ray to a set of xy coordinates and returns its spectra and energies
             arguments:
                 x: float (x position to find ray of)
                 y: float (y position to find ray of)
-                Elims: optional array of two floats (minimum and maximum energy of spectra to return)
+                energy_limits: optional array of two floats (minimum and maximum energy of spectra to return)
             TODO: Make this work for arrays of x and y
         """
         # if we are reading the entire energy range, set limits to cover everything
-        if Elims is None:
-            Elims = np.array([np.min(self.Energies)-1, np.max(self.Energies) + 1])
-        Eidxs = np.where( (self.Energies >= Elims[0]) * (self.Energies < Elims[1]))[0]
+        if energy_limits is None:
+            energy_limits = np.array([np.min(self.Energies)-1, np.max(self.Energies) + 1])
+        Eidxs = np.where( (self.Energies >= energy_limits[0]) * (self.Energies < energy_limits[1]))[0]
         
         # find the closest matching ray
         idx = np.argmin((self.xp - x)**2 + (self.yp - y)**2)

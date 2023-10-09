@@ -36,7 +36,7 @@ ray_dtypes = {
     "pathlength"  : pos_dtype,                                   # the pathlength of the ray through the cell
     "ray_status": cupy.int8,                                        # flag for the ray being (0)fine/(1)filled its buffer/(2)terminated for leaving the domain
                                                                     # /(3)split due to refinement
-    "active_rayDF_to_buffer_map" : rayid_dtype,                      # Mapping index from the active_rayDF to the 2D buffer arrays
+    "active_rays_to_buffer_map" : rayid_dtype,                      # Mapping index from the active_rayDF to the 2D buffer arrays
     "buffer_current_step": cupy.int16,                              # Current cell in the buffer
     "dump_number" : cupy.int16,                                     # Number of dumps the current ray has done
     "ray_area"    : pos_dtype,                                    # current area covered by the solid angle of the ray
@@ -74,7 +74,7 @@ ray_defaults = {
     "pathlength"  : 0,
     "ray_status": 0,
                                                            
-    "active_rayDF_to_buffer_map" : -1,
+    "active_rays_to_buffer_map" : -1,
     "buffer_current_step": 0,
     "dump_number" : -1,
     "ray_area"    : 0,

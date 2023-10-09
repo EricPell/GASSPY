@@ -9,7 +9,13 @@ from gasspy.raytracing.raytracers import Raytracer_AMR_Base
 from gasspy.raytracing.ray_processors.ray_processor_base import Ray_processor_base
 from gasspy.io import gasspy_io
 class Raytrace_saver(Ray_processor_base):
-    def __init__(self, raytracer : Raytracer_AMR_Base):
+    def __init__(self, gasspy_config, raytracer : Raytracer_AMR_Base):
+
+        if isinstance(gasspy_config, str):
+            self.gasspy_config = gasspy_io.read_yaml(gasspy_config)
+        else:
+            self.gasspy_config = gasspy_config
+
         self.raytracer = raytracer
         
         return
@@ -21,7 +27,7 @@ class Raytrace_saver(Ray_processor_base):
         if len(active_rays_indexes_todump) == 0:
             return
         # Get get buffer indexes of finished rays into a cupy array
-        indexes_in_buffer = self.raytracer.active_rays.get_field("active_rayDF_to_buffer_map", index = active_rays_indexes_todump, full = full)
+        indexes_in_buffer = self.raytracer.active_rays.get_field("active_rays_to_buffer_map", index = active_rays_indexes_todump, full = full)
         
         # How many ray segments we have in this dump
         NraySegInDump = len(active_rays_indexes_todump)
@@ -64,6 +70,7 @@ class Raytrace_saver(Ray_processor_base):
         pass
 
     def save_trace(self, filename):
+        
         # Open the hdf5 file
         h5file = hp.File(filename, "w")
         # Save the traced rays object for later use in RT
@@ -85,8 +92,8 @@ class Raytrace_saver(Ray_processor_base):
         # We require one extra variable (solid angle of pixel)
         self.raytracer.oneRayCell += 64
         # Since we are transfering using 4 pipelines, we need to account for there being 4 times as many buffers
-        self.raytracer.NrayBuff = int(self.raytracer.bufferSizeGPU_GB * 8*1024**3 / (4*self.raytracer.NcellBuff * self.raytracer.oneRayCell))
-        self.NraySegs = int(self.raytracer.bufferSizeCPU_GB * 8*1024**3 / (self.raytracer.NcellBuff * self.raytracer.oneRayCell))
+        self.raytracer.NrayBuff = int(self.raytracer.maxMemoryGPU_GB * 8*1024**3 / (4*self.raytracer.NcellBuff * self.raytracer.oneRayCell))
+        self.NraySegs = int(self.raytracer.maxMemoryCPU_GB * 8*1024**3 / (self.raytracer.NcellBuff * self.raytracer.oneRayCell))
 
     
     def alloc_buffer(self):
@@ -108,7 +115,7 @@ class Raytrace_saver(Ray_processor_base):
         self.solid_angle_pipe  = gpu2cpu_pipeline(self.raytracer.NrayBuff, ray_dtypes["ray_area"]   ,self.raytracer.NcellBuff, "solid_angle", self.traced_rays)
 
     def store_in_buffer(self):
-        self.buff_solid_angle[self.raytracer.active_rays.get_field("active_rayDF_to_buffer_map"), self.raytracer.active_rays.get_field("buffer_current_step")] = self.raytracer.observer.get_pixel_solid_angle(self.raytracer.active_rays, back_half = True)
+        self.buff_solid_angle[self.raytracer.active_rays.get_field("active_rays_to_buffer_map"), self.raytracer.active_rays.get_field("buffer_current_step")] = self.raytracer.observer.get_pixel_solid_angle(self.raytracer.active_rays, back_half = True)
         return
 
     def clean_buff(self, indexes_to_clean):

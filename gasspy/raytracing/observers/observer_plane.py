@@ -5,22 +5,34 @@ import sys
 
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
 from gasspy.raystructures.global_rays import global_ray_class, base_ray_class
-from gasspy.io.gasspy_io import check_parameter_in_config
+from gasspy.io.gasspy_io import check_parameter_in_config, read_yaml
 
 class observer_plane_class:
-    def __init__(self, gasspy_config, Nxp : int = None, Nyp : int = None, 
-                                detector_size_x : float = None, detector_size_y : float = None, pov_center = None, observer_center = None,
-                                external_distance: float = None, ignore_within_distance :float = None, **kwargs) -> None:
+    def __init__(self, gasspy_config, 
+                 Nxp : int = None, 
+                 Nyp : int = None,                 
+                detector_size_x : float = None, 
+                detector_size_y : float = None, 
+                pov_center = None, 
+                observer_center = None,
+                external_distance: float = None, 
+                ignore_within_distance :float = None) -> None:
+        
+        # check if we need to read the config
+        if isinstance(gasspy_config, str):
+            self.gasspy_config = read_yaml(gasspy_config)
+        else:
+            self.gasspy_config = gasspy_config
         
         # if not defined assume that the simulation data is cubic, and take the plot grid to use the same dimensions
-        self.Nxp = check_parameter_in_config(gasspy_config, "Nxp", Nxp, 2**gasspy_config["ray_lrefine_min"])
-        self.Nyp = check_parameter_in_config(gasspy_config, "Nyp", Nyp, 2**gasspy_config["ray_lrefine_min"])
+        self.Nxp = check_parameter_in_config(self.gasspy_config, "Nxp", Nxp, 2**gasspy_config["ray_lrefine_min"])
+        self.Nyp = check_parameter_in_config(self.gasspy_config, "Nyp", Nyp, 2**gasspy_config["ray_lrefine_min"])
 
-        self.detector_size_x = check_parameter_in_config(gasspy_config, "detector_size_x", detector_size_x, 1) 
-        self.detector_size_y = check_parameter_in_config(gasspy_config, "detector_size_y", detector_size_y, 1) 
+        self.detector_size_x = check_parameter_in_config(self.gasspy_config, "detector_size_x", detector_size_x, 1) 
+        self.detector_size_y = check_parameter_in_config(self.gasspy_config, "detector_size_y", detector_size_y, 1) 
 
-        self.external_distance = check_parameter_in_config(gasspy_config, "external_distance", external_distance, 0)
-        self.ignore_within_distance = check_parameter_in_config(gasspy_config, "ignore_within_distance", ignore_within_distance, 0)
+        self.external_distance = check_parameter_in_config(self.gasspy_config, "external_distance", external_distance, 0)
+        self.ignore_within_distance = check_parameter_in_config(self.gasspy_config, "ignore_within_distance", ignore_within_distance, 0)
 
         # This is immutable. Never shall xps and yps change. They are pixel indicies for a detector
         self.xps = (cupy.arange(0, self.Nxp) + 0.5)*self.detector_size_x/self.Nxp
@@ -43,15 +55,16 @@ class observer_plane_class:
         self.dys = self.detector_size_y*2**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
         
         #  pov_center: the point at which xp =0.5 yp = 0.5 zp = 0 from the viewpoint of the observer. Default to negative Z
-        default = gasspy_config["origin"]
-        self.pov_center = check_parameter_in_config(gasspy_config, "pov_center", pov_center, default.copy())
+        default = check_parameter_in_config(self.gasspy_config, "origin", None, np.array([0.5,0.5,0.5]))
+        self.pov_center = np.array(check_parameter_in_config(self.gasspy_config, "pov_center", pov_center, default.copy()))
+        if len(self.pov_center.shape) > 1:
+            self.pov_center = self.pov_center[0]
 
         # observer center is the position of the observer center in the coordinate frame of the simulation
         default[2] = 0
-        self.observer_center = check_parameter_in_config(gasspy_config, "observer_center", observer_center, default.copy())
-
-
-        self.__dict__.update(kwargs)
+        self.observer_center = np.array(check_parameter_in_config(self.gasspy_config, "observer_center", observer_center, default.copy()))
+        if len(self.observer_center.shape) > 1:
+            self.observer_center = self.observer_center[0]
 
         if isinstance(self.observer_center, list):
             self.observer_center = np.array(self.observer_center)        

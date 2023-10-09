@@ -11,12 +11,16 @@ from gasspy.shared_utils.functions import sorted_in1d
 from gasspy.io import gasspy_io
 
 class Raytracer_AMR_Base:
-    def __init__(self, sim_reader, gasspy_config, observer = None, savefiles = True, bufferSizeGPU_GB = 4, bufferSizeCPU_GB = 20, NcellBuff  = 64, raster=1, no_ray_splitting = False, liteVRAM = False):
-        self.liteVRAM = liteVRAM
-
-        self.set_new_sim_data(sim_reader, gasspy_config)
+    def __init__(self, gasspy_config, sim_reader, 
+                 observer = None, 
+                 maxMemoryGPU_GB = None, 
+                 maxMemoryCPU_GB = None, 
+                 NcellBuff  = None, 
+                 no_ray_splitting = None, 
+                 liteVRAM = None):
         """
             Input:
+                gasspy_config - dictionary or path to a yaml file containing the configuration of the current task
                 sim_data, required - simulation_data_class object containing the needed data from the simulation
                 observer          - initial observer definition, can be set later 
                 line_labels        - Names of the wanted lines
@@ -24,24 +28,37 @@ class Raytracer_AMR_Base:
                 NcellBuff          - integer describing the number of cells a ray will hold in the buffer before
                                      before it calculates the cumulative emissions and opacities
         """
+
+        # 
+        # check if we need to read the config
+        if isinstance(gasspy_config, str):
+            gasspy_config = gasspy_io.read_yaml(gasspy_config)
+        else:
+            gasspy_config = gasspy_config
+
+        # Should we use VRAM sparingly?
+        self.liteVRAM = gasspy_io.check_parameter_in_config(gasspy_config, "liteVRAM", liteVRAM, False)
+
+
         # Initially set ray processor to None
         self.ray_processor = None
         self.threads_per_block = 64
+
+        # Set ovserver if provided
         if observer is not None:
             self.set_observer(observer)
         else:
             self.observer = None
-        self.savefiles = savefiles
 
         # These keys need to be intialized at the transfer of an array from the global_rays to the active_rays data structures
-        self.new_keys_for_active_rayDF = ["pathlength", "ray_status", "buffer_current_step", "index1D", "dump_number", "ray_area"]
-        # These keys are shared between the global and active rayDF's
+        self.new_keys_for_active_rays = ["pathlength", "ray_status", "buffer_current_step", "index1D", "dump_number", "ray_area"]
+        # These keys are shared between the global and active rays's
         self.shared_column_keys = ["xp","yp","xi", "yi", "zi", "raydir_x", "raydir_y", "raydir_z", "global_rayid", "ray_lrefine", "amr_lrefine", "ray_lrefine", "cell_index"]
-        self.new_keys_for_active_rayDF_dtype = {}
-        self.new_keys_for_active_rayDF_default = {}
-        for key in self.new_keys_for_active_rayDF:
-            self.new_keys_for_active_rayDF_dtype[key] = ray_dtypes[key]
-            self.new_keys_for_active_rayDF_default[key] = ray_defaults[key]
+        self.new_keys_for_active_rays_dtype = {}
+        self.new_keys_for_active_rays_default = {}
+        for key in self.new_keys_for_active_rays:
+            self.new_keys_for_active_rays_dtype[key] = ray_dtypes[key]
+            self.new_keys_for_active_rays_default[key] = ray_defaults[key]
 
         # How much memory (in bits) is one element (eg one cell for one ray) in the buffer
         # Bit size per buffer element:
@@ -52,17 +69,21 @@ class Raytracer_AMR_Base:
         self.oneRayCell = 272
 
         # Use this to determine the number of buffer cells we can afford for a given total memory and number of buffered rays.
-        self.NcellBuff = NcellBuff
-        self.bufferSizeGPU_GB = bufferSizeGPU_GB
-        self.bufferSizeCPU_GB = bufferSizeCPU_GB
+        self.NcellBuff = gasspy_io.check_parameter_in_config(gasspy_config, "NcellBuff", NcellBuff, 32)
+        self.maxMemoryGPU_GB = gasspy_io.check_parameter_in_config(gasspy_config, "maxMemoryGPU_GB", maxMemoryGPU_GB, 4) 
+        self.maxMemoryCPU_GB = gasspy_io.check_parameter_in_config(gasspy_config, "maxMemoryCPU_GB", maxMemoryCPU_GB, 12) 
 
-        self.NrayBuff = int(bufferSizeGPU_GB * 8*1024**3 / (NcellBuff * self.oneRayCell))
-        self.no_ray_splitting = no_ray_splitting
+        self.NrayBuff = int(self.maxMemoryGPU_GB * 8*1024**3 / (self.NcellBuff * self.oneRayCell))
 
-        if "ray_lrefine_max" in gasspy_config:
-            self.ray_lrefine_max = gasspy_config["ray_lrefine_max"]
-        else:
-            self.ray_lrefine_max = ray_defaults["ray_lrefine_max"]
+        # Set if we dont want to utilize adaptive ray splitting
+        self.no_ray_splitting = gasspy_io.check_parameter_in_config(gasspy_config, "no_ray_splitting", no_ray_splitting, False)
+
+        # Set maximum refinement level of the rays
+        self.ray_lrefine_max = gasspy_io.check_parameter_in_config(gasspy_config, "ray_lrefine_max", None, ray_defaults["ray_lrefine_max"])
+
+        # Read simulation data
+        self.set_new_sim_data(sim_reader, gasspy_config)
+
 
 
     """
@@ -199,7 +220,7 @@ class Raytracer_AMR_Base:
         # set deactivated in global
         # 
         # split rays that have encountered a higher AMR level 
-        # and prune from active_rayDF and set number of available slots
+        # and prune from active_rays and set number of available slots
 
         # Get all rays that need to have their buffers dumped, regardles of whether the ray has filled its buffer or is just done
         # and tell the ray_processor to process the cell intersections so that they can be removed
@@ -242,16 +263,16 @@ class Raytracer_AMR_Base:
         new_rays_fields = {}
         for field in self.shared_column_keys:
             new_rays_fields[field] = self.global_rays.get_field(field, index = global_rayids)
-        for field in self.new_keys_for_active_rayDF:
+        for field in self.new_keys_for_active_rays:
             new_rays_fields[field] = cupy.full(N, ray_defaults[field], dtype = ray_dtypes[field])
 
         # Get information of where in the buffer these rays will write to
         available_buffer_slot_index = cupy.where(self.buff_slot_occupied == 0)[0][:N]
 
-        # Put buffer slot information into the newRays to be added to the active_rayDF
+        # Put buffer slot information into the newRays to be added to the active_rays
         # Returned indexes of where by default will have ... a type that probably is int64, but could change.
         # To ensure that the type uses no more memory than necessary we convert it to the desired buffer_slot_index_type
-        new_rays_fields["active_rayDF_to_buffer_map"] = available_buffer_slot_index.astype(ray_dtypes["active_rayDF_to_buffer_map"])
+        new_rays_fields["active_rays_to_buffer_map"] = available_buffer_slot_index.astype(ray_dtypes["active_rays_to_buffer_map"])
 
         # Set occupation status of the buffer
         self.buff_slot_occupied[available_buffer_slot_index] = 1
@@ -292,7 +313,7 @@ class Raytracer_AMR_Base:
     def prune_active_rays(self, indexes_to_drop):
         """
             Gather all rays that need to be deactivatd.
-            Deactivate them in the active and global rayDFs
+            Deactivate them in the active and global rayss
         """
         #If no rays deactivated: do nothing
         if(len(indexes_to_drop) == 0):
@@ -302,7 +323,7 @@ class Raytracer_AMR_Base:
         # These rays are DONE, no need to refine
 
         # Newlly opened, but not cleaned slots in the buffer
-        buff_slot_newly_freed = self.active_rays.get_field("active_rayDF_to_buffer_map", index = indexes_to_drop)
+        buff_slot_newly_freed = self.active_rays.get_field("active_rays_to_buffer_map", index = indexes_to_drop)
 
         self.global_Nraysfinished += len(buff_slot_newly_freed)
 
@@ -315,13 +336,13 @@ class Raytracer_AMR_Base:
         self.shared_column_keys.append(key)
 
     def append_new_active_key(self, key, dtype = None, default = None):
-        self.new_keys_for_active_rayDF.append(key)
+        self.new_keys_for_active_rays.append(key)
         if dtype is None:
             dtype = ray_dtypes[key]
         if default is None:
             default = ray_defaults[key]
-        self.new_keys_for_active_rayDF_dtype.append(dtype)
-        self.new_keys_for_active_rayDF_default.append(default)
+        self.new_keys_for_active_rays_dtype.append(dtype)
+        self.new_keys_for_active_rays_default.append(default)
     def reset_trace(self):
         # Reset the active_ray structure
         self.active_rays.remove_rays(cupy.arange(self.active_rays.nactive))
@@ -471,7 +492,7 @@ class Raytracer_AMR_Base:
         # start by moving all cells outside of box to the first intersecting cell
         self.move_to_first_intersection()
         
-        # Send as many rays as possible to the active_rayDF and associated buffers
+        # Send as many rays as possible to the active_rays and associated buffers
         self.activate_new_rays(N = min(self.NrayBuff, self.global_rays.nrays))
 
         print("step\tnactive\t\tnfinished\tntotal")
@@ -602,12 +623,12 @@ class Raytracer_AMR_Base:
 
     def check_amr_level(self, active_index1D, active_amr_lrefine, index):
         """
-            Method to look through all rays in rayDF and find those whose position and current amr_lrefine does not match that of the grid
+            Method to look through all rays in rays and find those whose position and current amr_lrefine does not match that of the grid
             and sets the correct amr_lrefine and next_index1D
         """
 
 
-        # the indexes in the active_rayDF which corresponds to rays that has entered a different amr_lrefine
+        # the indexes in the active_rays which corresponds to rays that has entered a different amr_lrefine
         lref_incorrect = cupy.full(active_index1D.shape, True, dtype = cupy.bool8)
 
         #set all rays with nonsensical amr levels to the minimum
@@ -768,17 +789,16 @@ class Raytracer_AMR_Base:
         self.buff_pathlength = cupy.zeros((self.NrayBuff, self.NcellBuff), dtype=dtype_dict["buff_pathlength"])
         self.buff_amr_lrefine = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_amr_lrefine"])
         self.buff_ray_area = cupy.full((self.NrayBuff, self.NcellBuff), -1, dtype=dtype_dict["buff_ray_area"])
-        self.ray_processor.alloc_buffer()
         pass
 
     def store_in_buffer(self):
-        self.buff_pathlength [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("pathlength")
-        self.buff_ray_area   [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("ray_area"  )
-        self.buff_cell_index [self.active_rays.get_field("active_rayDF_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("cell_index")
+        self.buff_pathlength [self.active_rays.get_field("active_rays_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("pathlength")
+        self.buff_ray_area   [self.active_rays.get_field("active_rays_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("ray_area"  )
+        self.buff_cell_index [self.active_rays.get_field("active_rays_to_buffer_map"), self.active_rays.get_field("buffer_current_step")] = self.active_rays.get_field("cell_index")
         self.ray_processor.store_in_buffer()
         
         self.active_rays.field_add("buffer_current_step", 1)
-        # Use a mask, and explicitly set mask dtype. This prevents creating a mask value with the default cudf/cupy dtypes, and saving them to arrays with different dtypes.
+        # Use a mask, and explicitly set mask dtype. This prevents creating a mask value with the default cus/cupy dtypes, and saving them to arrays with different dtypes.
         # Currently this just throws warnings if they are different dtypes, but this behavior could be subject to change which may produce errors or worse...
         
         filled_buffer = self.active_rays.get_field("buffer_current_step") == ray_dtypes["buffer_current_step"](self.NcellBuff)
@@ -787,7 +807,7 @@ class Raytracer_AMR_Base:
 
 
     def clean_buff(self, active_rays_indexes_todump, full = False):
-        indexes_to_clean = self.active_rays.get_field("active_rayDF_to_buffer_map", index = active_rays_indexes_todump, full = full)
+        indexes_to_clean = self.active_rays.get_field("active_rays_to_buffer_map", index = active_rays_indexes_todump, full = full)
         # clean the buffers 
         self.buff_pathlength[indexes_to_clean, :]  = ray_defaults["pathlength"]
         self.buff_amr_lrefine[indexes_to_clean, :] = ray_defaults["amr_lrefine"]

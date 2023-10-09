@@ -6,25 +6,31 @@ import sys
 
 from gasspy.raystructures.global_rays import global_ray_class, base_ray_class
 from gasspy.settings.defaults import ray_dtypes, ray_defaults
-from gasspy.io.gasspy_io import check_parameter_in_config
+from gasspy.io.gasspy_io import check_parameter_in_config, read_yaml
 
 class observer_healpix_class:
-    def __init__(self, gasspy_config, ray_lrefine_min = None, ray_lrefine_max = None, ipix_lmin = None, min_pix_lmin = None, max_pix_lmin = None, ignore_within_distance = None, **kwargs):
+    def __init__(self, gasspy_config, 
+                 ray_lrefine_min = None, 
+                 ray_lrefine_max = None, 
+                 ipix_lmin = None, 
+                 min_pix_lmin = None, 
+                 max_pix_lmin = None, 
+                 ignore_within_distance = None, 
+                 pov_center = None,
+                 observer_center = None):
        
-        self.gasspy_config = gasspy_config
+        if isinstance(gasspy_config, str):
+            self.gasspy_config = read_yaml(gasspy_config)
+        else:
+            self.gasspy_config = gasspy_config
         
         
-        self.ignore_within_distance = check_parameter_in_config(gasspy_config, "ignore_within_distance", ignore_within_distance, 0)
+        self.ignore_within_distance = check_parameter_in_config(self.gasspy_config, "ignore_within_distance", ignore_within_distance, 0)
     
         # Minimum (eg. initial) refinement level of the rays/healpix 
         # If not minimum refinement level is not defined, either in call or in yaml file, 
         # we take it as the lowest possible (eg, 1)
-        if ray_lrefine_min is not None:
-            self.ray_lrefine_min = ray_lrefine_min
-        elif "ray_lrefine_min" in gasspy_config.keys():
-            self.ray_lrefine_min = gasspy_config["ray_lrefine_min"]
-        else:
-            self.ray_lrefine_min = 1
+        self.ray_lrefine_min = check_parameter_in_config(self.gasspy_config, "ray_lrefine_min", ray_lrefine_min, 1)
 
         # Get the the number of sides for the mininmum level of refinement
         self.Nsides_min = 2**(self.ray_lrefine_min - 1)
@@ -32,12 +38,7 @@ class observer_healpix_class:
         # Maximum refinement level of the rays/healpix 
         # If not maximum refinement level is not defined,
         # we default to a reasonably large number
-        if ray_lrefine_max is not None:
-            self.ray_lrefine_max = ray_lrefine_max
-        elif "ray_lrefine_max" in gasspy_config:
-            self.ray_lrefine_max = gasspy_config["ray_lrefine_max"]
-        else:
-            self.ray_lrefine_max = ray_defaults["ray_lrefine_max"]
+        self.ray_lrefine_max = check_parameter_in_config(self.gasspy_config, "ray_lrefine_max", ray_lrefine_max, ray_defaults["ray_lrefine_max"])
 
         # Use the maximum and minimum level of refinement and construct an array containing 
         # the pixel area corresponding to each level
@@ -91,25 +92,15 @@ class observer_healpix_class:
                             )
 
 
+
         #  pov_center: the point at which long = lat = 0 from the viewpoint of the observer. Default to box center 
-        if "pov_center" in kwargs:
-            self.pov_center = np.array(kwargs["pov_center"])
-        elif "pov_center" in gasspy_config:
-            self.pov_center = np.array(gasspy_config["pov_center"])
-        else:
-            self.pov_center = np.array(gasspy_config["origin"])
+        default = check_parameter_in_config(self.gasspy_config, "origin", None, np.array([0.5,0.5,0.5]))
+        self.pov_center = check_parameter_in_config(self.gasspy_config, "pov_center", pov_center, default)
 
         # observer center is the position of the observer center in the coordinate frame of the simulation
-        if "observer_center" in kwargs:
-            self.observer_center = np.array(kwargs["observer_center"])
-        elif "pov_center" in gasspy_config:
-            self.observer_center = np.array(gasspy_config["observer_center"])
-        else:
-            # default to negative z axis
-            self.observer_center = np.array(gasspy_config["origin"])
-            self.observer_center[2] = 0
+        default[2] = 0
+        self.observer_center = check_parameter_in_config(self.gasspy_config, "pov_center", observer_center, default)
         
-        self.__dict__.update(kwargs)
 
         # We now have a positon for the observer and a center point, we need to figure out the rotation matrix
         # such that long = lat = 0 at self.pov_center in the reference frame of the observer
