@@ -240,7 +240,6 @@ if __name__ == "__main__":
     import importlib.util
     import argparse
     
-    from gasspy.shared_utils.simulation_data_lib import simulation_data_class
     from gasspy.raytracing.observers import observer_plane_class
     from gasspy.io import gasspy_io
 
