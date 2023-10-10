@@ -1,4 +1,41 @@
 ##########################
+# Script parameters
+##########################
+
+# List off all snapshots to include (for RT only the first one is used)
+# Each snapshot entry MUST include the following two parameters
+# simdir : Path to the directory of the simulation
+# gasspy_subdir : Path to a directory where gasspy can put snapshot specific data
+
+# The rest can be filled with optional arguments as required by the Simulation_reader class for the specific simulation
+# in this case it includes an output number, and an option to save variables needed for raytracing but not natively included in the snapshot
+
+snapshots:
+    snapshot1:
+        simdir: "/path/to/simdir"
+        gasspy_subdir: "/path/to/simdir/GASSPY"
+        save_raytrace_vars : True
+        output_number : 59
+
+# The generic structure would then be
+#
+# snapshot:
+#     snapshot1:
+#        simdir: "/path/to/simdir1"
+#        gasspy_subdir: "/path/to/simdir1/GASSPY"
+#        arg1 : "whatever1"
+#        arg2 : "whatever2"
+#     snapshot2:
+#        simdir: "/path/to/simdir2"
+#        gasspy_subdir: "/path/to/simdir2/GASSPY"
+#        arg1 : "whatever1"
+#        arg2 : "whatever2"
+
+
+# Path to Simulation_reader directory
+simulation_reader_dir : "/path/to/simulation_reader_dir/"
+
+##########################
 # Simulation parameters
 ##########################
 
@@ -121,15 +158,11 @@ convergence_criterions :
 
 
 
-# Fields for which we want to interpolate
-interpolate_fields: 
-  - "number_density"
-  - "temperature"
-
 # Save line emission and line opacity seperatly for these lines
 line_labels : 
     -   "H  1 6562.80A"
     -   "H  1 4861.32A" 
+
 # Only save lines (dont know why, but hey)
 lines_only : False
 
@@ -142,6 +175,53 @@ est_model_time : 60
 # Maximum time we want to run in seconds, if this is reached, the code should exit safely and allow for restart
 max_walltime : 1.0e+99
 
+# NOTE: THESE ARE OLD PARAMETERS
+# The old version of the database builder (without refinement) still used an old style of defining fields. 
+# If someone ever touches this code again and wants to use this database builder. Send me an email at: loke.lonnblad@gmail.com and I will standardize this
+
+# Cuttof limit for fluxes in log(n/cm^2), below which we consider them to be zero
+# One for each radiation bin
+log10_flux_low_limit:
+  FUV   : -5.0
+  HII   : -5.0
+  HeII  : -6.0
+  HeIII : -7.0
+
+# Compression ratios for each of the fields in the models
+compression_ratio:
+  # number density
+  dens :
+    - 1   # Decimal precision
+    - 2.0 # compression ratio
+  
+  # temperature
+  temp :
+    - 1
+    - 5.0
+  
+  # cellsize
+  dx:
+    - 3
+    - 1.0
+
+  # Fluxes in their separate sub dictionary
+  fluxes:
+    FUV:
+      - 1
+      - 5.0
+    HII:
+      - 1
+      - 5.0
+    HeII:
+      - 1
+      - 5.0
+    HeIII:
+      - 1
+      - 5.0  
+
+
+
+
 ############################
 # Cloudy parameters
 ############################    
@@ -151,26 +231,28 @@ cloudy_ini : "/path/to/GASSPY/gasspy/physics/sourcefunction_database/cloudy/init
 # Path to cloudy directory
 cloudy_path : "/path/to/cloudy/"
 
-############################################################
-#
-# Raytracing and radiative transfer
-#
-############################################################
 
-# Path where gasspy will put output spectra and projection files
-# Should be specific to simulation snapshot/suite
-gasspy_subdir : /path/to/gasspy_subdir
+##########################
+# Raytracing and Radiative transfer combined variables
+##########################
+# Target memory utilization. NOTE: code will use more memory than this, so try to set to allow for a few GBs worth of headroom
+maxMemoryGPU_GB : 10
+maxMemoryCPU_GB : 32
 
-# Amount of GPU memory in GB we should maximally allocate
-GPU_memory : 8
-
-# Amount of CPU memory in GB we should maximally allocate
-CPU_memory : 32
-
+# If set to False, will try to put most things on GPU. Only viable for large memory GPU's and small sims
+liteVRAM : True
 
 ##########################
 # Raytracer  parameters
 ##########################
+
+# Number of ray-cell intersection to store in buffers/dumps (preferably a power of 2)
+NcellBuff : 32
+
+# Should we not split the rays (default False)
+no_ray_splitting : False
+
+
 
 # Position of the observer in units of box size
 observer_center:
@@ -210,6 +292,9 @@ Nyp : 512
 # Assumed distance to the plane. Only used in calculating solid angles, not in the actual tracing
 external_distance : 1.0e+13
 
+# in case that we want to save the traced rays, give an option to add a prefix to the file (default None)
+trace_prefix : "my_trace"
+
 ###
 # Healpix observer 
 ###
@@ -239,6 +324,8 @@ doppler_shift : False
 # Approximate size ratio between neighbouring photon bins. Used to estimate memory usage when doppler shifting (default 10) 
 doppler_shift_est_bin_ratio : 10
 
+# Optional prefix for the output spectra file
+spec_prefix : "my_spec"
 
 
 # Energy limits of the spectra
@@ -294,6 +381,9 @@ doppler_shift_est_bin_ratio : 10
 ###
 # Pre-processing parameters: Parameters used what adding in new flux bins to each cell
 ###
+# name of the field to generate
+field_name : new_field
+
 # path to file that defines where the sources are and how much they emit
 sourcetable_path : "path/to/sourcetable.npy"
 # Rotate the healpix observer to better converge
