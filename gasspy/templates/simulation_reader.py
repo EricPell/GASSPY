@@ -32,7 +32,7 @@ class Simulation_Reader():
         "number_density": "number_density",
         "temperature": "T",
         "amr_lrefine": "amrlevel",
-        "coordinate_x": "x", 
+        "coordinate_x": "x",
         "coordinate_y": "y",
         "coordinate_z": "z",
         "veloctiy_x": "vx",
@@ -50,24 +50,24 @@ class Simulation_Reader():
     # List of all fields natively contained by the simlation or calculated in this class
     #
     contained_fields = ["rho", "number_density", "T", "P", "amrlevel", "x", "y", "z", "vx", "vy", "vz", "NpFUV", "NpHII", "NpHeII", "NpHeIII", "Bx", "By", "Bz", "dx"]
-    def __init__(self, simdir, gasspy_subdir, arg_dict):
+    def __init__(self, gasspy_config, snapshot):
         """
             arguments:
                 arg_dict: dictionary (a dictionary of arguments needed by the reader to load the simulation data)
         """
 
-        self.simdir = simdir
-        self.gasspy_subdir = gasspy_subdir
-        assert "output_number" in arg_dict.keys(), "Error: No output number selected!"
-        self.output_number = int(arg_dict["output_number"])
-        if "save_raytrace_vars" in arg_dict.keys():
-            self.save_raytrace_vars = arg_dict["save_raytrace_vars"]
+        self.simdir = snapshot["simdir"]
+        self.gasspy_subdir = snapshot["gasspy_subdir"]
+        assert "output_number" in snapshot.keys(), "Error: No output number selected!"
+        self.output_number = int(snapshot["output_number"])
+        if "save_raytrace_vars" in snapshot.keys():
+            self.save_raytrace_vars = snapshot["save_raytrace_vars"]
         else:
             self.save_raytrace_vars = False
-        if self.save_raytrace_vars and not os.path.exists(self.gasspy_subdir+"/cell_data"):
+        if not os.path.exists(self.gasspy_subdir+"/cell_data"):
             os.makedirs(self.gasspy_subdir+"/cell_data/")
         self.__load_info_file__()
-        self.Ncells = len(self.get_field("rho")) 
+        self.Ncells = len(self.get_field("rho"))
         return
 
     ######
@@ -90,7 +90,7 @@ class Simulation_Reader():
         # Figure out if we either need to change name
         if field in self.gasspy_to_sim_label.keys():
             field = self.gasspy_to_sim_label[field]
-        
+
         if not field in self.contained_fields:
             return self.load_new_field(field)
 
@@ -105,6 +105,7 @@ class Simulation_Reader():
             return self.__get_fluxes__(field)
         elif field == "number_density":
             return self.get_number_density()
+
         else:
             fname = self.__get_filename__(field)
 
@@ -159,7 +160,7 @@ class Simulation_Reader():
         # In this case, we might want to save the derived variable.
         # We can implement a load, and create a file on first use
         # To follow convention, this should be put in gasspy_subdir/cell_data
-        neighbor_file = self.gasspy_subdir + "/cell_data/%05d_cell_neighbors.npy"%self.output_number 
+        neighbor_file = self.gasspy_subdir + "/cell_data/%05d_cell_neighbors.npy"%self.output_number
         if os.path.exists(neighbor_file) and self.save_raytrace_vars:
             return np.load(neighbor_file)
         cell_neighbors = np.zeros((self.Ncells, 24), dtype = int)
@@ -175,7 +176,7 @@ class Simulation_Reader():
         # Initialize per refinement level lists
         cell_index_lref = []
         index1D_lref = []
-        
+
         amr_lrefine_min = self.sim_info["minref"]
         amr_lrefine_max = self.sim_info["maxref"]
         for lref in range(amr_lrefine_min, amr_lrefine_max + 1):
@@ -184,7 +185,7 @@ class Simulation_Reader():
             # Add arrays sorted in index1D
             index1D_lref.append(index1D[at_lref][idx_sort].astype(int))
             cell_index_lref.append(cell_index[at_lref][idx_sort].astype(int))
-        
+
         # Loop over neighbor positions and find the corresponding cells
         idir = 0
         for ix in [-0.6, 0.6]:
@@ -206,11 +207,13 @@ class Simulation_Reader():
         if self.save_raytrace_vars:
             np.save(neighbor_file, cell_neighbors)
         return cell_neighbors
+    
 
-
-    def save_new_field(self, fieldname, data):
+    def save_new_field(self, fieldname, data, dtype = None):
+        if dtype is None:
+            dtype = data.dtype
         field_file = self.gasspy_subdir + "/cell_data/%05d_%s.npy"%(self.output_number, fieldname)
-        np.save(field_file, data)
+        np.save(field_file, data.astype(dtype))
         return
 
     def load_new_field(self, fieldname):
@@ -256,7 +259,7 @@ class Simulation_Reader():
             amrlevel = self.get_field("amrlevel").astype(int)
 
         dxs = self.sim_info["boxlen"]/2**(amrlevel)
-        
+
         return (xs/dxs).astype(int)*2**(amrlevel*2) + (ys/dxs).astype(int)*2**(amrlevel) + (zs/dxs).astype(int)
     def __get_velocity__(self):
         vx = self.get_field("vx")*1e5
@@ -264,9 +267,9 @@ class Simulation_Reader():
         vz = self.get_field("vz")*1e5
 
         return np.array([vx, vy, vz])
-    
+
     def __get_cell_index_from_pos__(self, xs, ys, zs, index1D_lref, cell_index_lref):
-        
+
         cell_index = np.full(xs.shape, -1, dtype = np.int64)
 
         ## Start by finding matching index1D
@@ -297,7 +300,7 @@ class Simulation_Reader():
             print(ys[missing]/self.sim_info["boxlen"])
             print(zs[missing]/self.sim_info["boxlen"])
             sys.exit(0)
-        
+
         ## Now find the correct cell_index
         for lref in range(amr_lrefine_min, amr_lrefine_max + 1):
             at_lref = np.where(amr_lrefine_to_find  == lref)[0]
@@ -305,14 +308,9 @@ class Simulation_Reader():
                 continue
             valid = np.where(sorted_in1d(index1D_to_find[at_lref], index1D_lref[lref - amr_lrefine_min], numlib = np))[0]
             cell_index[at_lref[valid]] = cell_index_lref[lref - amr_lrefine_min][np.searchsorted(index1D_lref[lref-amr_lrefine_min], index1D_to_find[at_lref[valid]])]
-
         # Catch any cells outside
-        outside = ((xs < 0) | (xs > self.sim_info["boxlen"])| 
+        outside = ((xs < 0) | (xs > self.sim_info["boxlen"])|
                    (ys < 0) | (ys > self.sim_info["boxlen"])|
                    (zs < 0) | (zs > self.sim_info["boxlen"]))
         cell_index[outside] = -1
         return cell_index
-       
-
-
-
