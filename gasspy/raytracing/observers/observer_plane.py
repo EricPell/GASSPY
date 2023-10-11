@@ -8,13 +8,13 @@ from gasspy.raystructures.global_rays import global_ray_class, base_ray_class
 from gasspy.io.gasspy_io import check_parameter_in_config, read_yaml
 
 class observer_plane_class:
-    def __init__(self, gasspy_config, 
-                 Nxp : int = None, 
-                 Nyp : int = None,                 
+    def __init__(self, gasspy_config,                 
                 detector_size_x : float = None, 
                 detector_size_y : float = None, 
                 pov_center = None, 
                 observer_center = None,
+                ray_lrefine_min : int = None,
+                ray_lrefine_max : int = None,
                 external_distance: float = None, 
                 ignore_within_distance :float = None) -> None:
         
@@ -25,8 +25,11 @@ class observer_plane_class:
             self.gasspy_config = gasspy_config
         
         # if not defined assume that the simulation data is cubic, and take the plot grid to use the same dimensions
-        self.Nxp = check_parameter_in_config(self.gasspy_config, "Nxp", Nxp, 2**gasspy_config["ray_lrefine_min"])
-        self.Nyp = check_parameter_in_config(self.gasspy_config, "Nyp", Nyp, 2**gasspy_config["ray_lrefine_min"])
+
+        self.ray_lrefine_min = check_parameter_in_config(self.gasspy_config, "ray_lrefine_min", ray_lrefine_min, 5)
+        self.ray_lrefine_max = check_parameter_in_config(self.gasspy_config, "ray_lrefine_min", ray_lrefine_min, 10)
+
+        self.Nxp = 2**self.ray_lrefine_min
 
         self.detector_size_x = check_parameter_in_config(self.gasspy_config, "detector_size_x", detector_size_x, 1) 
         self.detector_size_y = check_parameter_in_config(self.gasspy_config, "detector_size_y", detector_size_y, 1) 
@@ -34,9 +37,8 @@ class observer_plane_class:
         self.external_distance = check_parameter_in_config(self.gasspy_config, "external_distance", external_distance, 0)
         self.ignore_within_distance = check_parameter_in_config(self.gasspy_config, "ignore_within_distance", ignore_within_distance, 0)
 
-        # This is immutable. Never shall xps and yps change. They are pixel indicies for a detector
         self.xps = (cupy.arange(0, self.Nxp) + 0.5)*self.detector_size_x/self.Nxp
-        self.yps = (cupy.arange(0, self.Nyp) + 0.5)*self.detector_size_y/self.Nyp
+        self.yps = (cupy.arange(0, self.Nxp) + 0.5)*self.detector_size_y/self.Nxp
         
         # Define the entire mesh of points 
         self.xp, self.yp = cupy.meshgrid(self.xps, self.yps)
@@ -46,7 +48,7 @@ class observer_plane_class:
         # Total number of original rays
         self.Nrays = len(self.xp)
         # Refinement level of the initial rays
-        self.ray_lrefine = int(cupy.log2(self.Nxp))
+        self.ray_lrefine = self.ray_lrefine_min
 
         
         self.ray_area = self.detector_size_y*self.detector_size_x*4**(-cupy.arange(ray_defaults["ray_lrefine_min"], ray_defaults["ray_lrefine_max"]).astype(ray_dtypes["xi"]))
