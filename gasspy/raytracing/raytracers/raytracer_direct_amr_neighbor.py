@@ -38,15 +38,15 @@ class Raytracer_AMR_neighbor(Raytracer_AMR_Base):
     def __kernel_specific_set_new_sim_data__(self, sim_reader, gasspy_config):
         if self.liteVRAM:
             self.cell_neighbors = sim_reader.get_cell_neighbors()
-            self.cell_center_x = sim_reader.get_field("x")/self.sim_unit_length
-            self.cell_center_y = sim_reader.get_field("y")/self.sim_unit_length
-            self.cell_center_z = sim_reader.get_field("z")/self.sim_unit_length
+            self.cell_center_x = sim_reader.get_field("coordinate_x")/self.sim_unit_length
+            self.cell_center_y = sim_reader.get_field("coordinate_y")/self.sim_unit_length
+            self.cell_center_z = sim_reader.get_field("coordinate_z")/self.sim_unit_length
 
         else:
             self.cell_neighbors = cupy.array(sim_reader.get_cell_neighbors())
-            self.cell_center_x = cupy.array(sim_reader.get_field("x"))/self.sim_unit_length
-            self.cell_center_y = cupy.array(sim_reader.get_field("y"))/self.sim_unit_length
-            self.cell_center_z = cupy.array(sim_reader.get_field("z"))/self.sim_unit_length
+            self.cell_center_x = cupy.array(sim_reader.get_field("coordinate_x"))/self.sim_unit_length
+            self.cell_center_y = cupy.array(sim_reader.get_field("coordinate_y"))/self.sim_unit_length
+            self.cell_center_z = cupy.array(sim_reader.get_field("coordinate_z"))/self.sim_unit_length
         return
 
     def verify_cell_position(self, indexes):
