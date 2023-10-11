@@ -56,7 +56,7 @@ class observer_healpix_class:
             # Starting ipix
             if min_pix_lmin is not None:
                 self.min_pix_lmin = min_pix_lmin
-            elif "min_pix_lim" in gasspy_config:
+            elif "min_pix_lmin" in gasspy_config:
                 self.min_pix_lmin = gasspy_config["min_pix_lmin"]
             else:
                 self.min_pix_lmin = 0
@@ -64,7 +64,7 @@ class observer_healpix_class:
             # Final ipix
             if max_pix_lmin is not None:
                 self.max_pix_lmin = max_pix_lmin
-            elif "max_pix_lim" in gasspy_config:
+            elif "max_pix_lmin" in gasspy_config:
                 self.max_pix_lmin = gasspy_config["max_pix_lmin"]
             else:
                 self.max_pix_lmin = hpix.nside2npix(self.Nsides_min) - 1
