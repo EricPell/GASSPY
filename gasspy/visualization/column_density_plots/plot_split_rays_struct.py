@@ -81,8 +81,8 @@ sim_reader = reader_mod.Simulation_Reader(args.simdir, args.gasspydir, gasspy_co
 
 
 # Load denisty from the simulation
-cell_dens = cupy.array(sim_reader.get_field("dens"), dtype = cupy.float64)/mH
-cell_HIIdensity = cupy.array(sim_reader.get_field("dens"), dtype = cupy.float64)*cupy.array(sim_reader.get_field("xHII"), dtype = cupy.float64)/mH
+cell_dens = cupy.array(sim_reader.get_field("number_density"), dtype = cupy.float64)/mH
+cell_HIIdensity = cupy.array(sim_reader.get_field("number_density"), dtype = cupy.float64)*cupy.array(sim_reader.get_field("xHII"), dtype = cupy.float64)/mH
 
 
 
