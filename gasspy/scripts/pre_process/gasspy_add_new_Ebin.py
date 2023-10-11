@@ -139,11 +139,11 @@ if profiling:
 
 sim_reader.save_new_field(field_name, cell_fluxes)
 
-dxs   = sim_reader.get_field("dx") 
+dxs   = sim_reader.get_field("cell_size") 
 lrefs = sim_reader.get_field("amr_lrefine") 
-xs    = sim_reader.get_field("x") 
-ys    = sim_reader.get_field("y") 
-zs    = sim_reader.get_field("z") 
+xs    = sim_reader.get_field("coordinate_x") 
+ys    = sim_reader.get_field("coordinate_y") 
+zs    = sim_reader.get_field("coordinate_z") 
 index1D = sim_reader.get_index1D()
 cell_index = np.arange(len(xs))
 """

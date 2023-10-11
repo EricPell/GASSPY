@@ -118,10 +118,10 @@ class Flux_calculator(Ray_processor_base):
     def finalize(self):
         if self.liteVRAM:
             self.photon_counts = np.maximum(self.photon_counts, 1e-20)
-            self.cell_fluxes = 10**(np.log10(self.photon_counts[:-1]*self.clght) - 3*np.log10(self.sim_reader.get_field("dx")))
+            self.cell_fluxes = 10**(np.log10(self.photon_counts[:-1]*self.clght) - 3*np.log10(self.sim_reader.get_field("cell_size")))
         else:
             self.photon_counts = cupy.maximum(self.photon_counts, 1e-20)
-            self.cell_fluxes = 10**(np.log10(self.photon_counts[:-1].get()*self.clght) - 3*np.log10(self.sim_reader.get_field("dx")))
+            self.cell_fluxes = 10**(np.log10(self.photon_counts[:-1].get()*self.clght) - 3*np.log10(self.sim_reader.get_field("cell_size")))
     
         del self.photon_counts
         pass
