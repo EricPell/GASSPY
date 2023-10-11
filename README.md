@@ -1,61 +1,42 @@
-README.txt - Readme file containing information on directory contents
-as well as running the code(s)
+# Overview
+GASSPY (GPU Accelerated Spectra Synthesis in PYthon) is a package to post-process hydrodynamical simulations through the photoionization code Cloudy (https://gitlab.nublado.org/cloudy/cloudy/-/wikis/home) to get emission spectra from a cell by cell level. The code takes two steps:
+- Database bulding: Takes the physical quantities such as density, temperature and radiation fluxes for each cell and runs a set of Cloudy models to cover them. We attempt to not run one model for each cell, but rather group the cells in phase space and run a single model per group. 
+- Radiative transfer: Takes the database generated in the previous step and performs a raytracing and radiative transfer step to generate a set of rays with position and spectra information that can then be used as input data to emulate an observation.
 
-contributors.txt - List of current and past contributors: 
-    Eric Pellegrini - current - primary author
-    Thomas Peters - current
-    Daniel Rahner - current
+NOTE: GASSPY is not complete and therefore not ready for usage. Its only shown here as a demonstration and should not be used for scientific studies as of writing.
 
-defaults.py - sets default geometric and temperature mask. This is
-overridden if specified in the local config file saved with the flash
-simulation.
 
-Step 1) myconfig-example.py - Copy myconfig-example.py to runtime directory and edit there.
-Configure parameters.  Local
-configuration file which overwrites defaults values in
-"defaults.py". Also sets the name of the flash-plot-file to use as an
-input by "get_flux.py"
 
-Step 2) get_den_temp_flux.py - Extract density, temperature and 
+# List of current and past contributors
+    Loke Lönnblad Ohlin - Current - Primary developer
+    Eric Pellegrini - Past 
+    Thomas Peters - Past
+    Daniel Rahner - Past
 
-Step 3) make-cloudy-input.py - create cloudy input files.
+# Installation 
+In directory above the repository install via pip using:
 
-Step 4) runall-cloudy.pl - My homebrewee script to farm out CLOUDY
-models to multiple CPUs/cores.
+pip install gasspy
+## Required packages
+    "pybind11"
+    "numpy"
+    "matplotlib"
+    "cupy"
+    "torch"
+    "pandas"
+    "astropy"
+    "mpi4py"
+    "psutil"
+    "h5py"
 
-Step 5) combine-ems.pl - Combine all of the cloudy emissivity files into a
-single table. This output is used in get_flux.py
+CuPy, pytorch, mpi4py and pybind11 might require special installs. Make sure that you follow their
+own install documentation and don't rely on pip's automatic installer.
 
-FINAL NOTE: Files produced to reconstruct local emissivity of simulation:
-      1. 'silcc-combined-ems.tbl'
-      2. 'silcc.unique_parameters'
-      3. 'SILCC_hdf5_plt_cnt_0403' # flash file
+- Cupy: https://docs.cupy.dev/en/stable/install.html#faq
+- pytorch : https://pytorch.org/
+- mpi4py : https://mpi4py.readthedocs.io/en/stable/install.html
+- pybind11 : https://pybind11.readthedocs.io/en/stable/installing.html
 
-Example 1) get_em.py - Match Flash cell{x,y,z} with its emssivities.
 
-Example 2) get_flux.py - Do a simple projection along a cardinal axis to
-create maps of line fluxes. This routine works by calculating the
-total luminosity in a column within an evenly spaced grid of dx-dy,
-and dividing by dx*dy. Output: unique physical parameters needed to
-generate CLOUDY grid in "make-cloudy-input.py".
-
-The following files are support files and are indirectly called by the
-programs above. A user should usually not modify these data files.
-
-silcc_flash_postprocess.ini - CLOUDY init file used to set global 
-commands for post processing a SILCC simulation. This no longer sets nend=1
-
-cont_shape.py - Replaces individual flxx_shape.py files:
-    flge_shape.py - Shape of non-ionizing, photoelectric heating light. (units)
-    fluv_shape.py - Shape of non-ionizing, UV light responsible for H2 destruction. (units)
-    flih_shape.py - Shape of H-ionizing radiation from 13.6 to 15.2eV (units)
-    fli2_shape.py - Shape of ionizing spectrum above 15.2eV (units)
-
-get_continuum.py:
-
-get_line_profiles.py:
-
-TO DO:
-1. Create test case of recreating an existing cloudy model by zone by zone. 
-2. Re use existing models. If nothing else, just read in existing database, check for existence of model, if not, append.
-2.1 Resorting is always an option later if it's necessary.
+# Usage 
+Example scripts of usage can be found in gasspy/scripts/ or in the Wiki or docs. All configuration is done using yaml files read at runtime. The main configuration (called gasspy_config in the code) must be provided. See GASSPY/gasspy/templates/gasspy_config_all.yaml for all the options with descriptions  

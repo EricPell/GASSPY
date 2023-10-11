@@ -1,0 +1,83 @@
+# Preliminaries
+What you need to run run gasspy is the following:
+- A snapshot from an AMR/uniform grid hydrodynamical simulation containing the density, temperature, radiation fluxes, cell refinement and sizes for each cell
+- A simulation reader so that we know how to access these fields
+- A Cloudy installation (see https://gitlab.nublado.org/cloudy/cloudy/-/wikis/home)
+- A yaml file containing the definitions of any radiation fields that are included in the cloudy modelling.
+
+## Simulation_reader
+In the future we would like to add readers for standard astrophysical codes, but for now this has to provided by the user for their specific simulation.
+
+An example template can be found in GASSPY/gasspy/templates/simulation_reader.py. When running the code you must point to a directory that contains a file called simulation_reader.py, which in turn contains a Class called Simulation_Reader. The class must be able to take at least two positional arguments in its \_\_init\_\_
+
+    class Simulation_Reader:
+        def __init__(self, gasspy_config, snapshot):
+            ...
+
+where gasspy_config is the overall configuration dictionary, and snapshot is a dictionary of configurational parameters specific for the snapshot. snapshot can include any parameters that the snapshot needs, but must include the following two parameters:
+- gasspy_subdir: Directory where GASSPY will put files specific to that snapshot (eg. output spectra and mappings from cells to cloudy database)
+- simdir: Directory of the simulation snapshot.
+
+Furthermore, Simulation_Reader must contain the following functions:
+- get_field: a general function to load and retrieve a given field as a one dimensional numpy array. It should take as and argument a string that can be matched to a field of simulation. Syntax should be: 
+    
+        def get_field(self, field):
+            ...
+    
+    The following options for the variable field must be available:
+    - "coordinate_x" : the x coordinate of the cell in $\mathrm{cm}$
+    - "coordinate_y" : the y coordinate of the cell in $\mathrm{cm}$
+    - "coordinate_z" : the z coordinate of the cell in $\mathrm{cm}$
+    - "cell_size" : the size of the cells in $\mathrm{cm}$
+    - "amr_lrefine" : the refinement level of the cells.
+    - "number_density" : the number density of hydrogen of the cells in $\mathrm{cm}^{-3}$
+    - "density" : the mass density of the cells in $\mathrm{g}\,\mathrm{cm}^{-3}$
+    - "temperature" : the temperature of the cells in $\mathrm{K}$
+
+    Additionally any extra fields used in the generation of the database (such as radiation fields) must be accesible in this way (naming is however set by the user). Additionally, when doppler shift is wanted the following fields are required
+    - "velocity_x" : the x coordinate of the cell in $\mathrm{cm}\,\mathrm{s}^{-1}$
+    - "velocity_y" : the y coordinate of the cell in $\mathrm{cm}\,\mathrm{s}^{-1}$
+    - "velocity_z" : the z coordinate of the cell in $\mathrm{cm}\,\mathrm{s}^{-1}$   
+
+- save_new_field: a function to save a new field used that will be used by GASSPY at multiple stages. This includes mapping indexes from the cells to cloudy models and any extra radiation fields that are added. The syntax should be
+
+        def save_new_field(self, fieldname, data, dtype = None):
+            ...
+    where fieldname is the name of the field, data is the data of the field and dtype is the type of data (optional). These fields can be saved in their own folder of the gasspy_subdir for organization, but this is up to the user.
+
+- load_new_field: a function to load the new fields that GASSPY generates. Syntax should be:
+
+        def load_new_field(self, fieldname):
+            ...
+    
+    where fieldname is the string containing the name of the field.
+
+
+- get_index1D: A function to load a defining index for a cell at its given refinement level defined as $$(x/\Delta x)2^{2l_{ref}} + (y/\Delta y)2^{l_{ref}} + (z/\Delta z)$$ where $x$ $\Delta x$ and $l_{ref}$ are the x coordinate, cell size in x and the amr refinement level respectively, and similar for $y$ and $z$. The index1D should be returned as a numpy array. Syntax should be
+
+        def get_index1D(self):
+            ...
+
+- get_cell_neighbors: A function to get the list of neighbording cells for each cell. Assuming AMR with refinement levels only differing by two between neighboring cells this should be at most 24 (4 x number of sides) neighbors, so for each cell we want 24 entries, possibly with duplicates if all four quadrants of a face has the same neighbor.  The list should be returned as a numpy array of shape (number of cells, number of face quadrants). Syntax should be
+
+        def get_cell_neighbors(self):
+            ...
+
+    In the future the get_index1D and get_cell_neighbors functions should be offloaded to the raytracing classes and kept internal as long as we work only with AMR.
+
+The rest of the class can be constructed however the user desires for loading the snapshot. For memory purposes it is usefull if none of the fields are stored in memory and only loaded when GASSPY ask for them
+
+
+## radiation field definition yaml
+We need some information about what the radiation fields of the simulation contains. This is given as a yaml file that can be pointed to and read. The syntax of the yaml file should be of the form
+
+    field1:
+        Emax: 13.59844
+        Emin: 0.1
+        shape: field1.sed
+    field2:
+        Emax: 100.0
+        Emin: 13.59844
+        shape: field2.sed
+    ...
+where field1/2 are the names of the fields (used internally in GASSPY as strings), Emin and Emax the photon energy limits of the field in $\mathrm{eV}$ and shape should be pointing to a file containing the shape of the field such that it can be readable by Cloudy (see Cloudy's hazy1.pdf documentation at 6.11.1 SED file format).
